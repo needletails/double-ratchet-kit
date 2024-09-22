@@ -1,0 +1,118 @@
+//
+//  SessionUser.swift
+//  needletail-crypto
+//
+//  Created by Cole M on 9/13/24.
+//
+import Foundation
+import Crypto
+import BSON
+import NeedleTailHelpers
+import NeedleTailCrypto
+
+/// This model represents a message and provides an interface for working with encrypted data.
+/// The public interface is for creating local models to be saved to the database as encrypted data.
+public final class SessionIdentityModel: SessionModel, @unchecked Sendable {
+    public let id: UUID
+    public var data: Data
+    
+    
+    enum CodingKeys: String, CodingKey, Codable, Sendable {
+        case id = "a"
+        case data = "b"
+    }
+    
+    /// SymmetricKey can be updated.
+    private var symmetricKey: SymmetricKey?
+    
+    /// Asynchronously retrieves the decrypted properties, if available.
+    public var props: UnwrappedProps? {
+        get async {
+            do {
+                guard let symmetricKey = symmetricKey else { return nil }
+                return try await setProps(symmetricKey: symmetricKey)
+            } catch {
+                //TODO: Handle error appropriately (e.g., log it)
+                return nil
+            }
+        }
+    }
+    
+    /// Struct representing the unwrapped properties of the message.
+    public struct UnwrappedProps: Codable & Sendable {
+        public let secretName: String
+        public let deviceIdentity: UUID
+        public let senderIdentity: Int
+        public let publicKeyRepesentable: Data
+        public let publicSigningRepresentable: Data
+        public var state: RatchetState?
+        public let deviceName: String
+        public var serverTrusted: Bool?
+        public var previousRekey: Date?
+        
+        public init(
+            secretName: String,
+            deviceIdentity: UUID,
+            senderIdentity: Int,
+            publicKeyRepesentable: Data,
+            publicSigningRepresentable: Data,
+            state: RatchetState? = nil,
+            deviceName: String,
+            serverTrusted: Bool? = nil,
+            previousRekey: Date? = nil
+        ) {
+            self.secretName = secretName
+            self.deviceIdentity = deviceIdentity
+            self.senderIdentity = senderIdentity
+            self.publicKeyRepesentable = publicKeyRepesentable
+            self.publicSigningRepresentable = publicSigningRepresentable
+            self.state = state
+            self.deviceName = deviceName
+            self.serverTrusted = serverTrusted
+            self.previousRekey = previousRekey
+        }
+    }
+    
+    public init(
+        props: UnwrappedProps,
+        symmetricKey: SymmetricKey
+    ) throws {
+        self.id = UUID()
+        self.symmetricKey = symmetricKey
+        let crypto = NeedleTailCrypto()
+        let data = try BSONEncoder().encodeData(props)
+        guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
+            throw CryptoError.encryptionFailed
+        }
+        self.data = encryptedData
+    }
+    
+    /// Asynchronously sets the properties of the model using the provided symmetric key.
+    /// - Parameter symmetricKey: The symmetric key used for decryption.
+    /// - Returns: The decrypted properties.
+    /// - Throws: An error if decryption fails.
+    public func setProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
+        let crypto = NeedleTailCrypto()
+        guard let decrypted = try crypto.decrypt(data: self.data, symmetricKey: symmetricKey) else {
+            throw CryptoError.decryptionError
+        }
+        return try BSONDecoder().decodeData(UnwrappedProps.self, from: decrypted)
+    }
+    
+    /// Asynchronously updates the properties of the model.
+    /// - Parameters:
+    ///   - symmetricKey: The symmetric key used for encryption.
+    ///   - props: The new unwrapped properties to be set.
+    /// - Returns: The updated decrypted properties.
+    /// 
+    /// - Throws: An error if encryption fails.
+    public func updateProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws -> UnwrappedProps? {
+        let crypto = NeedleTailCrypto()
+        let data = try BSONEncoder().encodeData(props)
+        guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
+            throw CryptoError.encryptionFailed
+        }
+        self.data = encryptedData
+        return await self.props
+    }
+}
