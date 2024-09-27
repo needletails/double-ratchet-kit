@@ -12,7 +12,7 @@ import NeedleTailHelpers
 import NeedleTailCrypto
 
 /// Protocol defining the base model functionality.
-public protocol SessionModel: Codable, Sendable {
+public protocol SecureMessageProtocol: Codable, Sendable {
     associatedtype Props: Codable & Sendable
     
     /// Asynchronously sets the properties of the model using the provided symmetric key.
@@ -27,9 +27,47 @@ public protocol SessionModel: Codable, Sendable {
     func updateProps(symmetricKey: SymmetricKey, props: Props) async throws -> Props?
 }
 
+extension SecureMessageProtocol {
+    
+    public func deriveRecipient() async throws -> MessageRecipient {
+        switch self {
+        case let messageType as PrivateMessage:
+            guard let props = await messageType.props else {
+                throw DerivationError.invalidProps
+            }
+            return props.message.recipient
+            
+        case let messageType as Channel:
+            guard let props = await messageType.props else {
+                throw DerivationError.invalidProps
+            }
+            return props.recipient
+            
+        case let messageType as PersonalNote:
+            guard let props = await messageType.props else {
+                throw DerivationError.invalidProps
+            }
+            return props.recipient
+            
+        default:
+            throw DerivationError.unsupportedType
+        }
+    }
+    
+    
+    public func setDestructionTimer(_ timeInterval: TimeInterval?) async throws {
+        
+    }
+    
+    public func destructionTimer() async -> TimeInterval? {
+     nil
+    }
+    
+}
+
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
-public final class MessageModel: SessionModel, @unchecked Sendable {
+public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, Hashable {
     
     public let id: UUID
     public let communicationID: UUID
@@ -63,34 +101,11 @@ public final class MessageModel: SessionModel, @unchecked Sendable {
         }
     }
     
-    
-    /// An enumeration representing the delivery state of a message in a communication.
-    public enum DeliveryState: Codable, Sendable {
-        /// The message has been successfully delivered to the recipient.
-        case delivered
-        /// The message has been read by the recipient.
-        case read
-        /// The message has been received by the recipient's device but not yet read.
-        case received
-        /// The message is currently waiting to be delivered (e.g., due to network issues).
-        case waitingDelivery
-        /// The message has not been sent or is in an undefined state.
-        case none
-        /// The message has been blocked from being delivered (e.g., by the recipient's settings).
-        case blocked
-        /// The message failed to be delivered due to an error (e.g., network failure).
-        case failed(String)
-        /// The message is in the process of being sent but has not yet been delivered.
-        case sending
-        /// The message has been scheduled for delivery at a later time.
-        case scheduled(Date)
-    }
-
     /// Struct representing the unwrapped properties of the message.
     /// A struct representing the properties of a message in a communication, including its delivery state and timestamps.
-    public struct UnwrappedProps: Codable, Sendable, CommunicationSession {
+    public struct UnwrappedProps: Codable, Sendable, CommunicationProtocol {
         /// The base object for all Communication Types
-        public var base: CommunicationModel
+        public var base: BaseCommunication
         /// The date and time when the message was sent.
         public let sendDate: Date
         /// The date and time when the message was received.
@@ -124,7 +139,7 @@ public final class MessageModel: SessionModel, @unchecked Sendable {
         ///   - sendersSecretName: The sender's secret name.
         ///   - sendersIdentity: The unique identifier for the sender's identity.
         public init(
-            base: CommunicationModel,
+            base: BaseCommunication,
             sendDate: Date,
             receiveDate: Date? = nil,
             deliveryState: DeliveryState,
@@ -174,6 +189,21 @@ public final class MessageModel: SessionModel, @unchecked Sendable {
         self.data = encryptedData
     }
     
+    public init(
+        communicationID: UUID,
+        senderIdentity: Int,
+        sharedMessageIdentity: String,
+        sequenceId: Int,
+        data: Data
+    ) async throws {
+        self.id = UUID()
+        self.communicationID = communicationID
+        self.senderIdentity = senderIdentity
+        self.sharedMessageIdentity = sharedMessageIdentity
+        self.sequenceId = sequenceId
+        self.data = data
+    }
+    
     /// Asynchronously sets the properties of the model using the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
@@ -201,7 +231,38 @@ public final class MessageModel: SessionModel, @unchecked Sendable {
         self.data = encryptedData
         return await self.props
     }
+    
+    public static func == (lhs: PrivateMessage, rhs: PrivateMessage) -> Bool {
+        return lhs.id == rhs.id
+    }
+    
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
+
+/// An enumeration representing the delivery state of a message in a communication.
+public enum DeliveryState: Codable, Sendable {
+    /// The message has been successfully delivered to the recipient.
+    case delivered
+    /// The message has been read by the recipient.
+    case read
+    /// The message has been received by the recipient's device but not yet read.
+    case received
+    /// The message is currently waiting to be delivered (e.g., due to network issues).
+    case waitingDelivery
+    /// The message has not been sent or is in an undefined state.
+    case none
+    /// The message has been blocked from being delivered (e.g., by the recipient's settings).
+    case blocked
+    /// The message failed to be delivered due to an error (e.g., network failure).
+    case failed(String)
+    /// The message is in the process of being sent but has not yet been delivered.
+    case sending
+    /// The message has been scheduled for delivery at a later time.
+    case scheduled(Date)
+}
+
 
 /// Custom error type for encryption-related errors.
 public enum CryptoError: Error {
@@ -221,7 +282,7 @@ public enum PushNotificationType: Codable, Sendable {
 }
 
 /// An enumeration representing the different types of messages that can be sent or received.
-public enum MessageType: Codable, Sendable {
+public enum MessageType: String, Codable, Sendable {
     /// A text message containing plain text content.
     case text
     /// A binary message containing raw binary data.
@@ -252,9 +313,8 @@ public enum MessageRecipient: Codable, Sendable {
     case personalMessage
 }
 
-public enum MessageFlags: Codable, Sendable {
-    case friendshipStateRequest, deliveryStateChange, editMessage, none
-    
+public enum MessageFlags: Codable, Sendable, Equatable {
+    case friendshipStateRequest, deliveryStateChange, editMessage, requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, none
 }
 
 public struct CryptoMessage: Codable, Sendable {
@@ -265,7 +325,7 @@ public struct CryptoMessage: Codable, Sendable {
     public var pushType: PushNotificationType
     public var metadata: Document
     public let sentDate: Date
-    public let destructionDate: Date?
+    public let destructionTime: TimeInterval?
     public var updatedDate: Date?
     
     private enum CodingKeys: String, CodingKey, Codable, Sendable {
@@ -276,7 +336,7 @@ public struct CryptoMessage: Codable, Sendable {
         case pushType = "e"
         case metadata = "f"
         case sentDate = "g"
-        case destructionDate = "h"
+        case destructionTime = "h"
         case updatedDate = "i"
     }
     
@@ -288,7 +348,7 @@ public struct CryptoMessage: Codable, Sendable {
         pushType: PushNotificationType,
         metadata: Document,
         sentDate: Date,
-        destructionDate: Date?,
+        destructionTime: TimeInterval?,
         updatedDate: Date? = nil
     ) {
         self.messageType = messageType
@@ -298,7 +358,7 @@ public struct CryptoMessage: Codable, Sendable {
         self.pushType = pushType
         self.metadata = metadata
         self.sentDate = sentDate
-        self.destructionDate = destructionDate
+        self.destructionTime = destructionTime
         self.updatedDate = updatedDate
     }
 }

@@ -12,10 +12,9 @@ import NeedleTailCrypto
 
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
-public final class SessionIdentityModel: SessionModel, @unchecked Sendable {
-    public let id: UUID
+public final class SessionIdentity: SecureMessageProtocol, @unchecked Sendable {
+    public let id = UUID()
     public var data: Data
-    
     
     enum CodingKeys: String, CodingKey, Codable, Sendable {
         case id = "a"
@@ -77,7 +76,6 @@ public final class SessionIdentityModel: SessionModel, @unchecked Sendable {
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
     ) throws {
-        self.id = UUID()
         self.symmetricKey = symmetricKey
         let crypto = NeedleTailCrypto()
         let data = try BSONEncoder().encodeData(props)
@@ -85,6 +83,10 @@ public final class SessionIdentityModel: SessionModel, @unchecked Sendable {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
+    }
+    
+    public init(data: Data) {
+        self.data = data
     }
     
     /// Asynchronously sets the properties of the model using the provided symmetric key.

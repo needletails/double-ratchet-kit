@@ -301,7 +301,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     // Load cached device identities (to be implemented).
     private func loadDeviceIdentities(
-        deviceIdentity: SessionIdentityModel,
+        deviceIdentity: SessionIdentity,
         secretKey: SymmetricKey,
         messageType: MessageType
     ) async throws {
@@ -378,7 +378,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   2. Then we can call `ratchetEncrypt()`.
     ///   3. We must make sure each time we want to use the ratchet, we are in the proper state.
     public func senderInitialization(
-        deviceIdentity: SessionIdentityModel,
+        deviceIdentity: SessionIdentity,
         secretKey: SymmetricKey,
         recipientPublicKey: Curve25519PublicKey
     ) async throws {
@@ -414,7 +414,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   2. Each time the ratchet is used, the proper state must be maintained
     ///      to ensure secure encryption and decryption.
     public func recipientInitialization(
-        deviceIdentity: SessionIdentityModel,
+        deviceIdentity: SessionIdentity,
         secretKey: SymmetricKey,
         localPrivateKey: Curve25519PrivateKey,
         initialMessage: EncryptedMessage

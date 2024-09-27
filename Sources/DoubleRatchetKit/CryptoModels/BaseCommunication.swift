@@ -9,13 +9,36 @@ import Crypto
 import BSON
 import NeedleTailCrypto
 
-public protocol CommunicationSession: Codable & Sendable {
-    var base: CommunicationModel { get }
+public protocol CommunicationProtocol: Codable & Sendable {
+    var base: BaseCommunication { get }
 }
 
-public final class CommunicationModel: Codable, @unchecked Sendable {
+extension CommunicationProtocol {
+    public func deriveRecipient() async throws -> MessageRecipient {
+        switch self {
+        case let props as PrivateMessage.UnwrappedProps:
+            return props.message.recipient
+            
+        case let props as Channel.UnwrappedProps:
+            return props.recipient
+            
+        case let props as PersonalNote.UnwrappedProps:
+            return props.recipient
+            
+        default:
+            throw DerivationError.unsupportedType
+        }
+    }
+}
+
+enum DerivationError: Error {
+    case invalidProps
+    case unsupportedType
+}
+
+public final class BaseCommunication: Codable, @unchecked Sendable {
     public let id = UUID()
-    var data: Data
+    public var data: Data
     
     enum CodingKeys: String, CodingKey, Codable & Sendable {
         case id = "a"
@@ -56,9 +79,9 @@ public final class CommunicationModel: Codable, @unchecked Sendable {
         public var operators: Set<String>?
         // private messages need at least 2 memebers
         public var members: Set<String>
-        public var metadata: Document
         // private message can kick/block other member
         public let blockedMembers: Set<String>
+        public var metadata: Document
         
         public init(
             messageCount: Int,
@@ -77,7 +100,7 @@ public final class CommunicationModel: Codable, @unchecked Sendable {
         }
     }
     
-    public init(
+   public init(
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
     ) throws {
@@ -88,6 +111,10 @@ public final class CommunicationModel: Codable, @unchecked Sendable {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
+    }
+    
+    public init(data: Data) {
+        self.data = data
     }
     
     /// Asynchronously sets the properties of the model using the provided symmetric key.
