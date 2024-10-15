@@ -11,18 +11,23 @@ import Foundation
 import NeedleTailHelpers
 import NeedleTailCrypto
 
-public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
+public struct _PersonalNote: Sendable, Codable {
+    public let id: UUID
+    public let createdData: Date
+    public let recipient: MessageRecipient
+    public var base: BaseCommunication
+    public var messages: [PrivateMessage]
+}
+public final class PersonalNote: SecureModelProtocol, @unchecked Sendable {
     
     public let id: UUID
     public let communicationID: UUID
-    public let sequenceId: Int
     public var data: Data
     
     enum CodingKeys: String, CodingKey, Codable, Sendable {
         case id = "a"
         case communicationID = "b"
-        case sequenceId = "c"
-        case data = "d"
+        case data = "c"
     }
     
     /// SymmetricKey can be updated.
@@ -33,9 +38,8 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
         get async {
             do {
                 guard let symmetricKey = symmetricKey else { return nil }
-                return try await setProps(symmetricKey: symmetricKey)
+                return try await decryptProps(symmetricKey: symmetricKey)
             } catch {
-                //TODO: Handle error appropriately (e.g., log it)
                 return nil
             }
         }
@@ -47,17 +51,17 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
         /// The base object for all Communication Types
         public var base: BaseCommunication
         /// The date and time when the message was sent.
-        public let sendDate: Date
+        public let createdData: Date
         /// The date and time when the message was received.
         public let receiveDate: Date?
         /// The message content.
-        public var messages: [CryptoMessage]
+        public var messages: [PrivateMessage]
         public let recipient: MessageRecipient
         
         // MARK: - Coding Keys
         private enum CodingKeys: String, CodingKey, Codable, Sendable {
             case base = "a"
-            case sendDate = "b"
+            case createdData = "b"
             case receiveDate = "c"
             case messages = "d"
             case recipient = "e"
@@ -65,7 +69,7 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
         
         /// Initializes a new instance of `UnwrappedProps`.
         /// - Parameters:
-        ///   - sendDate: The date and time when the message was sent.
+        ///   - createdData: The date and time when the message was created.
         ///   - receiveDate: The date and time when the message was received.
         ///   - deliveryState: The current delivery state of the message.
         ///   - message: The content of the message.
@@ -73,13 +77,13 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
         ///   - sendersIdentity: The unique identifier for the sender's identity.
         public init(
             base: BaseCommunication,
-            sendDate: Date,
+            createdData: Date,
             receiveDate: Date? = nil,
-            messages: [CryptoMessage],
+            messages: [PrivateMessage],
             recipient: MessageRecipient
         ) {
             self.base = base
-            self.sendDate = sendDate
+            self.createdData = createdData
             self.receiveDate = receiveDate
             self.messages = messages
             self.recipient = recipient
@@ -91,19 +95,16 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
     ///   - communicationID: The ID of the communication.
     ///   - senderIdentity: The ID of the sender.
     ///   - sharedMessageIdentity: The remote ID associated with the message.
-    ///   - sequenceId: The sequenceId of the message in the communication.
     ///   - props: The unwrapped properties of the message.
     ///   - symmetricKey: The symmetric key used for encryption.
     /// - Throws: An error if encryption fails.
     public init(
         communicationID: UUID,
-        sequenceId: Int,
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
     ) async throws {
         self.id = UUID()
         self.communicationID = communicationID
-        self.sequenceId = sequenceId
         self.symmetricKey = symmetricKey
         
         let crypto = NeedleTailCrypto()
@@ -116,12 +117,10 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
     
     public init(
         communicationID: UUID,
-        sequenceId: Int,
         data: Data
     ) async throws {
         self.id = UUID()
         self.communicationID = communicationID
-        self.sequenceId = sequenceId
         self.data = data
     }
     
@@ -129,7 +128,7 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
     /// - Throws: An error if decryption fails.
-    public func setProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
+    public func decryptProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
         let crypto = NeedleTailCrypto()
         guard let decrypted = try crypto.decrypt(data: self.data, symmetricKey: symmetricKey) else {
             throw CryptoError.decryptionError
@@ -151,5 +150,15 @@ public final class PersonalNote: SecureMessageProtocol, @unchecked Sendable {
         }
         self.data = encryptedData
         return await self.props
+    }
+    
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+        guard let props = await props else { throw CryptoError.propsError }
+        return _PersonalNote(
+            id: id,
+            createdData: props.createdData,
+            recipient: props.recipient,
+            base: props.base,
+            messages: props.messages) as! T
     }
 }

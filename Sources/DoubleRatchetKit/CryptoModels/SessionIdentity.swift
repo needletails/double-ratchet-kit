@@ -10,9 +10,22 @@ import BSON
 import NeedleTailHelpers
 import NeedleTailCrypto
 
+public struct _SessionIdentity: Codable, Sendable {
+    public let id: UUID
+    public let secretName: String
+    public let deviceIdentity: UUID
+    public let senderIdentity: Int
+    public let publicKeyRepesentable: Data
+    public let publicSigningRepresentable: Data
+    public var state: RatchetState?
+    public let deviceName: String
+    public var serverTrusted: Bool?
+    public var previousRekey: Date?
+}
+
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
-public final class SessionIdentity: SecureMessageProtocol, @unchecked Sendable {
+public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     public let id = UUID()
     public var data: Data
     
@@ -29,9 +42,8 @@ public final class SessionIdentity: SecureMessageProtocol, @unchecked Sendable {
         get async {
             do {
                 guard let symmetricKey = symmetricKey else { return nil }
-                return try await setProps(symmetricKey: symmetricKey)
+                return try await decryptProps(symmetricKey: symmetricKey)
             } catch {
-                //TODO: Handle error appropriately (e.g., log it)
                 return nil
             }
         }
@@ -93,7 +105,7 @@ public final class SessionIdentity: SecureMessageProtocol, @unchecked Sendable {
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
     /// - Throws: An error if decryption fails.
-    public func setProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
+    public func decryptProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
         let crypto = NeedleTailCrypto()
         guard let decrypted = try crypto.decrypt(data: self.data, symmetricKey: symmetricKey) else {
             throw CryptoError.decryptionError
@@ -116,5 +128,17 @@ public final class SessionIdentity: SecureMessageProtocol, @unchecked Sendable {
         }
         self.data = encryptedData
         return await self.props
+    }
+    
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+        guard let props = await self.props else { throw CryptoError.propsError }
+        return try _SessionIdentity(
+            id: id,
+            secretName: props.secretName,
+            deviceIdentity: props.deviceIdentity,
+            senderIdentity: props.senderIdentity,
+            publicKeyRepesentable: props.publicKeyRepesentable,
+            publicSigningRepresentable: props.publicSigningRepresentable,
+            deviceName: props.deviceName) as! T
     }
 }

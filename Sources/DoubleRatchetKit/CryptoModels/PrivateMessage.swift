@@ -12,22 +12,24 @@ import NeedleTailHelpers
 import NeedleTailCrypto
 
 /// Protocol defining the base model functionality.
-public protocol SecureMessageProtocol: Codable, Sendable {
+public protocol SecureModelProtocol: Codable, Sendable {
     associatedtype Props: Codable & Sendable
     
     /// Asynchronously sets the properties of the model using the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
-    func setProps(symmetricKey: SymmetricKey) async throws -> Props
+    func decryptProps(symmetricKey: SymmetricKey) async throws -> Props
     
     /// Updates the properties with the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Parameter props: The properties to update.
     /// - Returns: The updated properties, or nil if the update failed.
     func updateProps(symmetricKey: SymmetricKey, props: Props) async throws -> Props?
+    
+    func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T
 }
 
-extension SecureMessageProtocol {
+extension SecureModelProtocol {
     
     public func deriveRecipient() async throws -> MessageRecipient {
         switch self {
@@ -62,15 +64,27 @@ extension SecureMessageProtocol {
     public func destructionTimer() async -> TimeInterval? {
      nil
     }
-    
 }
+
+public struct _PrivateMessage: Sendable & Codable {
+    public let id: UUID
+    public var base: BaseCommunication
+    public let sendDate: Date
+    public let receiveDate: Date?
+    public var deliveryState: DeliveryState
+    public var message: CryptoMessage
+    public let sendersSecretName: String
+    public let sendersIdentity: UUID
+}
+
+
 
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
-public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, Hashable {
+public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Hashable {
     
     public let id: UUID
-    public let communicationID: UUID
+    public let communicationIdentity: UUID
     public let senderIdentity: Int
     public let sequenceId: Int
     public let sharedMessageIdentity: String
@@ -78,7 +92,7 @@ public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, H
     
     enum CodingKeys: String, CodingKey, Codable, Sendable {
         case id = "a"
-        case communicationID = "b"
+        case communicationIdentity = "b"
         case senderIdentity = "c"
         case sequenceId = "d"
         case sharedMessageIdentity = "e"
@@ -93,9 +107,8 @@ public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, H
         get async {
             do {
                 guard let symmetricKey = symmetricKey else { return nil }
-                return try await setProps(symmetricKey: symmetricKey)
+                return try await decryptProps(symmetricKey: symmetricKey)
             } catch {
-                //TODO: Handle error appropriately (e.g., log it)
                 return nil
             }
         }
@@ -159,7 +172,7 @@ public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, H
     
     /// Initializes a new MessageModel instance.
     /// - Parameters:
-    ///   - communicationID: The ID of the communication.
+    ///   - communicationIdentity: The ID of the communication.
     ///   - senderIdentity: The ID of the sender.
     ///   - sharedMessageIdentity: The remote ID associated with the message.
     ///   - sequenceId: The sequenceId of the message in the communication.
@@ -167,15 +180,15 @@ public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, H
     ///   - symmetricKey: The symmetric key used for encryption.
     /// - Throws: An error if encryption fails.
     public init(
-        communicationID: UUID,
+        communicationIdentity: UUID,
         senderIdentity: Int,
         sharedMessageIdentity: String,
         sequenceId: Int,
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
-    ) async throws {
+    ) throws {
         self.id = UUID()
-        self.communicationID = communicationID
+        self.communicationIdentity = communicationIdentity
         self.senderIdentity = senderIdentity
         self.sharedMessageIdentity = sharedMessageIdentity
         self.sequenceId = sequenceId
@@ -190,14 +203,14 @@ public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, H
     }
     
     public init(
-        communicationID: UUID,
+        communicationIdentity: UUID,
         senderIdentity: Int,
         sharedMessageIdentity: String,
         sequenceId: Int,
         data: Data
-    ) async throws {
+    ) throws {
         self.id = UUID()
-        self.communicationID = communicationID
+        self.communicationIdentity = communicationIdentity
         self.senderIdentity = senderIdentity
         self.sharedMessageIdentity = sharedMessageIdentity
         self.sequenceId = sequenceId
@@ -208,7 +221,7 @@ public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, H
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
     /// - Throws: An error if decryption fails.
-    public func setProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
+    public func decryptProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
         let crypto = NeedleTailCrypto()
         guard let decrypted = try crypto.decrypt(data: self.data, symmetricKey: symmetricKey) else {
             throw CryptoError.decryptionError
@@ -230,6 +243,19 @@ public final class PrivateMessage: SecureMessageProtocol, @unchecked Sendable, H
         }
         self.data = encryptedData
         return await self.props
+    }
+    
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+        guard let props = await props else { throw CryptoError.propsError }
+        return _PrivateMessage(
+            id: id,
+            base: props.base,
+            sendDate: props.sendDate,
+            receiveDate: props.receiveDate,
+            deliveryState: props.deliveryState,
+            message: props.message,
+            sendersSecretName: props.sendersSecretName,
+            sendersIdentity: props.sendersIdentity) as! T
     }
     
     public static func == (lhs: PrivateMessage, rhs: PrivateMessage) -> Bool {
@@ -266,7 +292,7 @@ public enum DeliveryState: Codable, Sendable {
 
 /// Custom error type for encryption-related errors.
 public enum CryptoError: Error {
-    case encryptionFailed, decryptionError
+    case encryptionFailed, decryptionError, propsError
 }
 
 // An enumeration representing the different types of push notifications that can be received.
@@ -298,7 +324,7 @@ public enum MessageType: String, Codable, Sendable {
 }
 
 /// An enumeration representing the different types of message recipients in a messaging network.
-public enum MessageRecipient: Codable, Sendable {
+public enum MessageRecipient: Codable, Sendable, Equatable {
     /// A recipient identified by a nickname.
     /// This case is used when sending a message to a user identified by their chosen nickname.
     case nickname(String)
@@ -314,7 +340,7 @@ public enum MessageRecipient: Codable, Sendable {
 }
 
 public enum MessageFlags: Codable, Sendable, Equatable {
-    case friendshipStateRequest, deliveryStateChange, editMessage, requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, none
+    case friendshipStateRequest, deliveryStateChange, editMessage, requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, none
 }
 
 public struct CryptoMessage: Codable, Sendable {

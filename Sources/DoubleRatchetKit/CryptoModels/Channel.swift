@@ -11,7 +11,15 @@ import Foundation
 import NeedleTailHelpers
 import NeedleTailCrypto
 
-public final class Channel: SecureMessageProtocol, @unchecked Sendable {
+public struct _Channel: Sendable, Codable {
+    public let id: UUID
+    public let createdData: Date
+    public let recipient: MessageRecipient
+    public var base: BaseCommunication
+    public var messages: [CryptoMessage]
+}
+
+public final class Channel: SecureModelProtocol, Codable, @unchecked Sendable {
     
     public let id: UUID
     public let communicationID: UUID
@@ -33,9 +41,8 @@ public final class Channel: SecureMessageProtocol, @unchecked Sendable {
         get async {
             do {
                 guard let symmetricKey = symmetricKey else { return nil }
-                return try await setProps(symmetricKey: symmetricKey)
+                return try await decryptProps(symmetricKey: symmetricKey)
             } catch {
-                //TODO: Handle error appropriately (e.g., log it)
                 return nil
             }
         }
@@ -128,7 +135,7 @@ public final class Channel: SecureMessageProtocol, @unchecked Sendable {
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
     /// - Throws: An error if decryption fails.
-    public func setProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
+    public func decryptProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
         let crypto = NeedleTailCrypto()
         guard let decrypted = try crypto.decrypt(data: self.data, symmetricKey: symmetricKey) else {
             throw CryptoError.decryptionError
@@ -150,5 +157,15 @@ public final class Channel: SecureMessageProtocol, @unchecked Sendable {
         }
         self.data = encryptedData
         return await self.props
+    }
+    
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+        guard let props = await props else { throw CryptoError.propsError }
+        return _Channel(
+            id: id,
+            createdData: props.createdData,
+            recipient: props.recipient,
+            base: props.base,
+            messages: props.messages) as! T
     }
 }

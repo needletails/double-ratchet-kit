@@ -13,27 +13,20 @@ public protocol CommunicationProtocol: Codable & Sendable {
     var base: BaseCommunication { get }
 }
 
-extension CommunicationProtocol {
-    public func deriveRecipient() async throws -> MessageRecipient {
-        switch self {
-        case let props as PrivateMessage.UnwrappedProps:
-            return props.message.recipient
-            
-        case let props as Channel.UnwrappedProps:
-            return props.recipient
-            
-        case let props as PersonalNote.UnwrappedProps:
-            return props.recipient
-            
-        default:
-            throw DerivationError.unsupportedType
-        }
-    }
-}
-
 enum DerivationError: Error {
     case invalidProps
     case unsupportedType
+}
+
+public struct Communication: Sendable & Codable {
+    public let id: UUID
+    public var messageCount: Int
+    public var administrator: String?
+    public var operators: Set<String>?
+    public var members: Set<String>
+    public let blockedMembers: Set<String>
+    public var metadata: Document
+    public var communicationType: MessageRecipient
 }
 
 public final class BaseCommunication: Codable, @unchecked Sendable {
@@ -55,7 +48,6 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
                 guard let symmetricKey = symmetricKey else { return nil }
                 return try await setProps(symmetricKey: symmetricKey)
             } catch {
-                //TODO: Handle error appropriately (e.g., log it)
                 return nil
             }
         }
@@ -70,6 +62,7 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
             case operators = "d"
             case blockedMembers = "e"
             case metadata = "f"
+            case communicationType = "g"
         }
         // The current count of messages in this communication... Message number
         public var messageCount: Int
@@ -82,6 +75,7 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
         // private message can kick/block other member
         public let blockedMembers: Set<String>
         public var metadata: Document
+        public var communicationType: MessageRecipient
         
         public init(
             messageCount: Int,
@@ -89,7 +83,8 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
             operators: Set<String>? = nil,
             members: Set<String>,
             metadata: Document,
-            blockedMembers: Set<String>
+            blockedMembers: Set<String>,
+            communicationType: MessageRecipient
         ) {
             self.messageCount = messageCount
             self.administrator = administrator
@@ -97,6 +92,7 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
             self.members = members
             self.metadata = metadata
             self.blockedMembers = blockedMembers
+            self.communicationType = communicationType
         }
     }
     
@@ -144,5 +140,17 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
         }
         self.data = encryptedData
         return await self.props
+    }
+    
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+        guard let props = await props else { throw CryptoError.propsError }
+        return Communication(
+            id: id,
+            messageCount: props.messageCount,
+            members: props.members,
+            blockedMembers: props.blockedMembers,
+            metadata: props.metadata,
+            communicationType: props.communicationType
+        ) as! T
     }
 }
