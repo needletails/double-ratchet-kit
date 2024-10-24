@@ -26,7 +26,7 @@ public protocol SecureModelProtocol: Codable, Sendable {
     /// - Returns: The updated properties, or nil if the update failed.
     func updateProps(symmetricKey: SymmetricKey, props: Props) async throws -> Props?
     
-    func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T
+    func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T
 }
 
 extension SecureModelProtocol {
@@ -66,7 +66,7 @@ extension SecureModelProtocol {
     }
 }
 
-public struct _PrivateMessage: Sendable & Codable {
+public struct _PrivateMessage: Sendable, Codable, Equatable {
     public let id: UUID
     public var base: BaseCommunication
     public let sendDate: Date
@@ -75,6 +75,10 @@ public struct _PrivateMessage: Sendable & Codable {
     public var message: CryptoMessage
     public let sendersSecretName: String
     public let sendersIdentity: UUID
+    
+    public static func == (lhs: _PrivateMessage, rhs: _PrivateMessage) -> Bool {
+        return lhs.id == rhs.id
+    }
 }
 
 
@@ -91,16 +95,16 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
     public var data: Data
     
     enum CodingKeys: String, CodingKey, Codable, Sendable {
-        case id = "a"
-        case communicationIdentity = "b"
-        case senderIdentity = "c"
-        case sequenceId = "d"
-        case sharedMessageIdentity = "e"
-        case data = "f"
+        case id
+        case communicationIdentity = "a"
+        case senderIdentity = "b"
+        case sequenceId = "c"
+        case sharedMessageIdentity = "d"
+        case data = "e"
     }
     
     /// SymmetricKey can be updated.
-    private var symmetricKey: SymmetricKey?
+    public var symmetricKey: SymmetricKey?
     
     /// Asynchronously retrieves the decrypted properties, if available.
     public var props: UnwrappedProps? {
@@ -203,13 +207,14 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
     }
     
     public init(
+        id: UUID,
         communicationIdentity: UUID,
         senderIdentity: Int,
         sharedMessageIdentity: String,
         sequenceId: Int,
         data: Data
     ) throws {
-        self.id = UUID()
+        self.id = id
         self.communicationIdentity = communicationIdentity
         self.senderIdentity = senderIdentity
         self.sharedMessageIdentity = sharedMessageIdentity
@@ -245,7 +250,8 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
         return await self.props
     }
     
-    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
+        self.symmetricKey = symmetricKey
         guard let props = await props else { throw CryptoError.propsError }
         return _PrivateMessage(
             id: id,
@@ -268,7 +274,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
 }
 
 /// An enumeration representing the delivery state of a message in a communication.
-public enum DeliveryState: Codable, Sendable {
+public enum DeliveryState: Codable, Sendable, Equatable {
     /// The message has been successfully delivered to the recipient.
     case delivered
     /// The message has been read by the recipient.

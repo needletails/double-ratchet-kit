@@ -18,9 +18,10 @@ public struct _SessionIdentity: Codable, Sendable {
     public let publicKeyRepesentable: Data
     public let publicSigningRepresentable: Data
     public var state: RatchetState?
-    public let deviceName: String
+    public var deviceName: String
     public var serverTrusted: Bool?
     public var previousRekey: Date?
+    public var isMasterDevice: Bool
 }
 
 /// This model represents a message and provides an interface for working with encrypted data.
@@ -35,7 +36,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     }
     
     /// SymmetricKey can be updated.
-    private var symmetricKey: SymmetricKey?
+    public var symmetricKey: SymmetricKey?
     
     /// Asynchronously retrieves the decrypted properties, if available.
     public var props: UnwrappedProps? {
@@ -60,6 +61,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public let deviceName: String
         public var serverTrusted: Bool?
         public var previousRekey: Date?
+        public var isMasterDevice: Bool
         
         public init(
             secretName: String,
@@ -70,7 +72,8 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             state: RatchetState? = nil,
             deviceName: String,
             serverTrusted: Bool? = nil,
-            previousRekey: Date? = nil
+            previousRekey: Date? = nil,
+            isMasterDevice: Bool
         ) {
             self.secretName = secretName
             self.deviceIdentity = deviceIdentity
@@ -81,6 +84,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.deviceName = deviceName
             self.serverTrusted = serverTrusted
             self.previousRekey = previousRekey
+            self.isMasterDevice = isMasterDevice
         }
     }
     
@@ -130,7 +134,8 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         return await self.props
     }
     
-    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
+        self.symmetricKey = symmetricKey
         guard let props = await self.props else { throw CryptoError.propsError }
         return try _SessionIdentity(
             id: id,
@@ -139,6 +144,8 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             senderIdentity: props.senderIdentity,
             publicKeyRepesentable: props.publicKeyRepesentable,
             publicSigningRepresentable: props.publicSigningRepresentable,
-            deviceName: props.deviceName) as! T
+            deviceName: props.deviceName,
+            isMasterDevice: props.isMasterDevice
+        ) as! T
     }
 }

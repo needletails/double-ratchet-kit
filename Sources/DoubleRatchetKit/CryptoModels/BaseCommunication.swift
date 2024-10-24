@@ -30,12 +30,11 @@ public struct Communication: Sendable & Codable {
 }
 
 public final class BaseCommunication: Codable, @unchecked Sendable {
-    public let id = UUID()
+    public let id: UUID
     public var data: Data
     
     enum CodingKeys: String, CodingKey, Codable & Sendable {
-        case id = "a"
-        case data = "b"
+        case id, data = "a"
     }
     
     /// SymmetricKey can be updated.
@@ -97,9 +96,11 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
     }
     
    public init(
+        id: UUID,
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
     ) throws {
+        self.id = id
         self.symmetricKey = symmetricKey
         let crypto = NeedleTailCrypto()
         let data = try BSONEncoder().encodeData(props)
@@ -109,7 +110,11 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
         self.data = encryptedData
     }
     
-    public init(data: Data) {
+    public init(
+        id: UUID,
+        data: Data
+    ) {
+        self.id = id
         self.data = data
     }
     
@@ -142,7 +147,8 @@ public final class BaseCommunication: Codable, @unchecked Sendable {
         return await self.props
     }
     
-    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
+        self.symmetricKey = symmetricKey
         guard let props = await props else { throw CryptoError.propsError }
         return Communication(
             id: id,

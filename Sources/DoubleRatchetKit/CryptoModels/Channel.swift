@@ -159,7 +159,8 @@ public final class Channel: SecureModelProtocol, Codable, @unchecked Sendable {
         return await self.props
     }
     
-    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type) async throws -> T {
+    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
+        self.symmetricKey = symmetricKey
         guard let props = await props else { throw CryptoError.propsError }
         return _Channel(
             id: id,
