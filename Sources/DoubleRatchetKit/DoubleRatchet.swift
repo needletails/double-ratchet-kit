@@ -12,37 +12,37 @@ import NeedleTailCrypto
 //TODO: -
 /*
  1. **Header Encryption**
-        4. Double Ratchet with header encryption - https://signal.org/docs/specifications/doubleratchet/doubleratchet.pdf
+ 4. Double Ratchet with header encryption - https://signal.org/docs/specifications/doubleratchet/doubleratchet.pdf
  
  2. **Deletion of skipped message keys**
-        Storing skipped message keys introduces some risks:
-        • A malicious sender could induce recipients to store large numbers of skipped message keys, possibly causing denial-of-service due to consuming storage space.
-        • The lost messages may have been seen (and recorded) by an attacker, even though they didn’t reach the recipient. The attacker can compromise the intended recipient at a later time to retrieve the skipped message keys.
+ Storing skipped message keys introduces some risks:
+ • A malicious sender could induce recipients to store large numbers of skipped message keys, possibly causing denial-of-service due to consuming storage space.
+ • The lost messages may have been seen (and recorded) by an attacker, even though they didn’t reach the recipient. The attacker can compromise the intended recipient at a later time to retrieve the skipped message keys.
  
-        To mitigate the first risk parties should set reasonable per-session limits on the number of skipped message keys that will be stored (e.g. 1000). To mitigate the second risk parties should delete skipped message keys after an appropriate interval. Deletion could be triggered by a timer, or by counting a number of events (messages received, DH ratchet steps, etc.).
+ To mitigate the first risk parties should set reasonable per-session limits on the number of skipped message keys that will be stored (e.g. 1000). To mitigate the second risk parties should delete skipped message keys after an appropriate interval. Deletion could be triggered by a timer, or by counting a number of events (messages received, DH ratchet steps, etc.).
  
  3. **Deferring new ratchet key generation**
-        During each DH ratchet step a new ratchet key pair and sending chain are generated. As the sending chain is not needed right away, these steps could be deferred until the party is about to send a new message. This would slightly increase security by shortening the lifetime of ratchet keys, at the cost of some complexity.
+ During each DH ratchet step a new ratchet key pair and sending chain are generated. As the sending chain is not needed right away, these steps could be deferred until the party is about to send a new message. This would slightly increase security by shortening the lifetime of ratchet keys, at the cost of some complexity.
  
  4. **Recovery from compromise**
-        The DH ratchet is designed to recover security against a passive eavesdropper who observes encrypted messages after compromising one (or both) of the parties to a session. Despite this mitigation, a compromise of secret keys or of device integrity will have a devastating effect on the security of future communications. For example:
-        • The attacker could use the compromised keys to impersonate the compro- mised party (e.g. using the compromised party’s identity private key with X3DH to create new sessions).
-        • The attacker could substitute her own ratchet keys via continuous active man-in-the-middle attack, to maintain eavesdropping on the compromised session.
-        • The attacker could modify a compromised party’s RNG so that future ratchet private keys are predictable.
+ The DH ratchet is designed to recover security against a passive eavesdropper who observes encrypted messages after compromising one (or both) of the parties to a session. Despite this mitigation, a compromise of secret keys or of device integrity will have a devastating effect on the security of future communications. For example:
+ • The attacker could use the compromised keys to impersonate the compro- mised party (e.g. using the compromised party’s identity private key with X3DH to create new sessions).
+ • The attacker could substitute her own ratchet keys via continuous active man-in-the-middle attack, to maintain eavesdropping on the compromised session.
+ • The attacker could modify a compromised party’s RNG so that future ratchet private keys are predictable.
  
-        If a party suspects its keys or devices have been compromised, it must replace them immediately.
+ If a party suspects its keys or devices have been compromised, it must replace them immediately.
  
  5. **Integration with PQXDH** (The X3DH Key Agreement Protocol is out of date use the upgraded The PQXDH Key Agreement Protocol)
-        https://signal.org/docs/specifications/x3dh/
-        https://signal.org/docs/specifications/pqxdh/
-        https://security.apple.com/blog/imessage-pq3/
-        The Double Ratchet algorithm can be used in combination with the X3DH key agreement protocol [1]. The Double Ratchet plays the role of a “post-X3DH” protocol which takes the session key SK negotiated by X3DH and uses it as the Double Ratchet’s initial root key.
-        The following outputs from X3DH are used by the Double Ratchet:
-        • The SK output from X3DH becomes the SK input to Double Ratchet initialization (see Section 3.3).
-        • The AD output from X3DH becomes the AD input to Double Ratchet encryption and decryption (see Section 3.4 and Section 3.5).
-        • Bob’s signed prekey from X3DH (SPKB) becomes Bob’s initial ratchet public key (and corresponding key pair) for Double Ratchet initialization.
-        Any Double Ratchet message encrypted using Alice’s initial sending chain can serve as an “initial ciphertext” for X3DH. To deal with the possibility of lost or out-of-order messages, a recommended pattern is for Alice to repeatedly send the same X3DH initial message prepended to all of her Double Ratchet messages until she receives Bob’s first Double Ratchet response message.
-*/
+ https://signal.org/docs/specifications/x3dh/
+ https://signal.org/docs/specifications/pqxdh/
+ https://security.apple.com/blog/imessage-pq3/
+ The Double Ratchet algorithm can be used in combination with the X3DH key agreement protocol [1]. The Double Ratchet plays the role of a “post-X3DH” protocol which takes the session key SK negotiated by X3DH and uses it as the Double Ratchet’s initial root key.
+ The following outputs from X3DH are used by the Double Ratchet:
+ • The SK output from X3DH becomes the SK input to Double Ratchet initialization (see Section 3.3).
+ • The AD output from X3DH becomes the AD input to Double Ratchet encryption and decryption (see Section 3.4 and Section 3.5).
+ • Bob’s signed prekey from X3DH (SPKB) becomes Bob’s initial ratchet public key (and corresponding key pair) for Double Ratchet initialization.
+ Any Double Ratchet message encrypted using Alice’s initial sending chain can serve as an “initial ciphertext” for X3DH. To deal with the possibility of lost or out-of-order messages, a recommended pattern is for Alice to repeatedly send the same X3DH initial message prepended to all of her Double Ratchet messages until she receives Bob’s first Double Ratchet response message.
+ */
 
 /// Represents a set of skipped message keys for later processing in the Double Ratchet protocol.
 public struct SkippedMessageKey: Codable, Sendable {
@@ -301,11 +301,12 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     // Load cached device identities (to be implemented).
     private func loadDeviceIdentities(
-        deviceIdentity: SessionIdentity,
+        deviceId: SessionIdentity,
+        sessionSymmetricKey: SymmetricKey,
         secretKey: SymmetricKey,
         messageType: MessageType
     ) async throws {
-        guard let props = await deviceIdentity.props else {
+        guard let props = await deviceId.props(symmetricKey: sessionSymmetricKey) else {
             fatalError("Device identity properties are missing.")
         }
         
@@ -317,7 +318,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             privateState = try await createNewState(for: messageType, using: secretKey)
         }
     }
-
+    
     // Helper method to update the state based on the message type
     private func updateState(_ state: RatchetState, for messageType: MessageType) async -> RatchetState {
         var updatedState = state
@@ -329,7 +330,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         }
         return updatedState
     }
-
+    
     // Helper method to create a new state based on the message type
     private func createNewState(for messageType: MessageType, using secretKey: SymmetricKey) async throws -> RatchetState {
         
@@ -357,14 +358,14 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             )
         }
     }
-
+    
     
     /// This function initializes a sender's session for double ratchet encryption.
     /// It sets up the necessary state for the sender to encrypt messages using
     /// the double ratchet algorithm.
     ///
     /// - Parameters:
-    ///   - deviceIdentity: An instance of `SessionIdentityModel` that represents
+    ///   - deviceId: An instance of `SessionIdentityModel` that represents
     ///     the identity of the device for which the session is being initialized.
     ///   - secretKey: A `SymmetricKey` used for encryption and decryption processes.
     ///   - localPrivateKey: A `Curve25519PrivateKey` representing the local private key
@@ -378,12 +379,14 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   2. Then we can call `ratchetEncrypt()`.
     ///   3. We must make sure each time we want to use the ratchet, we are in the proper state.
     public func senderInitialization(
-        deviceIdentity: SessionIdentity,
+        deviceId: SessionIdentity,
         secretKey: SymmetricKey,
+        sessionSymmetricKey: SymmetricKey,
         recipientPublicKey: Curve25519PublicKey
     ) async throws {
-       try await loadDeviceIdentities(
-            deviceIdentity: deviceIdentity,
+        try await loadDeviceIdentities(
+            deviceId: deviceId,
+            sessionSymmetricKey: sessionSymmetricKey,
             secretKey: secretKey,
             messageType: .sending(recipientPublicKey)
         )
@@ -394,7 +397,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// using the double ratchet algorithm.
     ///
     /// - Parameters:
-    ///   - deviceIdentity: An instance of `SessionIdentityModel` that represents
+    ///   - deviceId: An instance of `SessionIdentityModel` that represents
     ///     the identity of the device for which the session is being initialized.
     ///   - secretKey: A `SymmetricKey` used for encryption and decryption processes.
     ///   - localPrivateKey: A `Curve25519PrivateKey` representing the local private key
@@ -414,18 +417,20 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   2. Each time the ratchet is used, the proper state must be maintained
     ///      to ensure secure encryption and decryption.
     public func recipientInitialization(
-        deviceIdentity: SessionIdentity,
+        deviceId: SessionIdentity,
+        sessionSymmetricKey: SymmetricKey,
         secretKey: SymmetricKey,
         localPrivateKey: Curve25519PrivateKey,
         initialMessage: EncryptedMessage
     ) async throws -> Data {
         try await loadDeviceIdentities(
-            deviceIdentity: deviceIdentity,
+            deviceId: deviceId,
+            sessionSymmetricKey: sessionSymmetricKey,
             secretKey: secretKey,
             messageType: .receiving(localPrivateKey))
         return try! await ratchetDecrypt(initialMessage)
     }
-
+    
     struct DiffieHellmanKeyPair: Sendable {
         let privateKey: Curve25519PrivateKey
         let publicKey: Curve25519PublicKey
@@ -484,16 +489,16 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         
         await state.incrementSentMessagesCount()
         state = await updateState(to: state)
-
+        
         guard let encryptedData = try crypto.encrypt(data: plainText, symmetricKey: newSendingKey) else { throw RatchetError.encryptionFailed }
         return EncryptedMessage(header: messageHeader, encryptedData: encryptedData)
     }
-
+    
     public func ratchetDecrypt(_ message: EncryptedMessage) async throws -> Data {
         guard var state = await currentState else {
             throw RatchetError.missingDeviceIdentity
         }
-
+        
         // Process a message if it was skipped first.
         let (foundMessage, _state) = try await checkForSkippedMessages(
             message,
@@ -533,7 +538,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         guard let receivingKey = state.receivingKey else {
             throw RatchetError.receivingKeyIsNil
         }
-
+        
         let messageKey = try await symmetricKeyRatchet(from: receivingKey)
         let newReceivingKey = try await deriveChainKey(from: receivingKey, configuration: configuration)
         
@@ -550,7 +555,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             )
         )
     }
-
+    
     /// Attempts to skip message keys based on the received message.
     /// - Parameter message: The encrypted message to process.
     /// - Throws: An error if the device identity is missing or if key derivation fails.
@@ -564,18 +569,18 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         guard let receivingKey = state.receivingKey else {
             return state
         }
-
+        
         // Process until the received messages count is less than the previous chain length
         while state.receivedMessagesCount < message.header.previousChainLength {
             // Derive the message key and new receiving key
             let messageKey = try await symmetricKeyRatchet(from: receivingKey)
             let newReceivingKey = try await deriveChainKey(from: receivingKey, configuration: configuration)
-
+            
             await state.updateReceivingKey(newReceivingKey)
             state = await updateState(to: state)
             
             // Append the new skipped message key directly to the state
-           await state.updateSkippedMessages(skippedMessageKeys: SkippedMessageKey(
+            await state.updateSkippedMessages(skippedMessageKeys: SkippedMessageKey(
                 publicKey: message.header.senderPublicKey,
                 messageIndex: state.receivedMessagesCount,
                 messageKey: messageKey
@@ -619,29 +624,29 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     func checkForSkippedMessages(
-            _ message: EncryptedMessage,
-            skippedMessageKeys: [SkippedMessageKey]
+        _ message: EncryptedMessage,
+        skippedMessageKeys: [SkippedMessageKey]
     ) async throws -> (DecodedMessage?, RatchetState) {
-            guard var state = await currentState else {
-                throw RatchetError.stateUninitialized
-            }
-            
-            for skippedMessageKey in skippedMessageKeys {
-                if skippedMessageKey.messageIndex == message.header.messageNumber,
-                   message.header.senderPublicKey == skippedMessageKey.publicKey {
-                    
-                    // Modify the skippedMessageKeys
-                    await state.removeSkippedMessages(at: skippedMessageKey.messageIndex)
-                    state = await updateState(to: state)
-                    
-                    return (DecodedMessage(
-                        ratchetMessage: message,
-                        messageKey: skippedMessageKey.messageKey
-                    ), state)
-                }
-            }
-            return (nil, state)
+        guard var state = await currentState else {
+            throw RatchetError.stateUninitialized
         }
+        
+        for skippedMessageKey in skippedMessageKeys {
+            if skippedMessageKey.messageIndex == message.header.messageNumber,
+               message.header.senderPublicKey == skippedMessageKey.publicKey {
+                
+                // Modify the skippedMessageKeys
+                await state.removeSkippedMessages(at: skippedMessageKey.messageIndex)
+                state = await updateState(to: state)
+                
+                return (DecodedMessage(
+                    ratchetMessage: message,
+                    messageKey: skippedMessageKey.messageKey
+                ), state)
+            }
+        }
+        return (nil, state)
+    }
     
     /// Creates a message header for the Double Ratchet protocol.
     func createMessageHeader(
@@ -753,7 +758,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         
         return state
     }
-
+    
     // Helper method to derive shared secret
     private func deriveSharedSecret(localPrivateKeyData: Data, senderPublicKeyData: Data) async throws -> SharedSecret {
         let localPrivateKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localPrivateKeyData)

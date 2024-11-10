@@ -13,8 +13,8 @@ import NeedleTailCrypto
 public struct _SessionIdentity: Codable, Sendable {
     public let id: UUID
     public let secretName: String
-    public let deviceIdentity: UUID
-    public let senderIdentity: Int
+    public let deviceId: UUID
+    public let sessionContextId: Int
     public let publicKeyRepesentable: Data
     public let publicSigningRepresentable: Data
     public var state: RatchetState?
@@ -35,26 +35,21 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         case data = "b"
     }
     
-    /// SymmetricKey can be updated.
-    public var symmetricKey: SymmetricKey?
-    
     /// Asynchronously retrieves the decrypted properties, if available.
-    public var props: UnwrappedProps? {
-        get async {
-            do {
-                guard let symmetricKey = symmetricKey else { return nil }
-                return try await decryptProps(symmetricKey: symmetricKey)
-            } catch {
-                return nil
-            }
+    public func props(symmetricKey: SymmetricKey) async -> UnwrappedProps? {
+        do {
+            return try await decryptProps(symmetricKey: symmetricKey)
+        } catch {
+            return nil
         }
     }
+
     
     /// Struct representing the unwrapped properties of the message.
     public struct UnwrappedProps: Codable & Sendable {
         public let secretName: String
-        public let deviceIdentity: UUID
-        public let senderIdentity: Int
+        public let deviceId: UUID
+        public let sessionContextId: Int
         public let publicKeyRepesentable: Data
         public let publicSigningRepresentable: Data
         public var state: RatchetState?
@@ -65,8 +60,8 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         
         public init(
             secretName: String,
-            deviceIdentity: UUID,
-            senderIdentity: Int,
+            deviceId: UUID,
+            sessionContextId: Int,
             publicKeyRepesentable: Data,
             publicSigningRepresentable: Data,
             state: RatchetState? = nil,
@@ -76,8 +71,8 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             isMasterDevice: Bool
         ) {
             self.secretName = secretName
-            self.deviceIdentity = deviceIdentity
-            self.senderIdentity = senderIdentity
+            self.deviceId = deviceId
+            self.sessionContextId = sessionContextId
             self.publicKeyRepesentable = publicKeyRepesentable
             self.publicSigningRepresentable = publicSigningRepresentable
             self.state = state
@@ -92,7 +87,6 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
     ) throws {
-        self.symmetricKey = symmetricKey
         let crypto = NeedleTailCrypto()
         let data = try BSONEncoder().encodeData(props)
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
@@ -131,17 +125,18 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
-        return await self.props
+        return try await self.decryptProps(symmetricKey: symmetricKey)
     }
     
     public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
-        self.symmetricKey = symmetricKey
-        guard let props = await self.props else { throw CryptoError.propsError }
+        guard let props = await self.props(symmetricKey: symmetricKey) else {
+            throw CryptoError.propsError
+        }
         return try _SessionIdentity(
             id: id,
             secretName: props.secretName,
-            deviceIdentity: props.deviceIdentity,
-            senderIdentity: props.senderIdentity,
+            deviceId: props.deviceId,
+            sessionContextId: props.sessionContextId,
             publicKeyRepesentable: props.publicKeyRepesentable,
             publicSigningRepresentable: props.publicSigningRepresentable,
             deviceName: props.deviceName,

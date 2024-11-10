@@ -33,20 +33,15 @@ public final class Channel: SecureModelProtocol, Codable, @unchecked Sendable {
         case data = "d"
     }
     
-    /// SymmetricKey can be updated.
-    private var symmetricKey: SymmetricKey?
-    
     /// Asynchronously retrieves the decrypted properties, if available.
-    public var props: UnwrappedProps? {
-        get async {
-            do {
-                guard let symmetricKey = symmetricKey else { return nil }
-                return try await decryptProps(symmetricKey: symmetricKey)
-            } catch {
-                return nil
-            }
+    public func props(symmetricKey: SymmetricKey) async -> UnwrappedProps? {
+        do {
+            return try await decryptProps(symmetricKey: symmetricKey)
+        } catch {
+            return nil
         }
     }
+
 
     /// Struct representing the unwrapped properties of the message.
     /// A struct representing the properties of a message in a communication, including its delivery state and timestamps.
@@ -108,7 +103,6 @@ public final class Channel: SecureModelProtocol, Codable, @unchecked Sendable {
         self.id = UUID()
         self.communicationID = communicationID
         self.sequenceId = sequenceId
-        self.symmetricKey = symmetricKey
         
         let crypto = NeedleTailCrypto()
         let data = try BSONEncoder().encodeData(props)
@@ -156,12 +150,13 @@ public final class Channel: SecureModelProtocol, Codable, @unchecked Sendable {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
-        return await self.props
+        return try await self.decryptProps(symmetricKey: symmetricKey)
     }
     
     public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
-        self.symmetricKey = symmetricKey
-        guard let props = await props else { throw CryptoError.propsError }
+        guard let props = await props(symmetricKey: symmetricKey) else {
+            throw CryptoError.propsError
+        }
         return _Channel(
             id: id,
             createdData: props.createdData,

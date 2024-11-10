@@ -31,22 +31,22 @@ public protocol SecureModelProtocol: Codable, Sendable {
 
 extension SecureModelProtocol {
     
-    public func deriveRecipient() async throws -> MessageRecipient {
+    public func deriveRecipient(symmetricKey: SymmetricKey) async throws -> MessageRecipient {
         switch self {
         case let messageType as PrivateMessage:
-            guard let props = await messageType.props else {
+            guard let props = await messageType.props(symmetricKey: symmetricKey) else {
                 throw DerivationError.invalidProps
             }
             return props.message.recipient
             
         case let messageType as Channel:
-            guard let props = await messageType.props else {
+            guard let props = await messageType.props(symmetricKey: symmetricKey) else {
                 throw DerivationError.invalidProps
             }
             return props.recipient
             
         case let messageType as PersonalNote:
-            guard let props = await messageType.props else {
+            guard let props = await messageType.props(symmetricKey: symmetricKey) else {
                 throw DerivationError.invalidProps
             }
             return props.recipient
@@ -54,15 +54,6 @@ extension SecureModelProtocol {
         default:
             throw DerivationError.unsupportedType
         }
-    }
-    
-    
-    public func setDestructionTimer(_ timeInterval: TimeInterval?) async throws {
-        
-    }
-    
-    public func destructionTimer() async -> TimeInterval? {
-     nil
     }
 }
 
@@ -74,7 +65,7 @@ public struct _PrivateMessage: Sendable, Codable, Equatable {
     public var deliveryState: DeliveryState
     public var message: CryptoMessage
     public let sendersSecretName: String
-    public let sendersIdentity: UUID
+    public let sendersId: UUID
     
     public static func == (lhs: _PrivateMessage, rhs: _PrivateMessage) -> Bool {
         return lhs.id == rhs.id
@@ -88,35 +79,31 @@ public struct _PrivateMessage: Sendable, Codable, Equatable {
 public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Hashable {
     
     public let id: UUID
-    public let communicationIdentity: UUID
-    public let senderIdentity: Int
-    public let sequenceId: Int
-    public let sharedMessageIdentity: String
+    public let communicationId: UUID
+    public let sessionContextId: Int
+    public let sharedId: String
+    public let sequenceNumber: Int
     public var data: Data
     
     enum CodingKeys: String, CodingKey, Codable, Sendable {
         case id
-        case communicationIdentity = "a"
-        case senderIdentity = "b"
-        case sequenceId = "c"
-        case sharedMessageIdentity = "d"
+        case communicationId = "a"
+        case sessionContextId = "b"
+        case sharedId = "c"
+        case sequenceNumber = "d"
         case data = "e"
     }
-    
-    /// SymmetricKey can be updated.
-    public var symmetricKey: SymmetricKey?
-    
+
     /// Asynchronously retrieves the decrypted properties, if available.
-    public var props: UnwrappedProps? {
-        get async {
-            do {
-                guard let symmetricKey = symmetricKey else { return nil }
-                return try await decryptProps(symmetricKey: symmetricKey)
-            } catch {
-                return nil
-            }
+    public func props(symmetricKey: SymmetricKey) async -> UnwrappedProps? {
+        do {
+            return try await decryptProps(symmetricKey: symmetricKey)
+        } catch {
+            print("ERROR", error)
+            return nil
         }
     }
+
     
     /// Struct representing the unwrapped properties of the message.
     /// A struct representing the properties of a message in a communication, including its delivery state and timestamps.
@@ -134,7 +121,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
         /// The sender's secret name, which may be used for privacy.
         public let sendersSecretName: String
         /// The unique identifier for the sender's identity.
-        public let sendersIdentity: UUID
+        public let sendersId: UUID
         
         // MARK: - Coding Keys
         private enum CodingKeys: String, CodingKey, Codable, Sendable {
@@ -144,7 +131,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             case deliveryState = "d"
             case message = "e"
             case sendersSecretName = "f"
-            case sendersIdentity = "g"
+            case sendersId = "g"
         }
         
         /// Initializes a new instance of `UnwrappedProps`.
@@ -162,7 +149,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             deliveryState: DeliveryState,
             message: CryptoMessage,
             sendersSecretName: String,
-            sendersIdentity: UUID
+            sendersId: UUID
         ) {
             self.base = base
             self.sendDate = sendDate
@@ -170,7 +157,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             self.deliveryState = deliveryState
             self.message = message
             self.sendersSecretName = sendersSecretName
-            self.sendersIdentity = sendersIdentity
+            self.sendersId = sendersId
         }
     }
     
@@ -184,19 +171,19 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
     ///   - symmetricKey: The symmetric key used for encryption.
     /// - Throws: An error if encryption fails.
     public init(
-        communicationIdentity: UUID,
-        senderIdentity: Int,
-        sharedMessageIdentity: String,
-        sequenceId: Int,
+        id: UUID,
+        communicationId: UUID,
+        sessionContextId: Int,
+        sharedId: String,
+        sequenceNumber: Int,
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
     ) throws {
-        self.id = UUID()
-        self.communicationIdentity = communicationIdentity
-        self.senderIdentity = senderIdentity
-        self.sharedMessageIdentity = sharedMessageIdentity
-        self.sequenceId = sequenceId
-        self.symmetricKey = symmetricKey
+        self.id = id
+        self.communicationId = communicationId
+        self.sessionContextId = sessionContextId
+        self.sharedId = sharedId
+        self.sequenceNumber = sequenceNumber
         
         let crypto = NeedleTailCrypto()
         let data = try BSONEncoder().encodeData(props)
@@ -208,17 +195,17 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
     
     public init(
         id: UUID,
-        communicationIdentity: UUID,
-        senderIdentity: Int,
-        sharedMessageIdentity: String,
-        sequenceId: Int,
+        communicationId: UUID,
+        sessionContextId: Int,
+        sharedId: String,
+        sequenceNumber: Int,
         data: Data
     ) throws {
         self.id = id
-        self.communicationIdentity = communicationIdentity
-        self.senderIdentity = senderIdentity
-        self.sharedMessageIdentity = sharedMessageIdentity
-        self.sequenceId = sequenceId
+        self.communicationId = communicationId
+        self.sessionContextId = sessionContextId
+        self.sharedId = sharedId
+        self.sequenceNumber = sequenceNumber
         self.data = data
     }
     
@@ -247,12 +234,13 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
-        return await self.props
+        return try await decryptProps(symmetricKey: symmetricKey)
     }
     
     public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
-        self.symmetricKey = symmetricKey
-        guard let props = await props else { throw CryptoError.propsError }
+        guard let props = await props(symmetricKey: symmetricKey) else {
+            throw CryptoError.propsError
+        }
         return _PrivateMessage(
             id: id,
             base: props.base,
@@ -261,7 +249,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             deliveryState: props.deliveryState,
             message: props.message,
             sendersSecretName: props.sendersSecretName,
-            sendersIdentity: props.sendersIdentity) as! T
+            sendersId: props.sendersId) as! T
     }
     
     public static func == (lhs: PrivateMessage, rhs: PrivateMessage) -> Bool {
@@ -346,7 +334,7 @@ public enum MessageRecipient: Codable, Sendable, Equatable {
 }
 
 public enum MessageFlags: Codable, Sendable, Equatable {
-    case friendshipStateRequest, deliveryStateChange, editMessage, requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, none
+    case friendshipStateRequest, deliveryStateChange, editMessage, requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, dccSymmetricKey, sdp_offer(Data, Bool), sdp_answer(Data, Bool), ice_candidate, end_call, hold_call, none
 }
 
 public struct CryptoMessage: Codable, Sendable {
