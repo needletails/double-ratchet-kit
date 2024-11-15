@@ -252,6 +252,12 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             sendersId: props.sendersId) as! T
     }
     
+    public func updatePropsMetadata(symmetricKey: SymmetricKey, metadata: Data, with key: String) async throws -> UnwrappedProps? {
+        var props = try await decryptProps(symmetricKey: symmetricKey)
+        props.message.metadata[key] = metadata
+        return try await updateProps(symmetricKey: symmetricKey, props: props)
+    }
+    
     public static func == (lhs: PrivateMessage, rhs: PrivateMessage) -> Bool {
         return lhs.id == rhs.id
     }
@@ -334,7 +340,7 @@ public enum MessageRecipient: Codable, Sendable, Equatable {
 }
 
 public enum MessageFlags: Codable, Sendable, Equatable {
-    case friendshipStateRequest, deliveryStateChange, editMessage, requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, dccSymmetricKey, sdp_offer(Data, Bool), sdp_answer(Data, Bool), ice_candidate, end_call, hold_call, none
+    case friendshipStateRequest, deliveryStateChange, editMessage, editMessageMetadata(String), requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, dccSymmetricKey, sdp_offer(Data, Bool), sdp_answer(Data, Bool), ice_candidate, end_call, hold_call, none
 }
 
 public struct CryptoMessage: Codable, Sendable {
