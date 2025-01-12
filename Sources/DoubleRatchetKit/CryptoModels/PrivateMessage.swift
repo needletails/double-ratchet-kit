@@ -7,7 +7,7 @@
 import Foundation
 import Crypto
 import BSON
-import Foundation
+import NIOConcurrencyHelpers
 import NeedleTailHelpers
 import NeedleTailCrypto
 
@@ -84,6 +84,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
     public let sharedId: String
     public let sequenceNumber: Int
     public var data: Data
+    private let lock = NIOLock()
     
     enum CodingKeys: String, CodingKey, Codable, Sendable {
         case id
@@ -233,7 +234,9 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.encryptionFailed
         }
+        lock.lock()
         self.data = encryptedData
+        lock.unlock()
         return try await decryptProps(symmetricKey: symmetricKey)
     }
     
@@ -254,7 +257,9 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
     
     public func updatePropsMetadata(symmetricKey: SymmetricKey, metadata: Data, with key: String) async throws -> UnwrappedProps? {
         var props = try await decryptProps(symmetricKey: symmetricKey)
+        lock.lock()
         props.message.metadata[key] = metadata
+        lock.unlock()
         return try await updateProps(symmetricKey: symmetricKey, props: props)
     }
     
@@ -340,7 +345,7 @@ public enum MessageRecipient: Codable, Sendable, Equatable {
 }
 
 public enum MessageFlags: Codable, Sendable, Equatable {
-    case friendshipStateRequest, deliveryStateChange, editMessage, editMessageMetadata(String), requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, dccSymmetricKey, sdp_offer(Data, Bool), sdp_answer(Data, Bool), ice_candidate, end_call, hold_call, none
+    case friendshipStateRequest(Data?), deliveryStateChange, editMessage, editMessageMetadata(String), requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, dccSymmetricKey, sdp_offer(Data, Bool), sdp_answer(Data, Bool), ice_candidate, end_call, hold_call, upgrade_to_video(Bool), downgrade_to_audio(Bool), none
 }
 
 public struct CryptoMessage: Codable, Sendable {
