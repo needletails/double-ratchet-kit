@@ -8,7 +8,6 @@ import Foundation
 import Crypto
 import BSON
 import NIOConcurrencyHelpers
-import NeedleTailHelpers
 import NeedleTailCrypto
 
 /// Protocol defining the base model functionality.
@@ -100,7 +99,6 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
         do {
             return try await decryptProps(symmetricKey: symmetricKey)
         } catch {
-            print("ERROR", error)
             return nil
         }
     }
@@ -310,6 +308,8 @@ public enum PushNotificationType: Codable, Sendable {
     case none
     /// A notification indicating that a user would like to be one of your contacts
     case contactRequest
+    /// A notication indicating theat the recipient is being nudge to wake up a communicate.
+    case nudge
 }
 
 /// An enumeration representing the different types of messages that can be sent or received.
@@ -325,11 +325,14 @@ public enum MessageType: String, Codable, Sendable {
     /// A nudgeLocal message, typically used to send a message to the end point, but will not save a CryptoMessage to the local DB
     case nudgeLocal
     /// A message type indicating that there is no specific type assigned.
-    case none
+    case server
 }
 
 /// An enumeration representing the different types of message recipients in a messaging network.
 public enum MessageRecipient: Codable, Sendable, Equatable {
+    /// A personal message intended for the user, visible across all their devices and to others on the network.
+    /// This case is used for messages that are specifically directed to the user but are not private.
+    case personalMessage
     /// A recipient identified by a nickname.
     /// This case is used when sending a message to a user identified by their chosen nickname.
     case nickname(String)
@@ -339,13 +342,32 @@ public enum MessageRecipient: Codable, Sendable, Equatable {
     /// A recipient for broadcast messages sent to multiple users.
     /// This case is used for messages intended to be sent to all users in the network or a specific group.
     case broadcast
-    /// A personal message intended for the user, visible across all their devices and to others on the network.
-    /// This case is used for messages that are specifically directed to the user but are not private.
-    case personalMessage
+    
+    /// Computed property to derive the nickname string if applicable.
+    public var nicknameDescription: String {
+        switch self {
+        case .nickname(let name):
+            return name
+        default:
+            fatalError()
+        }
+    }
 }
 
 public enum MessageFlags: Codable, Sendable, Equatable {
-    case friendshipStateRequest(Data?), deliveryStateChange, editMessage, editMessageMetadata(String), requestRegistry, notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration(Data), newDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, dccSymmetricKey, sdp_offer(Data, Bool), sdp_answer(Data, Bool), ice_candidate, end_call, hold_call, upgrade_to_video(Bool), downgrade_to_audio(Bool), none
+    case friendshipStateRequest(Data?), deliveryStateChange, editMessage, editMessageMetadata(String), notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration, newDevice(Data), unlinkedDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, addContacts, dccSymmetricKey, start_call, sdp_offer(OfferAnswerMetadata), sdp_answer(OfferAnswerMetadata), ice_candidate, end_call, hold_call, upgrade_to_video(Bool), downgrade_to_audio(Bool), none
+}
+
+public struct OfferAnswerMetadata: Codable, Sendable, Equatable {
+    public var sharedMessageId: String?
+    public let communicationId: String
+    public let supportsVideo: Bool
+    
+    public init(sharedMessageId: String? = nil, communicationId: String, supportsVideo: Bool) {
+        self.sharedMessageId = sharedMessageId
+        self.communicationId = communicationId
+        self.supportsVideo = supportsVideo
+    }
 }
 
 public struct CryptoMessage: Codable, Sendable {

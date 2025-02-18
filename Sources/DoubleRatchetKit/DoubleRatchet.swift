@@ -301,13 +301,13 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     // Load cached device identities (to be implemented).
     private func loadDeviceIdentities(
-        deviceId: SessionIdentity,
+        sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         secretKey: SymmetricKey,
         messageType: MessageType
     ) async throws {
-        guard let props = await deviceId.props(symmetricKey: sessionSymmetricKey) else {
-            fatalError("Device identity properties are missing.")
+        guard let props = await sessionIdentity.props(symmetricKey: sessionSymmetricKey) else {
+            throw RatchetError.missingDeviceIdentity
         }
         
         if let state = props.state {
@@ -379,13 +379,13 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   2. Then we can call `ratchetEncrypt()`.
     ///   3. We must make sure each time we want to use the ratchet, we are in the proper state.
     public func senderInitialization(
-        deviceId: SessionIdentity,
+        sessionIdentity: SessionIdentity,
         secretKey: SymmetricKey,
         sessionSymmetricKey: SymmetricKey,
         recipientPublicKey: Curve25519PublicKey
     ) async throws {
         try await loadDeviceIdentities(
-            deviceId: deviceId,
+            sessionIdentity: sessionIdentity,
             sessionSymmetricKey: sessionSymmetricKey,
             secretKey: secretKey,
             messageType: .sending(recipientPublicKey)
@@ -417,14 +417,14 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   2. Each time the ratchet is used, the proper state must be maintained
     ///      to ensure secure encryption and decryption.
     public func recipientInitialization(
-        deviceId: SessionIdentity,
+        sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         secretKey: SymmetricKey,
         localPrivateKey: Curve25519PrivateKey,
         initialMessage: EncryptedMessage
     ) async throws -> Data {
         try await loadDeviceIdentities(
-            deviceId: deviceId,
+            sessionIdentity: sessionIdentity,
             sessionSymmetricKey: sessionSymmetricKey,
             secretKey: secretKey,
             messageType: .receiving(localPrivateKey))
@@ -500,13 +500,13 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         }
         
         // Process a message if it was skipped first.
-        let (foundMessage, _state) = try await checkForSkippedMessages(
+        let (foundMessage, _state) = try! await checkForSkippedMessages(
             message,
             skippedMessageKeys: state.skippedMessageKeys)
         state = await updateState(to: _state)
         
         if let foundMessage = foundMessage {
-            return try await processFoundMessage(decodedMessage: foundMessage)
+            return try! await processFoundMessage(decodedMessage: foundMessage)
         }
         
         
@@ -514,20 +514,20 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         if message.header.senderPublicKey != state.remotePublicKey {
             // Process out-of-date (skipped) message.
             guard let configuration = await configuration else { throw RatchetError.missingConfiguration }
-            state = try await trySkipMessageKeys(message: message, configuration: configuration)
+            state = try! await trySkipMessageKeys(message: message, configuration: configuration)
             
             // Update the local list of skipped message keys.
             await state.updateSkippedMessages(with: state.skippedMessageKeys)
             state = await updateState(to: state)
             
             // Ratchet on decryption.
-            state = try await diffieHellmanRatchet(message: message)
+            state = try! await diffieHellmanRatchet(message: message)
         } else if message.header.messageNumber < state.receivedMessagesCount {
             throw RatchetError.expiredKey
         }
         
         guard let configuration = await configuration else { throw RatchetError.missingConfiguration }
-        state = try await trySkipMessageKeys(message: message, configuration: configuration)
+        state = try! await trySkipMessageKeys(message: message, configuration: configuration)
         
         // Update the local list of skipped message keys.
         await state.updateSkippedMessages(with: state.skippedMessageKeys)
@@ -539,8 +539,8 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             throw RatchetError.receivingKeyIsNil
         }
         
-        let messageKey = try await symmetricKeyRatchet(from: receivingKey)
-        let newReceivingKey = try await deriveChainKey(from: receivingKey, configuration: configuration)
+        let messageKey = try! await symmetricKeyRatchet(from: receivingKey)
+        let newReceivingKey = try! await deriveChainKey(from: receivingKey, configuration: configuration)
         
         await state.updateReceivingKey(newReceivingKey)
         state = await updateState(to: state)
@@ -548,7 +548,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         await state.incrementReceivedMessagesCount()
         state = await updateState(to: state)
         
-        return try await processFoundMessage(
+        return try! await processFoundMessage(
             decodedMessage: DecodedMessage(
                 ratchetMessage: message,
                 messageKey: messageKey
@@ -603,7 +603,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// Processes a found message and returns the decrypted data.
     func processFoundMessage(decodedMessage: DecodedMessage) async throws -> Data {
         guard let associatedData = await configuration?.associatedData else { throw RatchetError.headerDataIsNil }
-        let nonce = try await concatenate(
+        let nonce = try! await concatenate(
             associatedData: associatedData,
             header: decodedMessage.ratchetMessage.header
         )
@@ -611,7 +611,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             throw RatchetError.invalidNonceLength
         }
         
-        guard let decryptedMessage = try crypto.decrypt(
+        guard let decryptedMessage = try! crypto.decrypt(
             data: decodedMessage.ratchetMessage.encryptedData,
             symmetricKey: decodedMessage.messageKey
         ) else { throw RatchetError.decryptionFailed }

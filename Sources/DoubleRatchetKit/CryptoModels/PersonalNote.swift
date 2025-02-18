@@ -8,7 +8,6 @@ import Foundation
 import Crypto
 import BSON
 import Foundation
-import NeedleTailHelpers
 import NeedleTailCrypto
 
 public struct _PersonalNote: Sendable, Codable {

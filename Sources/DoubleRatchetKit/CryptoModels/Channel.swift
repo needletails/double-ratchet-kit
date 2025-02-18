@@ -8,8 +8,8 @@ import Foundation
 import Crypto
 import BSON
 import Foundation
-import NeedleTailHelpers
 import NeedleTailCrypto
+import NIOCore
 
 public struct _Channel: Sendable, Codable {
     public let id: UUID
@@ -163,5 +163,33 @@ public final class Channel: SecureModelProtocol, Codable, @unchecked Sendable {
             recipient: props.recipient,
             base: props.base,
             messages: props.messages) as! T
+    }
+}
+
+extension BSONEncoder {
+    public func encodeString<T: Codable>(_ encodable: T) throws -> String {
+        try encode(encodable).makeData().base64EncodedString()
+    }
+
+    public func encodeData<T: Codable>(_ encodable: T) throws -> Data {
+        try encode(encodable).makeData()
+    }
+}
+
+extension BSONDecoder {
+    enum Errors: Error, Sendable {
+        case nilData
+    }
+    public func decodeString<T: Codable>(_ type: T.Type, from string: String) throws -> T {
+        guard let data = Data(base64Encoded: string) else { throw Errors.nilData }
+        return try decode(type, from: Document(data: data))
+    }
+
+    public func decodeData<T: Codable>(_ type: T.Type, from data: Data) throws -> T {
+        return try decode(type, from: Document(data: data))
+    }
+
+    public func decodeBuffer<T: Codable>(_ type: T.Type, from buffer: ByteBuffer) throws -> T {
+        return try decode(type, from: Document(buffer: buffer))
     }
 }

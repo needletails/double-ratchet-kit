@@ -7,7 +7,6 @@
 import Foundation
 import Crypto
 import BSON
-import NeedleTailHelpers
 import NeedleTailCrypto
 
 public struct _SessionIdentity: Codable, Sendable {
@@ -27,7 +26,7 @@ public struct _SessionIdentity: Codable, Sendable {
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
 public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
-    public let id = UUID()
+    public let id: UUID
     public var data: Data
     
     enum CodingKeys: String, CodingKey, Codable, Sendable {
@@ -84,6 +83,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     }
     
     public init(
+        id: UUID,
         props: UnwrappedProps,
         symmetricKey: SymmetricKey
     ) throws {
@@ -92,10 +92,12 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.encryptionFailed
         }
+        self.id = id
         self.data = encryptedData
     }
     
-    public init(data: Data) {
+    public init(id: UUID, data: Data) {
+        self.id = id
         self.data = data
     }
     
@@ -144,3 +146,4 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         ) as! T
     }
 }
+
