@@ -64,7 +64,7 @@ public struct _PrivateMessage: Sendable, Codable, Equatable {
     public var deliveryState: DeliveryState
     public var message: CryptoMessage
     public let sendersSecretName: String
-    public let sendersId: UUID
+    public let sendersDeviceId: UUID
     
     public static func == (lhs: _PrivateMessage, rhs: _PrivateMessage) -> Bool {
         return lhs.id == rhs.id
@@ -120,7 +120,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
         /// The sender's secret name, which may be used for privacy.
         public let sendersSecretName: String
         /// The unique identifier for the sender's identity.
-        public let sendersId: UUID
+        public let sendersDeviceId: UUID
         
         // MARK: - Coding Keys
         private enum CodingKeys: String, CodingKey, Codable, Sendable {
@@ -130,7 +130,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             case deliveryState = "d"
             case message = "e"
             case sendersSecretName = "f"
-            case sendersId = "g"
+            case sendersDeviceId = "g"
         }
         
         /// Initializes a new instance of `UnwrappedProps`.
@@ -140,7 +140,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
         ///   - deliveryState: The current delivery state of the message.
         ///   - message: The content of the message.
         ///   - sendersSecretName: The sender's secret name.
-        ///   - sendersIdentity: The unique identifier for the sender's identity.
+        ///   - sendersDeviceId: The unique identifier for the sender's identity.
         public init(
             base: BaseCommunication,
             sendDate: Date,
@@ -148,7 +148,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             deliveryState: DeliveryState,
             message: CryptoMessage,
             sendersSecretName: String,
-            sendersId: UUID
+            sendersDeviceId: UUID
         ) {
             self.base = base
             self.sendDate = sendDate
@@ -156,7 +156,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             self.deliveryState = deliveryState
             self.message = message
             self.sendersSecretName = sendersSecretName
-            self.sendersId = sendersId
+            self.sendersDeviceId = sendersDeviceId
         }
     }
     
@@ -250,7 +250,7 @@ public final class PrivateMessage: SecureModelProtocol, @unchecked Sendable, Has
             deliveryState: props.deliveryState,
             message: props.message,
             sendersSecretName: props.sendersSecretName,
-            sendersId: props.sendersId) as! T
+            sendersDeviceId: props.sendersDeviceId) as! T
     }
     
     public func updatePropsMetadata(symmetricKey: SymmetricKey, metadata: Data, with key: String) async throws -> UnwrappedProps? {
@@ -355,7 +355,7 @@ public enum MessageRecipient: Codable, Sendable, Equatable {
 }
 
 public enum MessageFlags: Codable, Sendable, Equatable {
-    case friendshipStateRequest(Data?), deliveryStateChange, editMessage, editMessageMetadata(String), notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration, newDevice(Data), unlinkedDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, addContacts, dccSymmetricKey, start_call, sdp_offer(OfferAnswerMetadata), sdp_answer(OfferAnswerMetadata), ice_candidate, end_call, hold_call, upgrade_to_video(Bool), downgrade_to_audio(Bool), none
+    case friendshipStateRequest(Data?), deliveryStateChange, editMessage, editMessageMetadata(String), notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration, newDevice(Data), unlinkedDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, contactUpdated, addContacts, dccSymmetricKey, start_call, sdp_offer(OfferAnswerMetadata), sdp_answer(OfferAnswerMetadata), ice_candidate, end_call, hold_call, upgrade_to_video(Bool), downgrade_to_audio(Bool), none
 }
 
 public struct OfferAnswerMetadata: Codable, Sendable, Equatable {
