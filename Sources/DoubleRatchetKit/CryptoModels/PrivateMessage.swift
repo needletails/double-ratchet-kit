@@ -355,7 +355,7 @@ public enum MessageRecipient: Codable, Sendable, Equatable {
 }
 
 public enum MessageFlags: Codable, Sendable, Equatable {
-    case friendshipStateRequest(Data?), deliveryStateChange, editMessage, editMessageMetadata(String), notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration, newDevice(Data), unlinkedDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, contactUpdated, addContacts, dccSymmetricKey, start_call, sdp_offer(OfferAnswerMetadata), sdp_answer(OfferAnswerMetadata), ice_candidate, end_call, hold_call, upgrade_to_video(Bool), downgrade_to_audio(Bool), none
+    case friendshipStateRequest(Data?), deliveryStateChange, editMessage, editMessageMetadata(String), notifyContactRemoval, isTyping(Data), multipart, registerVoIP(Data), registerAPN(Data), publishUserConfiguration, newDevice(Data), unlinkedDevice(Data), ack(Data), audio, image, thumbnail, doc, requestMediaResend, revokeMessage, communicationSynchronization, contactCreated, contactUpdated, addContacts, synchronizeContacts, dccSymmetricKey, start_call, sdp_offer(OfferAnswerMetadata), sdp_answer(OfferAnswerMetadata), ice_candidate, end_call, hold_call, upgrade_to_video(Bool), downgrade_to_audio(Bool), none
 }
 
 public struct OfferAnswerMetadata: Codable, Sendable, Equatable {
