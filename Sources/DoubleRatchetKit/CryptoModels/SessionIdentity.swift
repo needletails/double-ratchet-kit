@@ -9,6 +9,31 @@ import Crypto
 import BSON
 import NeedleTailCrypto
 
+/// Protocol defining the base model functionality.
+public protocol SecureModelProtocol: Codable, Sendable {
+    associatedtype Props: Codable & Sendable
+    
+    /// Asynchronously sets the properties of the model using the provided symmetric key.
+    /// - Parameter symmetricKey: The symmetric key used for decryption.
+    /// - Returns: The decrypted properties.
+    func decryptProps(symmetricKey: SymmetricKey) async throws -> Props
+    
+    /// Updates the properties with the provided symmetric key.
+    /// - Parameter symmetricKey: The symmetric key used for decryption.
+    /// - Parameter props: The properties to update.
+    /// - Returns: The updated properties, or nil if the update failed.
+    func updateProps(symmetricKey: SymmetricKey, props: Props) async throws -> Props?
+    
+    func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T
+}
+
+
+
+/// Custom error type for encryption-related errors.
+public enum CryptoError: Error {
+    case encryptionFailed, decryptionFailed, propsError
+}
+
 public struct _SessionIdentity: Codable, Sendable {
     public let id: UUID
     public let secretName: String
@@ -108,7 +133,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     public func decryptProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
         let crypto = NeedleTailCrypto()
         guard let decrypted = try crypto.decrypt(data: self.data, symmetricKey: symmetricKey) else {
-            throw CryptoError.decryptionError
+            throw CryptoError.decryptionFailed
         }
         return try BSONDecoder().decodeData(UnwrappedProps.self, from: decrypted)
     }
@@ -134,7 +159,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         guard let props = await self.props(symmetricKey: symmetricKey) else {
             throw CryptoError.propsError
         }
-        return try _SessionIdentity(
+        return _SessionIdentity(
             id: id,
             secretName: props.secretName,
             deviceId: props.deviceId,

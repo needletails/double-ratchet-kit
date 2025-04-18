@@ -58,7 +58,7 @@ public struct SkippedMessageKey: Codable, Sendable {
 }
 
 /// Represents an encrypted message along with its header in the Double Ratchet protocol.
-public struct EncryptedMessage: Codable, Sendable {
+public struct RatchetMessage: Codable, Sendable {
     let header: MessageHeader        // The header containing metadata about the message.
     let encryptedData: Data          // The encrypted content of the message.
     
@@ -67,7 +67,7 @@ public struct EncryptedMessage: Codable, Sendable {
         case encryptedData = "b"
     }
     
-    /// Initializes a new EncryptedMessage with the specified header and encrypted data.
+    /// Initializes a new RatchetMessage with the specified header and encrypted data.
     /// - Parameters:
     ///   - header: The header of the encrypted message.
     ///   - encryptedData: The encrypted content of the message.
@@ -272,13 +272,19 @@ private enum RatchetError: Error {
     case missingConfiguration, missingDeviceIdentity, sendingKeyIsNil, headerDataIsNil, invalidNonceLength, encryptionFailed, decryptionFailed, expiredKey, receivingKeyIsNil, stateUninitialized
 }
 
-/// Manages the state of the Double Ratchet protocol for encryption sessions. We must inject the DoubleRatchet object into the manager for state management of this devices cryptographic payload. We do that via `loadDeviceIdentities()` where the **DoubleRatchet** on that model is maped into our initialization. Each time we initalize a **DoubleRatchet** via the sender or recipient we get the cached object. Therefor we must make sure that the cache is alway up to date.
+/// Manages the state of the Double Ratchet protocol for encryption sessions. We must inject the **RatchetState** object into the manager for state management of this devices cryptographic payload. We do that via `loadDeviceIdentities()` where the **DoubleRatchet** on that model is maped into our initialization. Each time we initalize a **RatchetState** via the sender or recipient we get the cached object. Therefor we must make sure that the cache is alway up to date.
 public actor RatchetStateManager<Hash: HashFunction & Sendable> {
-    // Static shared instance of the actor.
-    public static var shared: RatchetStateManager<Hash> {
-        return RatchetStateManager<Hash>()
+
+    let executor: UnownedSerialExecutor
+    
+    public init(executor: UnownedSerialExecutor) {
+        self.executor = executor
     }
     
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        executor
+    }
+
     private let crypto = NeedleTailCrypto()
     
     //Only should be used to set. do not get from this property
@@ -299,7 +305,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         case sending(Curve25519PublicKey), receiving(Curve25519PrivateKey)
     }
     
-    // Load cached device identities (to be implemented).
+    // Load cached device identities
     private func loadDeviceIdentities(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
@@ -402,7 +408,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   - secretKey: A `SymmetricKey` used for encryption and decryption processes.
     ///   - localPrivateKey: A `Curve25519PrivateKey` representing the local private key
     ///     for the Curve25519 elliptic curve, which is used in the double ratchet protocol.
-    ///   - initialMessage: An `EncryptedMessage` that contains the first message to be
+    ///   - initialMessage: An `RatchetMessage` that contains the first message to be
     ///     decrypted as part of the session initialization.
     ///
     /// - Returns: A `Data` object that represents the decrypted content of the
@@ -421,7 +427,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         sessionSymmetricKey: SymmetricKey,
         secretKey: SymmetricKey,
         localPrivateKey: Curve25519PrivateKey,
-        initialMessage: EncryptedMessage
+        initialMessage: RatchetMessage
     ) async throws -> Data {
         try await loadDeviceIdentities(
             sessionIdentity: sessionIdentity,
@@ -462,7 +468,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     /// Encrypts plaintext data and returns a RatchetMessage.
-    public func ratchetEncrypt(plainText: Data) async throws -> EncryptedMessage {
+    public func ratchetEncrypt(plainText: Data) async throws -> RatchetMessage {
         guard var state = await currentState else {
             throw RatchetError.missingDeviceIdentity
         }
@@ -491,10 +497,10 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         state = await updateState(to: state)
         
         guard let encryptedData = try crypto.encrypt(data: plainText, symmetricKey: newSendingKey) else { throw RatchetError.encryptionFailed }
-        return EncryptedMessage(header: messageHeader, encryptedData: encryptedData)
+        return RatchetMessage(header: messageHeader, encryptedData: encryptedData)
     }
     
-    public func ratchetDecrypt(_ message: EncryptedMessage) async throws -> Data {
+    public func ratchetDecrypt(_ message: RatchetMessage) async throws -> Data {
         guard var state = await currentState else {
             throw RatchetError.missingDeviceIdentity
         }
@@ -508,7 +514,6 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         if let foundMessage = foundMessage {
             return try await processFoundMessage(decodedMessage: foundMessage)
         }
-        
         
         // Check if the message key is valid.
         if message.header.senderPublicKey != state.remotePublicKey {
@@ -560,7 +565,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Parameter message: The encrypted message to process.
     /// - Throws: An error if the device identity is missing or if key derivation fails.
     private func trySkipMessageKeys(
-        message: EncryptedMessage,
+        message: RatchetMessage,
         configuration: RatchetConfiguration
     ) async throws -> RatchetState {
         guard var state = await currentState else {
@@ -619,12 +624,12 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     struct DecodedMessage: Sendable {
-        let ratchetMessage: EncryptedMessage
+        let ratchetMessage: RatchetMessage
         let messageKey: SymmetricKey
     }
     
     func checkForSkippedMessages(
-        _ message: EncryptedMessage,
+        _ message: RatchetMessage,
         skippedMessageKeys: [SkippedMessageKey]
     ) async throws -> (DecodedMessage?, RatchetState) {
         guard var state = await currentState else {
@@ -692,7 +697,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     /// Performs a Diffie-Hellman ratchet step when a new public key is received.
-    private func diffieHellmanRatchet(message: EncryptedMessage) async throws -> RatchetState {
+    private func diffieHellmanRatchet(message: RatchetMessage) async throws -> RatchetState {
         guard var state = await currentState else {
             throw RatchetError.stateUninitialized
         }
