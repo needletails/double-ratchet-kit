@@ -47,13 +47,15 @@ import NeedleTailCrypto
 /// Represents a set of skipped message keys for later processing in the Double Ratchet protocol.
 public struct SkippedMessageKey: Codable, Sendable {
     let publicKey: Data              // The public key of the sender associated with the skipped message.
+    let publicOTKey: Data              // The public key of the sender associated with the skipped message.
     let messageIndex: Int            // The index of the skipped message.
     let messageKey: SymmetricKey     // The symmetric key used to encrypt the skipped message.
     
     private enum CodingKeys: String, CodingKey, Sendable {
         case publicKey = "a"
-        case messageIndex = "b"
-        case messageKey = "c"
+        case publicOTKey = "b"
+        case messageIndex = "c"
+        case messageKey = "d"
     }
 }
 
@@ -79,14 +81,16 @@ public struct RatchetMessage: Codable, Sendable {
 
 /// Represents the header of a message in the Double Ratchet protocol.
 public struct MessageHeader: Sendable, Codable {
-    let senderPublicKey: Data        // The public key of the sender.
+    let senderPublicKey: Data  // The public key of the sender.
+    let senderOTPublicKey: Data  // The OT public key of the sender.
     let previousChainLength: Int      // The length of the previous message chain.
     let messageNumber: Int            // The sequence number of the message.
     
     private enum CodingKeys: String, CodingKey, Sendable {
         case senderPublicKey = "a"
-        case previousChainLength = "b"
-        case messageNumber = "c"
+        case senderOTPublicKey = "b"
+        case previousChainLength = "c"
+        case messageNumber = "d"
     }
     
     /// Initializes a new MessageHeader with the specified parameters.
@@ -94,8 +98,14 @@ public struct MessageHeader: Sendable, Codable {
     ///   - senderPublicKey: The public key of the sender.
     ///   - previousChainLength: The length of the previous message chain.
     ///   - messageNumber: The sequence number of the message.
-    public init(senderPublicKey: Data, previousChainLength: Int, messageNumber: Int) {
+    public init(
+        senderPublicKey: Data,
+        senderOTPublicKey: Data,
+        previousChainLength: Int,
+        messageNumber: Int
+    ) {
         self.senderPublicKey = senderPublicKey
+        self.senderOTPublicKey = senderOTPublicKey
         self.previousChainLength = previousChainLength
         self.messageNumber = messageNumber
     }
@@ -153,21 +163,29 @@ public struct RatchetState: Sendable, Codable {
     
     enum CodingKeys: String, CodingKey, Sendable, Codable {
         case localPrivateKey = "a"
-        case remotePublicKey = "s"
-        case rootKey = "d"
-        case sendingKey = "e"
-        case receivingKey = "f"
-        case sentMessagesCount = "g"
-        case receivedMessagesCount = "h"
-        case previousMessagesCount = "i"
-        case skippedMessageKeys = "j"
+        case localOTPrivateKey = "b"
+        case remotePublicKey = "c"
+        case remoteOTPublicKey = "d"
+        case rootKey = "e"
+        case sendingKey = "f"
+        case receivingKey = "g"
+        case sentMessagesCount = "h"
+        case receivedMessagesCount = "i"
+        case previousMessagesCount = "j"
+        case skippedMessageKeys = "k"
     }
     
     // DHs - DH Ratchet key pair (the “sending” or “self” ratchet key)
     private(set) fileprivate var localPrivateKey: Data
     
+    // X3DH DH Ratchet key pair (one-time) private key (the “sending” or “self” ratchet key per session)
+    private(set) fileprivate var localOTPrivateKey: Data
+    
     // DHr - DH Ratchet public key (the “received” or “remote” key)
     private(set) fileprivate var remotePublicKey: Data?
+    
+    // X3DH DH Ratchet (one-time) public key (the once per session “received” or “remote” key)
+    private(set) fileprivate var remoteOTPublicKey: Data?
     
     // RK - Root Key
     private(set) fileprivate var rootKey: SymmetricKey
@@ -192,21 +210,27 @@ public struct RatchetState: Sendable, Codable {
     
     init(
         localPrivateKey: Data,
+        localOTPrivateKey: Data,
         rootKey: SymmetricKey
     ) {
         self.localPrivateKey = localPrivateKey
+        self.localOTPrivateKey = localOTPrivateKey
         self.rootKey = rootKey
     }
     
     init(
         remotePublicKey: Data,
-        localPrivateKey: Curve25519PrivateKey,
+        remoteOTPublicKey: Data,
+        localPrivateKey: Data,
+        localOTPrivateKey: Data,
         rootKey: SymmetricKey,
         sendingKey: SymmetricKey
     ) {
         self.remotePublicKey = remotePublicKey
+        self.remoteOTPublicKey = remoteOTPublicKey
         self.rootKey = rootKey
-        self.localPrivateKey = localPrivateKey.rawRepresentation
+        self.localPrivateKey = localPrivateKey
+        self.localOTPrivateKey = localOTPrivateKey
         self.sendingKey = sendingKey
     }
     
@@ -238,6 +262,10 @@ public struct RatchetState: Sendable, Codable {
         self.remotePublicKey = remotePublicKey
     }
     
+    mutating func updateRemoteOTPublicKey(_ remoteOTPublicKey: Data) async {
+        self.remoteOTPublicKey = remoteOTPublicKey
+    }
+    
     mutating func updateSendingKey(_ sendingKey: SymmetricKey) async {
         self.sendingKey = sendingKey
     }
@@ -248,6 +276,10 @@ public struct RatchetState: Sendable, Codable {
     
     mutating func updateLocalPrivateKey(_ localPrivateKey: Data) async {
         self.localPrivateKey = localPrivateKey
+    }
+    
+    mutating func updateLocalOTPrivateKey(_ localOTPrivateKey: Data) async {
+        self.localOTPrivateKey = localOTPrivateKey
     }
     
     mutating func updateSentMessagesCount(_ sentMessagesCount: Int) async {
@@ -302,7 +334,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     enum MessageType: Sendable {
-        case sending(Curve25519PublicKey), receiving(Curve25519PrivateKey)
+        case sending(Curve25519PublicKey, Curve25519PublicKey, Curve25519PrivateKey), receiving(Curve25519PrivateKey, Curve25519PrivateKey)
     }
     
     // Load cached device identities
@@ -315,50 +347,75 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         guard let props = await sessionIdentity.props(symmetricKey: sessionSymmetricKey) else {
             throw RatchetError.missingDeviceIdentity
         }
-        
+
         if let state = props.state {
             // Update the state based on the message type
             self.privateState = await updateState(state, for: messageType)
         } else {
             // Create a new state if none exists
-            privateState = try await createNewState(for: messageType, using: secretKey)
+            privateState = try await createNewState(
+                for: messageType,
+                using: secretKey)
         }
     }
     
     // Helper method to update the state based on the message type
-    private func updateState(_ state: RatchetState, for messageType: MessageType) async -> RatchetState {
+    private func updateState(_
+                             state: RatchetState,
+                             for messageType: MessageType,
+    ) async -> RatchetState {
         var updatedState = state
         switch messageType {
-        case .receiving(let localPrivateKey):
+        case .receiving(let localPrivateKey, let localOTPrivateKey):
             await updatedState.updateLocalPrivateKey(localPrivateKey.rawRepresentation)
-        case .sending(let localPublicKey):
-            await updatedState.updateRemotePublicKey(localPublicKey.rawRepresentation)
+            await updatedState.updateLocalOTPrivateKey(localOTPrivateKey.rawRepresentation)
+        case .sending(let remotePublicKey, let remoteOTPublicKey, _):
+            await updatedState.updateRemotePublicKey(remotePublicKey.rawRepresentation)
+            await updatedState.updateRemoteOTPublicKey(remoteOTPublicKey.rawRepresentation)
         }
         return updatedState
     }
     
     // Helper method to create a new state based on the message type
-    private func createNewState(for messageType: MessageType, using secretKey: SymmetricKey) async throws -> RatchetState {
+    private func createNewState(
+        for messageType: MessageType,
+        using secretKey: SymmetricKey
+    ) async throws -> RatchetState {
         
         switch messageType {
-        case .receiving(let localPrivateKey):
+        case .receiving(let localPrivateKey, let localOTPrivateKey):
             return RatchetState(
                 localPrivateKey: localPrivateKey.rawRepresentation,
+                localOTPrivateKey: localOTPrivateKey.rawRepresentation,
                 rootKey: secretKey
             )
             
-        case .sending(let recipientPublicKey):
-            let localPrivateKey = crypto.generateCurve25519PrivateKey()
-            let sharedSecret = try localPrivateKey.sharedSecretFromKeyAgreement(with: recipientPublicKey)
-            let rootKey = try await deriveHKDFSymmetricKey(
-                sharedSecret: sharedSecret,
-                symmetricKey: secretKey,
-                configuration: defaultRatchetConfiguration
-            )
+        case .sending(let recipientPublicKey, let recipientOTPublicKey, let localPrivateKey):
+            let localOTPrivateKey = crypto.generateCurve25519PrivateKey()
+//            let ltSharedSecret = try localPrivateKey.sharedSecretFromKeyAgreement(with: recipientPublicKey)
+//            let otSharedSecret = try localOTPrivateKey.sharedSecretFromKeyAgreement(with: recipientOTPublicKey)
+            
+//            let rootKey = try await deriveHKDFSymmetricKey(
+//                sharedSecret: ltSharedSecret,
+//                symmetricKey: secretKey,
+//                configuration: defaultRatchetConfiguration)
+//            
+//            let _rootKey = try await deriveHKDFSymmetricKey(
+//                sharedSecret: otSharedSecret,
+//                symmetricKey: secretKey,
+//                configuration: defaultRatchetConfiguration)
+            
+            let rootKey = try await deriveX3DHFinalKey(
+                localPrivateKeyData: localPrivateKey.rawRepresentation,
+                senderPublicKeyData: recipientPublicKey.rawRepresentation,
+                localOTPrivateKeyData: localOTPrivateKey.rawRepresentation,
+                senderOTPublicKeyData: recipientOTPublicKey.rawRepresentation)
             
             return await RatchetState(
                 remotePublicKey: recipientPublicKey.rawRepresentation,
-                localPrivateKey: localPrivateKey,
+                remoteOTPublicKey: recipientOTPublicKey.rawRepresentation,
+                localPrivateKey: localPrivateKey.rawRepresentation,
+                localOTPrivateKey: localOTPrivateKey.rawRepresentation,
                 rootKey: rootKey,
                 sendingKey: try deriveChainKey(from: rootKey, configuration: defaultRatchetConfiguration)
             )
@@ -388,14 +445,15 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         sessionIdentity: SessionIdentity,
         secretKey: SymmetricKey,
         sessionSymmetricKey: SymmetricKey,
-        recipientPublicKey: Curve25519PublicKey
+        recipientPublicKey: Curve25519PublicKey,
+        recipientOTPublicKey: Curve25519PublicKey,
+        localPrivateKey: Curve25519PrivateKey
     ) async throws {
         try await loadDeviceIdentities(
             sessionIdentity: sessionIdentity,
             sessionSymmetricKey: sessionSymmetricKey,
             secretKey: secretKey,
-            messageType: .sending(recipientPublicKey)
-        )
+            messageType: .sending(recipientPublicKey, recipientOTPublicKey, localPrivateKey))
     }
     
     /// This function initializes a recipient's session for double ratchet encryption.
@@ -427,13 +485,14 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         sessionSymmetricKey: SymmetricKey,
         secretKey: SymmetricKey,
         localPrivateKey: Curve25519PrivateKey,
+        localOTPrivateKey: Curve25519PrivateKey,
         initialMessage: RatchetMessage
     ) async throws -> Data {
         try await loadDeviceIdentities(
             sessionIdentity: sessionIdentity,
             sessionSymmetricKey: sessionSymmetricKey,
             secretKey: secretKey,
-            messageType: .receiving(localPrivateKey))
+            messageType: .receiving(localPrivateKey, localOTPrivateKey))
         return try await ratchetDecrypt(initialMessage)
     }
     
@@ -478,11 +537,12 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         await state.updateSendingKey(newSendingKey)
         state = await updateState(to: state)
         let localPublicKey = try Curve25519PrivateKey(rawRepresentation: state.localPrivateKey).publicKey
+        let localOTPublicKey = try Curve25519PrivateKey(rawRepresentation: state.localOTPrivateKey).publicKey
         let messageHeader = await createMessageHeader(
             publicKey: localPublicKey.rawRepresentation,
+            publicOTKey: localOTPublicKey.rawRepresentation,
             previousChainLength: state.previousMessagesCount,
-            messageNumber: state.sentMessagesCount
-        )
+            messageNumber: state.sentMessagesCount)
         
         guard let associatedData = await configuration?.associatedData else { throw RatchetError.headerDataIsNil }
         let nonce = try await concatenate(
@@ -516,7 +576,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         }
         
         // Check if the message key is valid.
-        if message.header.senderPublicKey != state.remotePublicKey {
+        if message.header.senderPublicKey != state.remotePublicKey && message.header.senderOTPublicKey != state.remoteOTPublicKey {
             // Process out-of-date (skipped) message.
             guard let configuration = await configuration else { throw RatchetError.missingConfiguration }
             state = try await trySkipMessageKeys(message: message, configuration: configuration)
@@ -587,6 +647,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             // Append the new skipped message key directly to the state
             await state.updateSkippedMessages(skippedMessageKeys: SkippedMessageKey(
                 publicKey: message.header.senderPublicKey,
+                publicOTKey: message.header.senderOTPublicKey,
                 messageIndex: state.receivedMessagesCount,
                 messageKey: messageKey
             ))
@@ -638,7 +699,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         
         for skippedMessageKey in skippedMessageKeys {
             if skippedMessageKey.messageIndex == message.header.messageNumber,
-               message.header.senderPublicKey == skippedMessageKey.publicKey {
+               message.header.senderPublicKey == skippedMessageKey.publicKey && message.header.senderOTPublicKey == skippedMessageKey.publicOTKey {
                 
                 // Modify the skippedMessageKeys
                 await state.removeSkippedMessages(at: skippedMessageKey.messageIndex)
@@ -656,11 +717,13 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// Creates a message header for the Double Ratchet protocol.
     func createMessageHeader(
         publicKey: Data,
+        publicOTKey: Data,
         previousChainLength: Int,
         messageNumber: Int
     ) async -> MessageHeader {
         MessageHeader(
             senderPublicKey: publicKey,
+            senderOTPublicKey: publicOTKey,
             previousChainLength: previousChainLength,
             messageNumber: messageNumber
         )
@@ -710,20 +773,27 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         await state.updateSentMessagesCount(0)
         await state.updateReceivedMessagesCount(0)
         await state.updateRemotePublicKey(message.header.senderPublicKey)
+        await state.updateRemoteOTPublicKey(message.header.senderOTPublicKey)
         state = await updateState(to: state)
         
         
         /// These next steps are purposed to derive a new Sending Key 
         // Derive shared secret and update keys
-        let sharedSecret = try await deriveSharedSecret(
-            localPrivateKeyData: state.localPrivateKey,
-            senderPublicKeyData: message.header.senderPublicKey)
+//        let sharedSecret = try await deriveSharedSecret(
+//            localPrivateKeyData: state.localPrivateKey,
+//            senderPublicKeyData: message.header.senderPublicKey)
+//        
+//        let newRootKey = try await deriveHKDFSymmetricKey(
+//            sharedSecret: sharedSecret,
+//            symmetricKey: state.rootKey,
+//            configuration: configuration
+//        )
         
-        let newRootKey = try await deriveHKDFSymmetricKey(
-            sharedSecret: sharedSecret,
-            symmetricKey: state.rootKey,
-            configuration: configuration
-        )
+        let newRootKey = try await deriveX3DHFinalKey(
+            localPrivateKeyData: state.localPrivateKey,
+            senderPublicKeyData: message.header.senderPublicKey,
+            localOTPrivateKeyData: state.localOTPrivateKey,
+            senderOTPublicKeyData: message.header.senderOTPublicKey)
         
         await state.updateRootKey(newRootKey)
         state = await updateState(to: state)
@@ -739,19 +809,30 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         /// These next steps are purposed to derive a new Sending Key
         // Generate new local private key
         let newLocalPrivateKey = crypto.generateCurve25519PrivateKey().rawRepresentation
-        await state.updateLocalPrivateKey(newLocalPrivateKey)
+//        await state.updateLocalPrivateKey(newLocalPrivateKey)
+        await state.updateLocalOTPrivateKey(newLocalPrivateKey)
         state = await updateState(to: state)
         
         // Derive shared secret again with the new local private key
-        let newSharedSecret = try await deriveSharedSecret(
-            localPrivateKeyData: state.localPrivateKey,
-            senderPublicKeyData: message.header.senderPublicKey)
+//        let newSharedSecret = try await deriveSharedSecret(
+//            localPrivateKeyData: state.localPrivateKey,
+//            senderPublicKeyData: message.header.senderPublicKey)
         
-        let _newRootKey = try await deriveHKDFSymmetricKey(
-            sharedSecret: newSharedSecret,
-            symmetricKey: state.rootKey,
-            configuration: configuration
-        )
+//        let newOTSharedSecret = try await deriveSharedSecret(
+//            localPrivateKeyData: state.localPrivateKey,
+//            senderPublicKeyData: message.header.senderOTPublicKey)
+        
+//        let _newRootKey = try await deriveHKDFSymmetricKey(
+//            sharedSecret: newSharedSecret,
+//            symmetricKey: state.rootKey,
+//            configuration: configuration)
+        
+        let _newRootKey = try await deriveX3DHFinalKey(
+            localPrivateKeyData: state.localPrivateKey,
+            senderPublicKeyData: message.header.senderPublicKey,
+            localOTPrivateKeyData: state.localOTPrivateKey,
+            senderOTPublicKeyData: message.header.senderOTPublicKey)
+        
         await state.updateRootKey(_newRootKey)
         state = await updateState(to: state)
         
@@ -765,10 +846,39 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     // Helper method to derive shared secret
-    private func deriveSharedSecret(localPrivateKeyData: Data, senderPublicKeyData: Data) async throws -> SharedSecret {
+    private func deriveSharedSecret(
+        localPrivateKeyData: Data,
+        senderPublicKeyData: Data
+    ) async throws -> SharedSecret {
         let localPrivateKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localPrivateKeyData)
         let senderPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: senderPublicKeyData)
         return try localPrivateKey.sharedSecretFromKeyAgreement(with: senderPublicKey)
+    }
+    
+    func deriveX3DHFinalKey(
+        localPrivateKeyData: Data,
+        senderPublicKeyData: Data,
+        localOTPrivateKeyData: Data,
+        senderOTPublicKeyData: Data
+    ) async throws -> SymmetricKey {
+        let K_A = try await deriveSharedSecret(localPrivateKeyData: localPrivateKeyData, senderPublicKeyData: senderPublicKeyData)
+        let K_A_ot = try await deriveSharedSecret(localPrivateKeyData: localOTPrivateKeyData, senderPublicKeyData: senderOTPublicKeyData)
+        
+        // Convert shared secrets to Data
+        let K_A_data = K_A.withUnsafeBytes { Data($0) }
+        let K_A_ot_data = K_A_ot.withUnsafeBytes { Data($0) }
+        
+        // Concatenate shared secrets
+        let concatenatedSecrets = K_A_data + K_A_ot_data
+        
+        // Hash the concatenated result to get the final key
+        let K_A_final = SHA256.hash(data: concatenatedSecrets)
+        
+        
+        let finalKeyData = K_A_final.withUnsafeBytes { buffer in
+            Data(buffer: buffer.bindMemory(to: UInt8.self))
+        }
+        return SymmetricKey(data: finalKeyData)
     }
 }
 
