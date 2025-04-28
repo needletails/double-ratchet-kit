@@ -8,6 +8,7 @@ import Foundation
 import Crypto
 import BSON
 import NeedleTailCrypto
+import SwiftKyber
 
 /// Protocol defining the base model functionality.
 public protocol SecureModelProtocol: Codable, Sendable {
@@ -76,6 +77,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public let sessionContextId: Int
         public let publicKeyRepesentable: Data
         public let publicSigningRepresentable: Data
+        public let kyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey
         public var state: RatchetState?
         public let deviceName: String
         public var serverTrusted: Bool?
@@ -88,6 +90,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             sessionContextId: Int,
             publicKeyRepesentable: Data,
             publicSigningRepresentable: Data,
+            kyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey,
             state: RatchetState? = nil,
             deviceName: String,
             serverTrusted: Bool? = nil,
@@ -99,6 +102,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.sessionContextId = sessionContextId
             self.publicKeyRepesentable = publicKeyRepesentable
             self.publicSigningRepresentable = publicSigningRepresentable
+            self.kyber1024PublicKey = kyber1024PublicKey
             self.state = state
             self.deviceName = deviceName
             self.serverTrusted = serverTrusted
@@ -153,6 +157,16 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         }
         self.data = encryptedData
         return try await self.decryptProps(symmetricKey: symmetricKey)
+    }
+    
+    public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws -> Self? {
+        let crypto = NeedleTailCrypto()
+        let data = try BSONEncoder().encodeData(props)
+        guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
+            throw CryptoError.encryptionFailed
+        }
+        self.data = encryptedData
+        return self
     }
     
     public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {

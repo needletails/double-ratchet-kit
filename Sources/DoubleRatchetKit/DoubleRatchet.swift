@@ -8,6 +8,7 @@
 import Foundation
 import BSON
 import NeedleTailCrypto
+import SwiftKyber
 
 //TODO: -
 /*
@@ -61,7 +62,7 @@ public struct SkippedMessageKey: Codable, Sendable {
 
 /// Represents an encrypted message along with its header in the Double Ratchet protocol.
 public struct RatchetMessage: Codable, Sendable {
-    let header: MessageHeader        // The header containing metadata about the message.
+    let header: EncryptedHeader        // The header containing metadata about the message.
     let encryptedData: Data          // The encrypted content of the message.
     
     private enum CodingKeys: String, CodingKey, Sendable {
@@ -73,26 +74,83 @@ public struct RatchetMessage: Codable, Sendable {
     /// - Parameters:
     ///   - header: The header of the encrypted message.
     ///   - encryptedData: The encrypted content of the message.
-    public init(header: MessageHeader, encryptedData: Data) {
+    public init(header: EncryptedHeader, encryptedData: Data) {
         self.header = header
         self.encryptedData = encryptedData
     }
 }
 
+public struct EncryptedHeader: Sendable, Codable {
+    let remotePublicLongTermKey: Data  // Sender's long-term public key
+    let remotePublicOneTimeKey: Data   // Sender's one-time public key
+    let remoteKyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey  // Sender's Kyber1024 public key
+    let headerCiphertext: Data         // Header encapsulated ciphertext
+    let messageCiphertext: Data        // Message encapsulated ciphertext
+    let encrypted: Data                // Encrypted header body (e.g., BSON)
+    
+    // Only exists at runtime after decryption
+    public private(set) var decrypted: MessageHeader?
+    
+    public mutating func setDecrypted(_ decrypted: MessageHeader) {
+        self.decrypted = decrypted
+    }
+    
+    private enum CodingKeys: String, CodingKey, Sendable {
+        case remotePublicLongTermKey = "a"
+        case remotePublicOneTimeKey = "b"
+        case remoteKyber1024PublicKey = "c"
+        case headerCiphertext = "d"
+        case messageCiphertext = "e"
+        case encrypted = "f"
+    }
+    
+    /// Initializes the EncryptedHeader without a decrypted header (sending case).
+    public init(
+        remotePublicLongTermKey: Data,
+        remotePublicOneTimeKey: Data,
+        remoteKyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey,
+        headerCiphertext: Data,
+        messageCiphertext: Data,
+        encrypted: Data
+    ) {
+        self.remotePublicLongTermKey = remotePublicLongTermKey
+        self.remotePublicOneTimeKey = remotePublicOneTimeKey
+        self.remoteKyber1024PublicKey = remoteKyber1024PublicKey
+        self.headerCiphertext = headerCiphertext
+        self.messageCiphertext = messageCiphertext
+        self.encrypted = encrypted
+        self.decrypted = nil
+    }
+    
+    /// Initializes the EncryptedHeader with a decrypted header (receiving case).
+    public init(
+        remotePublicLongTermKey: Data,
+        remotePublicOneTimeKey: Data,
+        remoteKyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey,
+        headerCiphertext: Data,
+        messageCiphertext: Data,
+        encrypted: Data,
+        decrypted: MessageHeader
+    ) {
+        self.remotePublicLongTermKey = remotePublicLongTermKey
+        self.remotePublicOneTimeKey = remotePublicOneTimeKey
+        self.remoteKyber1024PublicKey = remoteKyber1024PublicKey
+        self.headerCiphertext = headerCiphertext
+        self.messageCiphertext = messageCiphertext
+        self.encrypted = encrypted
+        self.decrypted = decrypted
+    }
+}
+
+
 /// Represents the header of a message in the Double Ratchet protocol.
 public struct MessageHeader: Sendable, Codable {
-    let senderPublicLongTermKey: Data  // The public key of the sender.
-    let senderPublicOneTimeKey: Data  // The OT public key of the sender.
-    let senderPQKEMPublicKey: Data  // The PQ-KEM public key of the sender.
     let previousChainLength: Int      // The length of the previous message chain.
     let messageNumber: Int            // The sequence number of the message.
     
     private enum CodingKeys: String, CodingKey, Sendable {
-        case senderPublicLongTermKey = "a"
-        case senderPublicOneTimeKey = "b"
-        case senderPQKEMPublicKey = "c"
-        case previousChainLength = "d"
-        case messageNumber = "e"
+        case previousChainLength = "a"
+        case messageNumber = "b"
     }
     
     /// Initializes a new MessageHeader with the specified parameters.
@@ -101,15 +159,9 @@ public struct MessageHeader: Sendable, Codable {
     ///   - previousChainLength: The length of the previous message chain.
     ///   - messageNumber: The sequence number of the message.
     public init(
-        senderPublicLongTermKey: Data,
-        senderPublicOneTimeKey: Data,
-        senderPQKEMPublicKey: Data,
         previousChainLength: Int,
         messageNumber: Int
     ) {
-        self.senderPublicLongTermKey = senderPublicLongTermKey
-        self.senderPublicOneTimeKey = senderPublicOneTimeKey
-        self.senderPQKEMPublicKey = senderPQKEMPublicKey
         self.previousChainLength = previousChainLength
         self.messageNumber = messageNumber
     }
@@ -172,13 +224,19 @@ public struct RatchetState: Sendable, Codable {
         case remotePublicLongTermKey = "d"
         case remotePublicOneTimeKey = "e"
         case remotePQKEMPublicKey = "f"
-        case rootKey = "g"
-        case sendingKey = "h"
-        case receivingKey = "i"
-        case sentMessagesCount = "j"
-        case receivedMessagesCount = "k"
-        case previousMessagesCount = "l"
-        case skippedMessageKeys = "m"
+        case messageCiphertext = "g"
+        case rootKey = "h"
+        case sendingKey = "i"
+        case receivingKey = "j"
+        case sentMessagesCount = "k"
+        case receivedMessagesCount = "l"
+        case previousMessagesCount = "m"
+        case skippedMessageKeys = "n"
+        case headerCiphertext = "o"
+        case sendingHeaderKey = "p"
+        case nextSendingHeaderKey = "q"
+        case receivingHeaderKey = "r"
+        case nextReceivingHeaderKey = "s"
     }
     
     // DHs - DH Ratchet key pair (the “sending” or “self” ratchet key)
@@ -188,7 +246,7 @@ public struct RatchetState: Sendable, Codable {
     private(set) fileprivate var localPrivateOneTimeKey: Data
     
     // PQXDH DH Ratchet key pair (Post Quantum) private key (the “sending” or “self” ratchet key per session)
-    private(set) fileprivate var localPQKEMPrivateKey: Data
+    private(set) fileprivate var localPQKEMPrivateKey: Kyber1024.KeyAgreement.PrivateKey
     
     // DHr - DH Ratchet public key (the “received” or “remote” key)
     private(set) fileprivate var remotePublicLongTermKey: Data?
@@ -197,7 +255,10 @@ public struct RatchetState: Sendable, Codable {
     private(set) fileprivate var remotePublicOneTimeKey: Data?
     
     // PQXDH DH Ratchet key pair (Post Quantum) private key (the “sending” or “self” ratchet key per session)
-    private(set) fileprivate var remotePQKEMPublicKey: Data
+    private(set) fileprivate var remotePQKEMPublicKey: Kyber1024.KeyAgreement.PublicKey
+    
+    // PQXDH CipherText
+    private(set) fileprivate var messageCiphertext: Data?
     
     // RK - Root Key
     private(set) fileprivate var rootKey: SymmetricKey
@@ -220,29 +281,27 @@ public struct RatchetState: Sendable, Codable {
     // MKSKIPPED - Dictionary of skipped-over message keys
     private(set) fileprivate var skippedMessageKeys = [SkippedMessageKey]()
     
-    init(
-        localPrivateLongTermKey: Data,
-        localPrivateOneTimeKey: Data,
-        localPQKEMPrivateKey: Data,
-        remotePQKEMPublicKey: Data,
-        rootKey: SymmetricKey
-    ) {
-        self.localPrivateLongTermKey = localPrivateLongTermKey
-        self.localPrivateOneTimeKey = localPrivateOneTimeKey
-        self.localPQKEMPrivateKey = localPQKEMPrivateKey
-        self.remotePQKEMPublicKey = remotePQKEMPublicKey
-        self.rootKey = rootKey
-    }
+    // PQXDH Header CipherText
+    private(set) fileprivate var headerCiphertext: Data?
+    // HKs current sending header key
+    private(set) fileprivate var sendingHeaderKey: SymmetricKey?
+    // NHKs next sending header key
+    private(set) fileprivate var nextSendingHeaderKey: SymmetricKey?
+    // HKr current receiving header key
+    private(set) fileprivate var receivingHeaderKey: SymmetricKey?
+    // NHKr next receiving header key
+    private(set) fileprivate var nextReceivingHeaderKey: SymmetricKey?
     
     init(
         remotePublicLongTermKey: Data,
         remotePublicOneTimeKey: Data,
-        remotePQKEMPublicKey: Data,
+        remotePQKEMPublicKey: Kyber1024.KeyAgreement.PublicKey,
         localPrivateLongTermKey: Data,
         localPrivateOneTimeKey: Data,
-        localPQKEMPrivateKey: Data,
+        localPQKEMPrivateKey: Kyber1024.KeyAgreement.PrivateKey,
         rootKey: SymmetricKey,
-        sendingKey: SymmetricKey
+        messageCiphertext: Data,
+        receivingKey: SymmetricKey,
     ) {
         self.remotePublicLongTermKey = remotePublicLongTermKey
         self.remotePublicOneTimeKey = remotePublicOneTimeKey
@@ -251,6 +310,29 @@ public struct RatchetState: Sendable, Codable {
         self.localPrivateOneTimeKey = localPrivateOneTimeKey
         self.localPQKEMPrivateKey = localPQKEMPrivateKey
         self.rootKey = rootKey
+        self.messageCiphertext = messageCiphertext
+        self.receivingKey = receivingKey
+    }
+    
+    init(
+        remotePublicLongTermKey: Data,
+        remotePublicOneTimeKey: Data,
+        remotePQKEMPublicKey: Kyber1024.KeyAgreement.PublicKey,
+        localPrivateLongTermKey: Data,
+        localPrivateOneTimeKey: Data,
+        localPQKEMPrivateKey: Kyber1024.KeyAgreement.PrivateKey,
+        rootKey: SymmetricKey,
+        messageCiphertext: Data,
+        sendingKey: SymmetricKey,
+    ) {
+        self.remotePublicLongTermKey = remotePublicLongTermKey
+        self.remotePublicOneTimeKey = remotePublicOneTimeKey
+        self.remotePQKEMPublicKey = remotePQKEMPublicKey
+        self.localPrivateLongTermKey = localPrivateLongTermKey
+        self.localPrivateOneTimeKey = localPrivateOneTimeKey
+        self.localPQKEMPrivateKey = localPQKEMPrivateKey
+        self.rootKey = rootKey
+        self.messageCiphertext = messageCiphertext
         self.sendingKey = sendingKey
     }
     
@@ -286,7 +368,7 @@ public struct RatchetState: Sendable, Codable {
         self.remotePublicOneTimeKey = remoteOTPublicKey
     }
     
-    mutating func updateRemotePQKEMPublicKey(_ remotePQKEMPublicKey: Data) async {
+    mutating func updateRemotePQKEMPublicKey(_ remotePQKEMPublicKey: Kyber1024.KeyAgreement.PublicKey) async {
         self.remotePQKEMPublicKey = remotePQKEMPublicKey
     }
     
@@ -306,7 +388,7 @@ public struct RatchetState: Sendable, Codable {
         self.localPrivateOneTimeKey = localOTPrivateKey
     }
     
-    mutating func updateLocalPQKEMPrivateKey(_ localPQKEMPrivateKey: Data) async {
+    mutating func updateLocalPQKEMPrivateKey(_ localPQKEMPrivateKey: Kyber1024.KeyAgreement.PrivateKey) async {
         self.localPQKEMPrivateKey = localPQKEMPrivateKey
     }
     
@@ -326,23 +408,46 @@ public struct RatchetState: Sendable, Codable {
         self.rootKey = rootKey
     }
     
+    mutating func updateCiphertext(_ cipherText: Data) async {
+        self.messageCiphertext = cipherText
+    }
+    
+    mutating func updateHeaderCiphertext(_ cipherText: Data) async {
+        self.headerCiphertext = cipherText
+    }
+    
+    mutating func updateSendingHeaderKey(_ HKs: SymmetricKey) async {
+        self.sendingHeaderKey = HKs
+    }
+    
+    mutating func updateSendingNextHeaderKey(_ NHKs: SymmetricKey) async {
+        self.nextSendingHeaderKey = NHKs
+    }
+    
+    mutating func updateReceivingHeaderKey(_ HKr: SymmetricKey) async {
+        self.receivingHeaderKey = HKr
+    }
+    
+    mutating func updateReceivingNextHeaderKey(_ NHKr: SymmetricKey) async {
+        self.nextReceivingHeaderKey = NHKr
+    }
 }
 
-private enum RatchetError: Error {
-    case missingConfiguration, missingDeviceIdentity, sendingKeyIsNil, headerDataIsNil, invalidNonceLength, encryptionFailed, decryptionFailed, expiredKey, receivingKeyIsNil, stateUninitialized
+internal enum RatchetError: Error {
+    case missingConfiguration, missingDeviceIdentity, sendingKeyIsNil, headerDataIsNil, invalidNonceLength, encryptionFailed, decryptionFailed, expiredKey, receivingKeyIsNil, stateUninitialized, missingCipherText, headerKeysNil, missingLocalKeys, headerEncryptionFailed, headerDecryptFailed, missingNextHeaderKey
 }
 
 /// Manages the state of the Double Ratchet protocol for encryption sessions. We must inject the **RatchetState** object into the manager for state management of this devices cryptographic payload. We do that via `loadDeviceIdentities()` where the **DoubleRatchet** on that model is maped into our initialization. Each time we initalize a **RatchetState** via the sender or recipient we get the cached object. Therefor we must make sure that the cache is alway up to date.
 public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
-    let executor: UnownedSerialExecutor
+    let executor: any SerialExecutor
     
-    public init(executor: UnownedSerialExecutor) {
+    public init(executor: any SerialExecutor) {
         self.executor = executor
     }
     
     public nonisolated var unownedExecutor: UnownedSerialExecutor {
-        executor
+        executor.asUnownedSerialExecutor()
     }
     
     private let crypto = NeedleTailCrypto()
@@ -362,34 +467,32 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     enum MessageType: Sendable {
-        case sending(SenderKeys), receiving(RecipientKeys)
+        case sending(EncryptionKeys), receiving(EncryptionKeys)
     }
     
-    struct SenderKeys: Sendable {
+    struct EncryptionKeys: Sendable {
         let remotePublicLongTermKey: Curve25519PublicKey
         let remotePublicOneTimeKey: Curve25519PublicKey
-        let remotePQKEMPublicKey: Data
+        let remotePQKEMPublicKey: Kyber1024.KeyAgreement.PublicKey
         let localPrivateLongTermKey: Curve25519PrivateKey
         let localPrivateOneTimeKey: Curve25519PrivateKey
-        let localPQKEMPrivateKey: Data //DUMMY FOR NOW
+        let localPQKEMPrivateKey: Kyber1024.KeyAgreement.PrivateKey
     }
     
-    struct RecipientKeys: Sendable {
-        let localPrivateLongTermKey: Curve25519PrivateKey
-        let localPrivateOneTimeKey: Curve25519PrivateKey
-        let localPQKEMPrivateKey: Data //DUMMY FOR NOW
-        let remotePQKEMPublicKey: Data
-    }
-    
+    var sessionIdentity: SessionIdentity?
+    var sessionSymmetricKey: SymmetricKey?
     
     // Load cached device identities
     private func loadDeviceIdentities(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
-        secretKey: SymmetricKey,
         messageType: MessageType
     ) async throws {
-        guard let props = await sessionIdentity.props(symmetricKey: sessionSymmetricKey) else {
+        if sessionIdentity.id != self.sessionIdentity?.id {
+            self.sessionIdentity = sessionIdentity
+            self.sessionSymmetricKey = sessionSymmetricKey
+        }
+        guard var props = await self.sessionIdentity?.props(symmetricKey: sessionSymmetricKey) else {
             throw RatchetError.missingDeviceIdentity
         }
         
@@ -398,11 +501,24 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             self.privateState = await updateState(state, for: messageType)
         } else {
             // Create a new state if none exists
-            privateState = try await createNewState(
-                for: messageType,
-                using: secretKey)
+            privateState = try await createNewState(for: messageType)
+            props.state = privateState
+            _ = try await sessionIdentity.updateProps(symmetricKey: sessionSymmetricKey, props: props)
         }
     }
+    
+    private func updateSessionIdentity(
+        sessionIdentity: SessionIdentity,
+        sessionSymmetricKey: SymmetricKey
+    ) async throws {
+        guard var props = await sessionIdentity.props(symmetricKey: sessionSymmetricKey) else {
+            throw RatchetError.missingDeviceIdentity
+        }
+        
+        props.state = privateState
+        self.sessionIdentity = try await sessionIdentity.updateIdentityProps(symmetricKey: sessionSymmetricKey, props: props)
+    }
+
     
     // Helper method to update the state based on the message type
     private func updateState(_
@@ -415,8 +531,13 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             await updatedState.updateLocalPrivateLongTermKey(recipientKeys.localPrivateLongTermKey.rawRepresentation)
             await updatedState.updateLocalPrivateOneTimeKey(recipientKeys.localPrivateOneTimeKey.rawRepresentation)
             await updatedState.updateLocalPQKEMPrivateKey(recipientKeys.localPQKEMPrivateKey)
+            await updatedState.updateRemotePublicLongTermKey(recipientKeys.remotePublicLongTermKey.rawRepresentation)
+            await updatedState.updateRemotePublicOneTimeKey(recipientKeys.remotePublicOneTimeKey.rawRepresentation)
             await updatedState.updateRemotePQKEMPublicKey(recipientKeys.remotePQKEMPublicKey)
         case .sending(let senderKeys):
+            await updatedState.updateLocalPrivateLongTermKey(senderKeys.localPrivateLongTermKey.rawRepresentation)
+            await updatedState.updateLocalPrivateOneTimeKey(senderKeys.localPrivateOneTimeKey.rawRepresentation)
+            await updatedState.updateLocalPQKEMPrivateKey(senderKeys.localPQKEMPrivateKey)
             await updatedState.updateRemotePublicLongTermKey(senderKeys.remotePublicLongTermKey.rawRepresentation)
             await updatedState.updateRemotePublicOneTimeKey(senderKeys.remotePublicOneTimeKey.rawRepresentation)
             await updatedState.updateRemotePQKEMPublicKey(senderKeys.remotePQKEMPublicKey)
@@ -425,52 +546,43 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     // Helper method to create a new state based on the message type
-    private func createNewState(
-        for messageType: MessageType,
-        using secretKey: SymmetricKey
-    ) async throws -> RatchetState {
-        
+    private func createNewState(for messageType: MessageType) async throws -> RatchetState {
         switch messageType {
         case .receiving(let recipientKeys):
-            return RatchetState(
+            let cipher = try await derivePQXDHFinalKey(
+                localPrivateLongTermKey: recipientKeys.localPrivateLongTermKey.rawRepresentation,
+                remotePublicLongTermKey: recipientKeys.remotePublicLongTermKey.rawRepresentation,
+                localPrivateOneTimeKey: recipientKeys.localPrivateOneTimeKey.rawRepresentation,
+                remotePublicOneTimeKey: recipientKeys.remotePublicOneTimeKey.rawRepresentation,
+                remoteKyber1024PublicKey: recipientKeys.remotePQKEMPublicKey)
+            return await RatchetState(
+                remotePublicLongTermKey: recipientKeys.remotePublicLongTermKey.rawRepresentation,
+                remotePublicOneTimeKey: recipientKeys.remotePublicOneTimeKey.rawRepresentation,
+                remotePQKEMPublicKey: recipientKeys.remotePQKEMPublicKey,
                 localPrivateLongTermKey: recipientKeys.localPrivateLongTermKey.rawRepresentation,
                 localPrivateOneTimeKey: recipientKeys.localPrivateOneTimeKey.rawRepresentation,
                 localPQKEMPrivateKey: recipientKeys.localPQKEMPrivateKey,
-                remotePQKEMPublicKey: recipientKeys.remotePQKEMPublicKey,
-                rootKey: secretKey
-            )
+                rootKey: cipher.symmetricKey,
+                messageCiphertext: cipher.ciphertext,
+                receivingKey: try deriveChainKey(from: cipher.symmetricKey, configuration: defaultRatchetConfiguration))
             
         case .sending(let senderKeys):
-            //            let localOTPrivateKey = crypto.generateCurve25519PrivateKey()
-            //            let ltSharedSecret = try localPrivateKey.sharedSecretFromKeyAgreement(with: recipientPublicKey)
-            //            let otSharedSecret = try localOTPrivateKey.sharedSecretFromKeyAgreement(with: recipientOTPublicKey)
-            
-            //            let rootKey = try await deriveHKDFSymmetricKey(
-            //                sharedSecret: ltSharedSecret,
-            //                symmetricKey: secretKey,
-            //                configuration: defaultRatchetConfiguration)
-            //
-            //            let _rootKey = try await deriveHKDFSymmetricKey(
-            //                sharedSecret: otSharedSecret,
-            //                symmetricKey: secretKey,
-            //                configuration: defaultRatchetConfiguration)
-            
-            let rootKey = try await deriveX3DHFinalKey(
+            let (sendingKey, cipher) = try await deriveNextMessageKey(
                 localPrivateLongTermKey: senderKeys.localPrivateLongTermKey.rawRepresentation,
-                senderPublicLongTermKey: senderKeys.remotePublicLongTermKey.rawRepresentation,
+                remotePublicLongTermKey: senderKeys.remotePublicLongTermKey.rawRepresentation,
                 localPrivateOneTimeKey: senderKeys.localPrivateOneTimeKey.rawRepresentation,
-                senderPublicOneTimeKey: senderKeys.remotePublicOneTimeKey.rawRepresentation)
-            
-            return await RatchetState(
+                remotePublicOneTimeKey: senderKeys.remotePublicOneTimeKey.rawRepresentation,
+                remoteKyber1024PublicKey: senderKeys.remotePQKEMPublicKey)
+            return RatchetState(
                 remotePublicLongTermKey: senderKeys.remotePublicLongTermKey.rawRepresentation,
                 remotePublicOneTimeKey: senderKeys.remotePublicOneTimeKey.rawRepresentation,
                 remotePQKEMPublicKey: senderKeys.remotePQKEMPublicKey,
                 localPrivateLongTermKey: senderKeys.localPrivateLongTermKey.rawRepresentation,
                 localPrivateOneTimeKey: senderKeys.localPrivateOneTimeKey.rawRepresentation,
                 localPQKEMPrivateKey: senderKeys.localPQKEMPrivateKey,
-                rootKey: rootKey,
-                sendingKey: try deriveChainKey(from: rootKey, configuration: defaultRatchetConfiguration)
-            )
+                rootKey: cipher.symmetricKey,
+                messageCiphertext: cipher.ciphertext,
+                sendingKey: sendingKey)
         }
     }
     
@@ -495,23 +607,21 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     ///   3. We must make sure each time we want to use the ratchet, we are in the proper state.
     public func senderInitialization(
         sessionIdentity: SessionIdentity,
-        secretKey: SymmetricKey,
         sessionSymmetricKey: SymmetricKey,
         remotePublicLongTermKey: Curve25519PublicKey,
-        remotePrivateOneTimeKey: Curve25519PublicKey,
-        remotePQKEMPublicKey: Data,
+        remotePublicOneTimeKey: Curve25519PublicKey,
+        remotePQKEMPublicKey: Kyber1024.KeyAgreement.PublicKey,
         localPrivateLongTermKey: Curve25519PrivateKey,
         localPrivateOneTimeKey: Curve25519PrivateKey,
-        localPQDHPrivateKey: Data
+        localPQDHPrivateKey: Kyber1024.KeyAgreement.PrivateKey
     ) async throws {
         try await loadDeviceIdentities(
             sessionIdentity: sessionIdentity,
             sessionSymmetricKey: sessionSymmetricKey,
-            secretKey: secretKey,
             messageType: .sending(
-                SenderKeys(
+                EncryptionKeys(
                     remotePublicLongTermKey: remotePublicLongTermKey,
-                    remotePublicOneTimeKey: remotePrivateOneTimeKey,
+                    remotePublicOneTimeKey: remotePublicOneTimeKey,
                     remotePQKEMPublicKey: remotePQKEMPublicKey,
                     localPrivateLongTermKey: localPrivateLongTermKey,
                     localPrivateOneTimeKey: localPrivateOneTimeKey,
@@ -545,23 +655,25 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     public func recipientInitialization(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
-        secretKey: SymmetricKey,
+        remotePublicLongTermKey: Curve25519PublicKey,
+        remotePublicOneTimeKey: Curve25519PublicKey,
+        remotePQKEMPublicKey: Kyber1024.KeyAgreement.PublicKey,
         localPrivateLongTermKey: Curve25519PrivateKey,
         localPrivateOneTimeKey: Curve25519PrivateKey,
-        localPQKEMPrivateKey: Data,
-        remotePQKEMPublicKey: Data,
+        localPQKEMPrivateKey: Kyber1024.KeyAgreement.PrivateKey,
         initialMessage: RatchetMessage
     ) async throws -> Data {
+        let keys = EncryptionKeys(
+            remotePublicLongTermKey: remotePublicLongTermKey,
+            remotePublicOneTimeKey: remotePublicOneTimeKey,
+            remotePQKEMPublicKey: remotePQKEMPublicKey,
+            localPrivateLongTermKey: localPrivateLongTermKey,
+            localPrivateOneTimeKey: localPrivateOneTimeKey,
+            localPQKEMPrivateKey: localPQKEMPrivateKey)
         try await loadDeviceIdentities(
             sessionIdentity: sessionIdentity,
             sessionSymmetricKey: sessionSymmetricKey,
-            secretKey: secretKey,
-            messageType: .receiving(
-                RecipientKeys(
-                    localPrivateLongTermKey: localPrivateLongTermKey,
-                    localPrivateOneTimeKey: localPrivateOneTimeKey,
-                    localPQKEMPrivateKey: localPQKEMPrivateKey,
-                    remotePQKEMPublicKey: remotePQKEMPublicKey)))
+            messageType: .receiving(keys))
         return try await ratchetDecrypt(initialMessage)
     }
     
@@ -592,53 +704,194 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     private func updateState(to newState: RatchetState) async -> RatchetState {
         self.privateState = newState
+        try! await updateSessionIdentity(sessionIdentity: self.sessionIdentity!, sessionSymmetricKey: self.sessionSymmetricKey!)
         return self.privateState ?? newState // Return the new state, ensuring safety
     }
     
     /// Encrypts plaintext data and returns a RatchetMessage.
     public func ratchetEncrypt(plainText: Data) async throws -> RatchetMessage {
         guard var state = await currentState else {
-            throw RatchetError.missingDeviceIdentity
+            throw RatchetError.stateUninitialized
         }
         guard let sendingKey = state.sendingKey else { throw RatchetError.sendingKeyIsNil }
-        
-        let newSendingKey = try await symmetricKeyRatchet(from: sendingKey)
-        await state.updateSendingKey(newSendingKey)
-        state = await updateState(to: state)
-        let localPrivateLongTermKey = try Curve25519PrivateKey(rawRepresentation: state.localPrivateLongTermKey).publicKey
-        let localPrivateOneTimeKey = try Curve25519PrivateKey(rawRepresentation: state.localPrivateOneTimeKey).publicKey
 
-        let messageHeader = await createMessageHeader(
-            senderPublicLongTermKey: localPrivateLongTermKey.rawRepresentation,
-            senderPublicOneTimeKey: localPrivateOneTimeKey.rawRepresentation,
-            senderPQKEMPublicKey: state.localPQKEMPrivateKey,
+        let messageHeader = MessageHeader(
             previousChainLength: state.previousMessagesCount,
             messageNumber: state.sentMessagesCount)
+        let headerCipher = try await derivePQXDHFinalKey(
+            localPrivateLongTermKey: state.localPrivateLongTermKey,
+            remotePublicLongTermKey: state.remotePublicLongTermKey!,
+            localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+            remotePublicOneTimeKey: state.remotePublicOneTimeKey!,
+            remoteKyber1024PublicKey: state.remotePQKEMPublicKey)
         
-        guard let associatedData = await configuration?.associatedData else { throw RatchetError.headerDataIsNil }
+        await state.updateHeaderCiphertext(headerCipher.ciphertext)
+        await state.updateSendingHeaderKey(headerCipher.symmetricKey)
+        
+        // Step 3. Derive and store the NEXT sending header key for future ratchet transitions.
+        let nextSendingHeaderKey = try await derivePQXDHFinalKey(
+            localPrivateLongTermKey: state.localPrivateLongTermKey,
+            remotePublicLongTermKey: state.remotePublicLongTermKey!,
+            localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+            remotePublicOneTimeKey: state.remotePublicOneTimeKey!,
+            remoteKyber1024PublicKey: state.remotePQKEMPublicKey)
+        
+        await state.updateSendingNextHeaderKey(nextSendingHeaderKey.symmetricKey)
+        state = await updateState(to: state)
+        
+        let localPublicLongTermKey = try Curve25519PrivateKey(rawRepresentation: state.localPrivateLongTermKey).publicKey.rawRepresentation
+        let localPublicOneTimeKey = try Curve25519PrivateKey(rawRepresentation: state.localPrivateOneTimeKey).publicKey.rawRepresentation
+        
+        let encryptedHeader = try await encryptHeader(
+            messageHeader,
+            remotePublicLongTermKey: localPublicLongTermKey,
+            remotePublicOneTimeKey: localPublicOneTimeKey,
+            remoteKyber1024PublicKey: state.localPQKEMPrivateKey.publicKey)
+        
+        guard let encryptedData = try crypto.encrypt(
+            data: plainText,
+            symmetricKey: sendingKey
+        ) else { throw RatchetError.encryptionFailed }
+
+                let (newSendingKey, _) = try await deriveNextMessageKey(
+                    localPrivateLongTermKey: state.localPrivateLongTermKey,
+                    remotePublicLongTermKey: state.remotePublicLongTermKey!,
+                    localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+                    remotePublicOneTimeKey: state.remotePublicOneTimeKey!,
+                    remoteKyber1024PublicKey: state.remotePQKEMPublicKey)
+                
+        
+        guard let associatedData = await configuration?.associatedData else {
+            throw RatchetError.headerDataIsNil
+        }
         let nonce = try await concatenate(
             associatedData: associatedData,
-            header: messageHeader
+            header: encryptedHeader
         )
         guard nonce.count == 32 else {
             throw RatchetError.invalidNonceLength
         }
         
+        guard var state = await currentState else {
+            throw RatchetError.stateUninitialized
+        }
+        
+        await state.updateSendingKey(newSendingKey)
         await state.incrementSentMessagesCount()
         state = await updateState(to: state)
-        
-        guard let encryptedData = try crypto.encrypt(data: plainText, symmetricKey: newSendingKey) else { throw RatchetError.encryptionFailed }
-        return RatchetMessage(header: messageHeader, encryptedData: encryptedData)
+        return RatchetMessage(header: encryptedHeader, encryptedData: encryptedData)
     }
     
+    /// Runs PQXDH, then HKDF chain-key, then HMAC ratchet to get the next message key.
+        /// Returns both the raw PQXDH ciphertext (for header rotation) and the new message key.
+    private func deriveNextMessageKey(localPrivateLongTermKey: Data,
+                                      remotePublicLongTermKey: Data,
+                                      localPrivateOneTimeKey: Data,
+                                      remotePublicOneTimeKey: Data,
+                                      remoteKyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey) async throws -> (SymmetricKey, PQXDHCipher) {
+       
+        // 1) PQXDH encaps
+        let cipher = try await derivePQXDHFinalKey(
+            localPrivateLongTermKey: localPrivateLongTermKey,
+            remotePublicLongTermKey: remotePublicLongTermKey,
+            localPrivateOneTimeKey: localPrivateOneTimeKey,
+            remotePublicOneTimeKey: remotePublicOneTimeKey,
+            remoteKyber1024PublicKey: remoteKyber1024PublicKey)
+        
+        // 2) HKDF chain key from PQXDH shared secret
+        let ck = try await deriveChainKey(
+            from: cipher.symmetricKey,
+            configuration: defaultRatchetConfiguration
+        )
+        
+        if var state = await currentState {
+            await state.updateRootKey(cipher.symmetricKey)
+            await state.updateCiphertext(cipher.ciphertext)
+            self.privateState = await updateState(to: state)
+        }
+        
+        // 3) HMAC ratchet to get the per-message key
+        return (try await symmetricKeyRatchet(from: ck), cipher)
+    }
+    
+    enum KeyChangeType {
+        case none
+        case longTermKeyChanged
+        case oneTimeKeyChanged
+    }
+
     public func ratchetDecrypt(_ message: RatchetMessage) async throws -> Data {
         guard var state = await currentState else {
             throw RatchetError.missingDeviceIdentity
         }
+
+        let finalHeaderReceivingKey = try await derivePQXDHFinalKeyReceiver(
+            remotePublicLongTermKey: message.header.remotePublicLongTermKey,
+            remotePublicOneTimeKey: message.header.remotePublicOneTimeKey,
+            localPrivateLongTermKey: state.localPrivateLongTermKey,
+            localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+            localKyberPrivateKey: state.localPQKEMPrivateKey,
+            receivedCiphertext: message.header.headerCiphertext)
         
+        await state.updateReceivingHeaderKey(finalHeaderReceivingKey)
+        state = await updateState(to: state)
+        
+        let header = try await decryptHeader(message.header)
+        
+        // Check if this header was encrypted using a next header key.
+        // (Assume that your header structure or protocol indicates if the header was encrypted
+        // with the "next" key, for example via a flag or by comparing with the current stored key.)
+        let keyChangeType: KeyChangeType = {
+            if message.header.remotePublicLongTermKey != state.remotePublicLongTermKey {
+                return .longTermKeyChanged
+            } else if message.header.remotePublicOneTimeKey != state.remotePublicOneTimeKey {
+                return .oneTimeKeyChanged
+            } else {
+                return .none
+            }
+        }()
+        
+        switch keyChangeType {
+        case .longTermKeyChanged, .oneTimeKeyChanged:
+            // The protocol dictates that successful decryption with the NEXT header key triggers a Diffie–Hellman ratchet.
+            // Shift the next header key into the current header key slot.
+            if let nextReceivingHeaderKey = state.nextReceivingHeaderKey {
+                await state.updateReceivingHeaderKey(nextReceivingHeaderKey)
+            } else {
+                throw RatchetError.missingNextHeaderKey
+            }
+            // After the shift, derive a new next receiving header key.
+            let newNextReceivingHeaderKey = try await derivePQXDHFinalKey(
+                localPrivateLongTermKey: state.localPrivateLongTermKey,
+                remotePublicLongTermKey: state.remotePublicLongTermKey!,
+                localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+                remotePublicOneTimeKey: state.remotePublicOneTimeKey!,
+                remoteKyber1024PublicKey: state.remotePQKEMPublicKey)
+            await state.updateReceivingNextHeaderKey(newNextReceivingHeaderKey.symmetricKey)
+            // Additionally, perform a DH ratchet step.
+            state = try await diffieHellmanRatchet(header: header)
+        case .none:
+            // After the shift, derive a new next receiving header k
+            // Even if no ratchet is triggered, you may want to update the next receiving header key.
+            // This ensures that if a future header is marked as a ratchet trigger,
+            // you have a "next" key available.
+            let newNextReceivingHeaderKey = try await derivePQXDHFinalKey(
+                localPrivateLongTermKey: state.localPrivateLongTermKey,
+                remotePublicLongTermKey: state.remotePublicLongTermKey!,
+                localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+                remotePublicOneTimeKey: state.remotePublicOneTimeKey!,
+                remoteKyber1024PublicKey: state.remotePQKEMPublicKey)
+            await state.updateReceivingNextHeaderKey(newNextReceivingHeaderKey.symmetricKey)
+        }
+        
+        guard let decrypted = header.decrypted else {
+            throw RatchetError.headerDecryptFailed
+        }
+
         // Process a message if it was skipped first.
         let (foundMessage, _state) = try await checkForSkippedMessages(
             message,
+            header: decrypted,
             skippedMessageKeys: state.skippedMessageKeys)
         state = await updateState(to: _state)
         
@@ -647,47 +900,58 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         }
         
         // Check if the message key is valid.
-        if message.header.senderPublicLongTermKey != state.remotePublicLongTermKey && message.header.senderPublicOneTimeKey != state.remotePublicOneTimeKey {
+        if message.header.remotePublicLongTermKey != state.remotePublicLongTermKey && message.header.remotePublicOneTimeKey != state.remotePublicOneTimeKey {
             // Process out-of-date (skipped) message.
             guard let configuration = await configuration else { throw RatchetError.missingConfiguration }
-            state = try await trySkipMessageKeys(message: message, configuration: configuration)
+            state = try await trySkipMessageKeys(
+                header: header,
+                configuration: configuration)
             
             // Update the local list of skipped message keys.
             await state.updateSkippedMessages(with: state.skippedMessageKeys)
             state = await updateState(to: state)
             
             // Ratchet on decryption.
-            state = try await diffieHellmanRatchet(message: message)
-        } else if message.header.messageNumber < state.receivedMessagesCount {
+            state = try await diffieHellmanRatchet(header: header)
+        } else if decrypted.messageNumber < state.receivedMessagesCount {
             throw RatchetError.expiredKey
         }
-        
         guard let configuration = await configuration else { throw RatchetError.missingConfiguration }
-        state = try await trySkipMessageKeys(message: message, configuration: configuration)
+        state = try await trySkipMessageKeys(
+            header: header,
+            configuration: configuration)
         
         // Update the local list of skipped message keys.
         await state.updateSkippedMessages(with: state.skippedMessageKeys)
         state = await updateState(to: state)
         
+        let finalReceivingKey = try await derivePQXDHFinalKeyReceiver(
+            remotePublicLongTermKey: message.header.remotePublicLongTermKey,
+            remotePublicOneTimeKey: message.header.remotePublicOneTimeKey,
+            localPrivateLongTermKey: state.localPrivateLongTermKey,
+            localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+            localKyberPrivateKey: state.localPQKEMPrivateKey,
+            receivedCiphertext: message.header.messageCiphertext)
         
-        // The key is not valid and the message number is greater than the amount of messages we have stashed.
-        guard let receivingKey = state.receivingKey else {
-            throw RatchetError.receivingKeyIsNil
-        }
-     
-        let finalKeyData = receivingKey.withUnsafeBytes { buffer in
-            Data(buffer: buffer.bindMemory(to: UInt8.self))
-        }
-        //TODO: **Key Decapsulation**: Each participant decapsulates the received encapsulated key using their own PQ-KEM private key.
+        await state.updateRemotePublicLongTermKey(message.header.remotePublicLongTermKey)
+        await state.updateRemotePublicOneTimeKey(message.header.remotePublicOneTimeKey)
         
-//        let finalKeyData = K_A_final.withUnsafeBytes { buffer in
-//            Data(buffer: buffer.bindMemory(to: UInt8.self))
-//        }
-        let decapsulatedKey = SymmetricKey(data: finalKeyData)
-        let messageKey = try await symmetricKeyRatchet(from: decapsulatedKey)
-        let newReceivingKey = try await deriveChainKey(from: receivingKey, configuration: configuration)
+        state = await updateState(to: state)
+       
+        let newReceivingKey = try await deriveChainKey(from: finalReceivingKey, configuration: configuration)
+        let messageKey = try await symmetricKeyRatchet(from: newReceivingKey)
+        await state.updateReceivingKey(messageKey)
         
-        await state.updateReceivingKey(newReceivingKey)
+        // Similarly, derive a new next receiving header key based on the new receiving header key,
+        // if you want to be conservative about future ratchets.
+        let newNextReceivingHeaderKey = try await derivePQXDHFinalKey(
+            localPrivateLongTermKey: state.localPrivateLongTermKey,
+            remotePublicLongTermKey: state.remotePublicLongTermKey!,
+            localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+            remotePublicOneTimeKey: state.remotePublicOneTimeKey!,
+            remoteKyber1024PublicKey: state.remotePQKEMPublicKey)
+        await state.updateReceivingNextHeaderKey(newNextReceivingHeaderKey.symmetricKey)
+        
         state = await updateState(to: state)
         
         await state.incrementReceivedMessagesCount()
@@ -696,16 +960,14 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         return try await processFoundMessage(
             decodedMessage: DecodedMessage(
                 ratchetMessage: message,
-                messageKey: messageKey
-            )
-        )
+                messageKey: messageKey))
     }
     
     /// Attempts to skip message keys based on the received message.
     /// - Parameter message: The encrypted message to process.
     /// - Throws: An error if the device identity is missing or if key derivation fails.
     private func trySkipMessageKeys(
-        message: RatchetMessage,
+        header: EncryptedHeader,
         configuration: RatchetConfiguration
     ) async throws -> RatchetState {
         guard var state = await currentState else {
@@ -714,9 +976,12 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         guard let receivingKey = state.receivingKey else {
             return state
         }
+        guard let decryptedHeader = header.decrypted else {
+            throw RatchetError.decryptionFailed
+        }
         
         // Process until the received messages count is less than the previous chain length
-        while state.receivedMessagesCount < message.header.previousChainLength {
+        while state.receivedMessagesCount < decryptedHeader.previousChainLength {
             // Derive the message key and new receiving key
             let messageKey = try await symmetricKeyRatchet(from: receivingKey)
             let newReceivingKey = try await deriveChainKey(from: receivingKey, configuration: configuration)
@@ -726,8 +991,8 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             
             // Append the new skipped message key directly to the state
             await state.updateSkippedMessages(skippedMessageKeys: SkippedMessageKey(
-                senderPublicLongTermKey: message.header.senderPublicLongTermKey,
-                senderPublicOneTimeKey: message.header.senderPublicOneTimeKey,
+                senderPublicLongTermKey: header.remotePublicLongTermKey,
+                senderPublicOneTimeKey: header.remotePublicOneTimeKey,
                 messageIndex: state.receivedMessagesCount,
                 messageKey: messageKey
             ))
@@ -771,6 +1036,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     func checkForSkippedMessages(
         _ message: RatchetMessage,
+        header: MessageHeader,
         skippedMessageKeys: [SkippedMessageKey]
     ) async throws -> (DecodedMessage?, RatchetState) {
         guard var state = await currentState else {
@@ -778,23 +1044,28 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         }
         
         for skippedMessageKey in skippedMessageKeys {
-            if skippedMessageKey.messageIndex == message.header.messageNumber,
-               message.header.senderPublicLongTermKey == skippedMessageKey.senderPublicLongTermKey && message.header.senderPublicOneTimeKey == skippedMessageKey.senderPublicOneTimeKey {
+            if skippedMessageKey.messageIndex == header.messageNumber,
+               message.header.remotePublicLongTermKey == skippedMessageKey.senderPublicLongTermKey && message.header.remotePublicOneTimeKey == skippedMessageKey.senderPublicOneTimeKey {
                 
                 // Modify the skippedMessageKeys
                 await state.removeSkippedMessages(at: skippedMessageKey.messageIndex)
                 state = await updateState(to: state)
                 
-                let finalKeyData = skippedMessageKey.messageKey.withUnsafeBytes { buffer in
-                    Data(buffer: buffer.bindMemory(to: UInt8.self))
-                }
-                //TODO: **Key Decapsulation**: Each participant decapsulates the received encapsulated key using their own PQ-KEM private key.
+                let finalReceivingKey = try await derivePQXDHFinalKeyReceiver(
+                    remotePublicLongTermKey: message.header.remotePublicLongTermKey,
+                    remotePublicOneTimeKey: message.header.remotePublicOneTimeKey,
+                    localPrivateLongTermKey: state.localPrivateLongTermKey,
+                    localPrivateOneTimeKey: state.localPrivateOneTimeKey,
+                    localKyberPrivateKey: state.localPQKEMPrivateKey,
+                    receivedCiphertext:  message.header.messageCiphertext)
                 
-        //        let finalKeyData = K_A_final.withUnsafeBytes { buffer in
-        //            Data(buffer: buffer.bindMemory(to: UInt8.self))
-        //        }
-                let decapsulatedKey = SymmetricKey(data: finalKeyData)
-                let messageKey = try await symmetricKeyRatchet(from: decapsulatedKey)
+                await state.updateReceivingKey(finalReceivingKey)
+                await state.updateRemotePublicLongTermKey(message.header.remotePublicLongTermKey)
+                await state.updateRemotePublicOneTimeKey(message.header.remotePublicOneTimeKey)
+                
+                state = await updateState(to: state)
+                
+                let messageKey = try await symmetricKeyRatchet(from: finalReceivingKey)
                 
                 return (DecodedMessage(
                     ratchetMessage: message,
@@ -803,23 +1074,6 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             }
         }
         return (nil, state)
-    }
-    
-    /// Creates a message header for the Double Ratchet protocol.
-    func createMessageHeader(
-        senderPublicLongTermKey: Data,
-        senderPublicOneTimeKey: Data,
-        senderPQKEMPublicKey: Data,
-        previousChainLength: Int,
-        messageNumber: Int
-    ) async -> MessageHeader {
-        MessageHeader(
-            senderPublicLongTermKey: senderPublicLongTermKey,
-            senderPublicOneTimeKey: senderPublicOneTimeKey,
-            senderPQKEMPublicKey: senderPQKEMPublicKey,
-            previousChainLength: previousChainLength,
-            messageNumber: messageNumber
-        )
     }
     
     /// Applies a symmetric-key ratchet step to derive a new message key.
@@ -842,7 +1096,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// Concatenates associated data and message header to create a nonce.
     func concatenate(
         associatedData: Data,
-        header: MessageHeader
+        header: EncryptedHeader
     ) async throws -> Data {
         let headerData = try BSONEncoder().encode(header).makeData()
         let info = headerData + associatedData
@@ -853,48 +1107,26 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     /// Performs a Diffie-Hellman ratchet step when a new public key is received.
-    private func diffieHellmanRatchet(message: RatchetMessage) async throws -> RatchetState {
+    private func diffieHellmanRatchet(header: EncryptedHeader) async throws -> RatchetState {
         guard var state = await currentState else {
             throw RatchetError.stateUninitialized
-        }
-        guard let configuration = await configuration else {
-            throw RatchetError.missingConfiguration
         }
         
         // Update message counts and remote public key
         await state.updatePreviousMessagesCount(state.sentMessagesCount)
         await state.updateSentMessagesCount(0)
         await state.updateReceivedMessagesCount(0)
-        await state.updateRemotePublicLongTermKey(message.header.senderPublicLongTermKey)
-        await state.updateRemotePublicOneTimeKey(message.header.senderPublicOneTimeKey)
+        await state.updateRemotePublicLongTermKey(header.remotePublicLongTermKey)
+        await state.updateRemotePublicOneTimeKey(header.remotePublicOneTimeKey)
         state = await updateState(to: state)
         
         
-        /// These next steps are purposed to derive a new Sending Key
-        // Derive shared secret and update keys
-        //        let sharedSecret = try await deriveSharedSecret(
-        //            localPrivateKeyData: state.localPrivateKey,
-        //            senderPublicKeyData: message.header.senderPublicKey)
-        //
-        //        let newRootKey = try await deriveHKDFSymmetricKey(
-        //            sharedSecret: sharedSecret,
-        //            symmetricKey: state.rootKey,
-        //            configuration: configuration
-        //        )
-        
-        let newRootKey = try await deriveX3DHFinalKey(
+        let (newReceivingKey, _) = try await deriveNextMessageKey(
             localPrivateLongTermKey: state.localPrivateLongTermKey,
-            senderPublicLongTermKey: message.header.senderPublicLongTermKey,
+            remotePublicLongTermKey: header.remotePublicLongTermKey,
             localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-            senderPublicOneTimeKey: message.header.senderPublicOneTimeKey)
-        
-        await state.updateRootKey(newRootKey)
-        state = await updateState(to: state)
-        
-        let newReceivingKey = try await deriveChainKey(
-            from: state.rootKey,
-            configuration: configuration)
-        
+            remotePublicOneTimeKey: header.remotePublicOneTimeKey,
+            remoteKyber1024PublicKey: header.remoteKyber1024PublicKey)
         await state.updateReceivingKey(newReceivingKey)
         state = await updateState(to: state)
         
@@ -902,36 +1134,15 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         /// These next steps are purposed to derive a new Sending Key
         // Generate new local private key
         let newLocalPrivateKey = crypto.generateCurve25519PrivateKey().rawRepresentation
-        //        await state.updateLocalPrivateLongTermKey(newLocalPrivateKey)
         await state.updateLocalPrivateOneTimeKey(newLocalPrivateKey)
         state = await updateState(to: state)
-        
-        // Derive shared secret again with the new local private key
-        //        let newSharedSecret = try await deriveSharedSecret(
-        //            localPrivateKeyData: state.localPrivateKey,
-        //            senderPublicKeyData: message.header.senderPublicKey)
-        
-        //        let newOTSharedSecret = try await deriveSharedSecret(
-        //            localPrivateKeyData: state.localPrivateKey,
-        //            senderPublicKeyData: message.header.senderOTPublicKey)
-        
-        //        let _newRootKey = try await deriveHKDFSymmetricKey(
-        //            sharedSecret: newSharedSecret,
-        //            symmetricKey: state.rootKey,
-        //            configuration: configuration)
-        
-        let _newRootKey = try await deriveX3DHFinalKey(
+
+        let (newSendingKey, _) = try await deriveNextMessageKey(
             localPrivateLongTermKey: state.localPrivateLongTermKey,
-            senderPublicLongTermKey: message.header.senderPublicLongTermKey,
+            remotePublicLongTermKey: header.remotePublicLongTermKey,
             localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-            senderPublicOneTimeKey: message.header.senderPublicOneTimeKey)
-        
-        await state.updateRootKey(_newRootKey)
-        state = await updateState(to: state)
-        
-        let newSendingKey = try await deriveChainKey(
-            from: state.rootKey,
-            configuration: configuration)
+            remotePublicOneTimeKey: header.remotePublicOneTimeKey,
+            remoteKyber1024PublicKey: header.remoteKyber1024PublicKey)
         await state.updateSendingKey(newSendingKey)
         state = await updateState(to: state)
         
@@ -948,32 +1159,173 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         return try localPrivateKey.sharedSecretFromKeyAgreement(with: senderPublicKey)
     }
     
-    func deriveX3DHFinalKey(
+    struct PQXDHCipher: Sendable {
+        let ciphertext: Data
+        let symmetricKey: SymmetricKey
+    }
+    
+    func derivePQXDHFinalKey(
         localPrivateLongTermKey: Data,
-        senderPublicLongTermKey: Data,
+        remotePublicLongTermKey: Data,
         localPrivateOneTimeKey: Data,
-        senderPublicOneTimeKey: Data
-    ) async throws -> SymmetricKey {
-        let K_A = try await deriveSharedSecret(localPrivateKeyData: localPrivateLongTermKey, senderPublicKeyData: senderPublicLongTermKey)
-        let K_A_ot = try await deriveSharedSecret(localPrivateKeyData: localPrivateOneTimeKey, senderPublicKeyData: senderPublicOneTimeKey)
+        remotePublicOneTimeKey: Data,
+        remoteKyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey
+    ) async throws -> PQXDHCipher {
         
-        // Convert shared secrets to Data
+        let K_A = try await deriveSharedSecret(localPrivateKeyData: localPrivateLongTermKey, senderPublicKeyData: remotePublicLongTermKey)
+        let K_A_ot = try await deriveSharedSecret(localPrivateKeyData: localPrivateOneTimeKey, senderPublicKeyData: remotePublicOneTimeKey)
+        
         let K_A_data = K_A.withUnsafeBytes { Data($0) }
         let K_A_ot_data = K_A_ot.withUnsafeBytes { Data($0) }
+
+        // Encapsulate Kyber
+        let (ciphertext, sharedSecret) = try remoteKyber1024PublicKey.encapsulate()
+
+        // Concatenate X3DH secrets
+        let concatenatedSecrets = K_A_data + K_A_ot_data + sharedSecret.bytes
+
+        let symmetricKey = HKDF<SHA512>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: concatenatedSecrets),
+            salt: remotePublicOneTimeKey,
+            outputByteCount: 32)
         
-        // Concatenate shared secrets
-        let concatenatedSecrets = K_A_data + K_A_ot_data
+        return PQXDHCipher(ciphertext: ciphertext, symmetricKey: symmetricKey)
+    }
+    
+//    3. Kyber Decapsulation Error Handling
+//    Right now, if decapsulation (derivePQXDHFinalKeyReceiver) fails (e.g., ciphertext invalid), you'll just throw an error.
+//    That's good — but some ratchets (like Signal) treat "can't decapsulate" as "maybe a skipped message" and try skipping before throwing.
+//
+//    🔵 You could in the future improve UX by catching decapsulation failure and trying skipped keys automatically — but it's optional and out of scope for now.
+//    You can always do that later if needed.
+    func derivePQXDHFinalKeyReceiver(
+        remotePublicLongTermKey: Data,
+        remotePublicOneTimeKey: Data,
+        localPrivateLongTermKey: Data,
+        localPrivateOneTimeKey: Data,
+        localKyberPrivateKey: Kyber1024.KeyAgreement.PrivateKey,
+        receivedCiphertext: Data
+    ) async throws -> SymmetricKey {
+
+        // Step 1: Derive X3DH shared secrets
+        let K_B = try await deriveSharedSecret(localPrivateKeyData: localPrivateLongTermKey, senderPublicKeyData: remotePublicLongTermKey)
+        let K_B_ot = try await deriveSharedSecret(localPrivateKeyData: localPrivateOneTimeKey, senderPublicKeyData: remotePublicOneTimeKey)
         
-        // Hash the concatenated result to get the final key
-        let K_A_final = SHA256.hash(data: concatenatedSecrets)
+        let K_B_data = K_B.withUnsafeBytes { Data($0) }
+        let K_B_ot_data = K_B_ot.withUnsafeBytes { Data($0) }
         
+        // Step 2: Decapsulate Kyber ciphertext using private key
+        let sharedSecret = try localKyberPrivateKey.sharedSecret(from: receivedCiphertext)
+        // Step 3: Concatenate all secrets
+        let concatenatedSecrets = K_B_data + K_B_ot_data + sharedSecret.bytes
         
-        let finalKeyData = K_A_final.withUnsafeBytes { buffer in
-            Data(buffer: buffer.bindMemory(to: UInt8.self))
+        let salt = try Curve25519PrivateKey(rawRepresentation: localPrivateOneTimeKey).publicKey.rawRepresentation
+        let symmetricKey = HKDF<SHA512>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: concatenatedSecrets),
+            salt: salt,
+            outputByteCount: 32)
+        
+        return symmetricKey
+    }
+}
+
+extension RatchetStateManager {
+    /// Encrypts a clear header under the *current* sending header key HKs.
+    /// - Precondition: `state.HKs` is non-nil.
+    func encryptHeader(_
+                       header: MessageHeader,
+                       remotePublicLongTermKey: Data,
+                       remotePublicOneTimeKey: Data,
+                       remoteKyber1024PublicKey: Kyber1024.KeyAgreement.PublicKey
+    ) async throws -> EncryptedHeader {
+        guard let currentState = await currentState else {
+            throw RatchetError.stateUninitialized
+        }
+        guard let sendingHeaderKey = currentState.sendingHeaderKey else {
+            throw RatchetError.headerKeysNil
         }
         
-        //TODO: **Key Encapsulation**: Each participant encapsulates the shared secret using the other participant's PQ-KEM public key.
-        return SymmetricKey(data: finalKeyData)
+        guard let headerCiphertext = currentState.headerCiphertext else {
+            throw RatchetError.missingCipherText
+        }
+        
+        guard let messageCiphertext = currentState.messageCiphertext else {
+            throw RatchetError.missingCipherText
+        }
+        
+        // 1. Serialize the clear header
+        let headerPlain = try BSONEncoder().encodeData(header)
+        
+        // 2. Build a nonce: e.g. 96-bit counter from Ns
+        let counter = currentState.sentMessagesCount  // or separate headerCounter
+        var ctrBytes = withUnsafeBytes(of: UInt64(counter).bigEndian) { Data($0) }
+        // pad to 12 bytes:
+        ctrBytes.append(contentsOf: [UInt8](repeating: 0, count: 12 - ctrBytes.count))
+        
+        
+        let nonce = try AES.GCM.Nonce(data: ctrBytes)
+        
+        guard let encrypted = try crypto.encrypt(
+            data: headerPlain,
+            symmetricKey: sendingHeaderKey,
+            nonce: nonce) else {
+            throw RatchetError.headerEncryptionFailed
+        }
+
+        // 4. Rotate header keys?  In HE variant, you only rotate on DH ratchet.
+        //    So do *not* touch HKs/NHKs here.
+        return EncryptedHeader(
+            remotePublicLongTermKey: remotePublicLongTermKey,
+            remotePublicOneTimeKey: remotePublicOneTimeKey,
+            remoteKyber1024PublicKey: remoteKyber1024PublicKey,
+            headerCiphertext: headerCiphertext,
+            messageCiphertext: messageCiphertext,
+            encrypted: encrypted)
+    }
+}
+
+extension RatchetStateManager {
+    /// Attempts to decrypt `encrypedHeader` under HKr, then under NHKr, then under skipped HKs.
+    /// Returns the clear `MessageHeader` plus whether a DH ratchet step is needed.
+    func decryptHeader(_ encryptedHeader: EncryptedHeader) async throws -> EncryptedHeader {
+        guard var currentState = await currentState else {
+            throw RatchetError.stateUninitialized
+        }
+        
+        var encryptedHeader = encryptedHeader
+        
+        // 1) Try skipped keys first {
+        for key in currentState.skippedMessageKeys {
+            if let header = try crypto.decrypt(data: encryptedHeader.encrypted, symmetricKey: key.messageKey) {
+                let header = try BSONDecoder().decodeData(MessageHeader.self, from: header)
+                guard header.messageNumber == key.messageIndex else { continue }
+                encryptedHeader.setDecrypted(header)
+                return encryptedHeader
+            }
+        }
+        
+        // 2) Try current receiving header key
+        if let messageKey = currentState.receivingHeaderKey {
+            if let header = try crypto.decrypt(data: encryptedHeader.encrypted, symmetricKey: messageKey) {
+                let header = try BSONDecoder().decodeData(MessageHeader.self, from: header)
+                encryptedHeader.setDecrypted(header)
+                return encryptedHeader
+            }
+        }
+        
+        // 3) Try next receiving header key → DH ratchet
+        guard let nextMessageKey = currentState.nextReceivingHeaderKey else {
+            throw RatchetError.headerDecryptFailed
+        }
+        await currentState.updateReceivingHeaderKey(nextMessageKey)
+        currentState = await updateState(to: currentState)
+        
+        guard let headerData = try crypto.decrypt(data: encryptedHeader.encrypted, symmetricKey: nextMessageKey) else {
+            throw RatchetError.headerDecryptFailed
+        }
+        let header = try BSONDecoder().decodeData(MessageHeader.self, from: headerData)
+        encryptedHeader.setDecrypted(header)
+        return encryptedHeader
     }
 }
 
@@ -993,5 +1345,13 @@ extension SymmetricKey: Codable {
     public init(from decoder: Decoder) throws {
         let data = try Data(from: decoder) // Decode the key data.
         self.init(data: data) // Initialize the SymmetricKey with the decoded data.
+    }
+}
+
+extension SharedSecret {
+    public var bytes: Data {
+        self.withUnsafeBytes { pointer in
+            Data(pointer)
+        }
     }
 }
