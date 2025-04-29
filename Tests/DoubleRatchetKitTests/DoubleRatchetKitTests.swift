@@ -12,7 +12,13 @@ import SwiftKyber
 @testable import DoubleRatchetKit
 
 @Suite
-struct RatchetStateManagerTests {
+actor RatchetStateManagerTests: SessionIdentityDelegate {
+
+    func updateSessionIdentity(_ identity: SessionIdentity) async throws {
+        //Update Cache If needed
+        print("RECIEVED UPDATE")
+    }
+    
     
     let executor = TestableExecutor(queue: .init(label: "testable-executor"))
     
@@ -69,9 +75,9 @@ struct RatchetStateManagerTests {
 
     @Test
     func testRatchetEncryptDecrypt() async throws {
-        let sendingManager = RatchetStateManager<SHA256>(executor: executor)
+        let sendingManager = RatchetStateManager<SHA256>(executor: executor)        
         let receivingManager = RatchetStateManager<SHA256>(executor: executor)
-        
+
         // Generate sender keys
         let senderltpk = crypto.generateCurve25519PrivateKey()
         let senderotpk = crypto.generateCurve25519PrivateKey()
@@ -95,12 +101,12 @@ struct RatchetStateManagerTests {
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
-            remotePublicLongTermKey: recipientltpk.publicKey,
-            remotePublicOneTimeKey: recipientotpk.publicKey,
-            remotePQKEMPublicKey: recipientKEM.publicKey,
-            localPrivateLongTermKey: senderltpk,
-            localPrivateOneTimeKey: senderotpk,
-            localPQDHPrivateKey: senderKEM)
+            remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
+            localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
+            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localKyber1024PrivateKey: .init(senderKEM.encode()))
         
         let originalPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
         
@@ -111,12 +117,12 @@ struct RatchetStateManagerTests {
         let decryptedPlaintext = try await receivingManager.recipientInitialization(
             sessionIdentity: recipientIdentity,
             sessionSymmetricKey: recipientDBSK,
-            remotePublicLongTermKey: senderltpk.publicKey,
-            remotePublicOneTimeKey: senderotpk.publicKey,
-            remotePQKEMPublicKey: senderKEM.publicKey,
-            localPrivateLongTermKey: recipientltpk,
-            localPrivateOneTimeKey: recipientotpk,
-            localPQKEMPrivateKey: recipientKEM,
+            remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+            remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
+            localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
+            localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+            localKyber1024PrivateKey: .init(recipientKEM.encode()),
             initialMessage: encrypted)
         
         #expect(decryptedPlaintext == originalPlaintext, "Decrypted plaintext must match the original plaintext.")
@@ -129,12 +135,12 @@ struct RatchetStateManagerTests {
         let secondDecryptedPlaintext = try await receivingManager.recipientInitialization(
             sessionIdentity: recipientIdentity,
             sessionSymmetricKey: recipientDBSK,
-            remotePublicLongTermKey: senderltpk.publicKey,
-            remotePublicOneTimeKey: senderotpk.publicKey,
-            remotePQKEMPublicKey: senderKEM.publicKey,
-            localPrivateLongTermKey: recipientltpk,
-            localPrivateOneTimeKey: recipientotpk,
-            localPQKEMPrivateKey: recipientKEM,
+            remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+            remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
+            localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
+            localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+            localKyber1024PrivateKey: .init(recipientKEM.encode()),
             initialMessage: secondEncrypted)
 
         #expect(secondDecryptedPlaintext == secondPlaintext, "Decrypted second plaintext must match.")
@@ -164,12 +170,12 @@ struct RatchetStateManagerTests {
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
-            remotePublicLongTermKey: recipientltpk.publicKey,
-            remotePublicOneTimeKey: recipientotpk.publicKey,
-            remotePQKEMPublicKey: recipientKEM.publicKey,
-            localPrivateLongTermKey: senderltpk,
-            localPrivateOneTimeKey: senderotpk,
-            localPQDHPrivateKey: senderKEM)
+            remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
+            localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
+            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localKyber1024PrivateKey: .init(senderKEM.encode()))
 
         let payload = Data(repeating: 0x41, count: 128) // 128 bytes of "A"
         let messageCount = 10_000
@@ -216,12 +222,12 @@ struct RatchetStateManagerTests {
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
-            remotePublicLongTermKey: recipientltpk.publicKey,
-            remotePublicOneTimeKey: recipientotpk.publicKey,
-            remotePQKEMPublicKey: recipientKEM.publicKey,
-            localPrivateLongTermKey: senderltpk,
-            localPrivateOneTimeKey: senderotpk,
-            localPQDHPrivateKey: senderKEM)
+            remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
+            localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
+            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localKyber1024PrivateKey: .init(senderKEM.encode()))
 
 
         let messages = try await (1...5).asyncMap { i in
@@ -236,12 +242,12 @@ struct RatchetStateManagerTests {
                 _ = try await receivingManager.recipientInitialization(
                     sessionIdentity: recipientIdentity,
                     sessionSymmetricKey: recipientDBSK,
-                    remotePublicLongTermKey: senderltpk.publicKey,
-                    remotePublicOneTimeKey: senderotpk.publicKey,
-                    remotePQKEMPublicKey: senderKEM.publicKey,
-                    localPrivateLongTermKey: recipientltpk,
-                    localPrivateOneTimeKey: recipientotpk,
-                    localPQKEMPrivateKey: recipientKEM,
+                    remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
+                    remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+                    remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
+                    localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
+                    localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+                    localKyber1024PrivateKey: .init(recipientKEM.encode()),
                     initialMessage: encrypted)
             } catch {
                 // Some decrypts should fail (because they're out of order!)
@@ -297,12 +303,12 @@ struct RatchetStateManagerTests {
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
-            remotePublicLongTermKey: recipientltpk.publicKey,
-            remotePublicOneTimeKey: recipientotpk.publicKey,
-            remotePQKEMPublicKey: recipientKEM.publicKey,
-            localPrivateLongTermKey: senderltpk,
-            localPrivateOneTimeKey: senderotpk,
-            localPQDHPrivateKey: senderKEM)
+            remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
+            localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
+            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localKyber1024PrivateKey: .init(senderKEM.encode()))
 
 
         let plaintext = "Persist me!".data(using: .utf8)!
@@ -313,12 +319,12 @@ struct RatchetStateManagerTests {
         let decrypted = try await receivingManager.recipientInitialization(
             sessionIdentity: recipientIdentity,
             sessionSymmetricKey: recipientDBSK,
-            remotePublicLongTermKey: senderltpk.publicKey,
-            remotePublicOneTimeKey: senderotpk.publicKey,
-            remotePQKEMPublicKey: senderKEM.publicKey,
-            localPrivateLongTermKey: recipientltpk,
-            localPrivateOneTimeKey: recipientotpk,
-            localPQKEMPrivateKey: recipientKEM,
+            remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+            remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
+            localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
+            localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+            localKyber1024PrivateKey: .init(recipientKEM.encode()),
             initialMessage: encrypted)
 
         #expect(decrypted == plaintext)

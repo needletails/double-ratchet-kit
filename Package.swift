@@ -17,8 +17,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-crypto.git", .upToNextMajor(from: "3.12.3")),
-        .package(path: "../needletail-crypto")
-//        .package(url: "git@github.com:needle-tail/needletail-crypto.git", .upToNextMajor(from: "1.0.12"))
+        .package(url: "git@github.com:needle-tail/needletail-crypto.git", .upToNextMajor(from: "1.1.0"))
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
