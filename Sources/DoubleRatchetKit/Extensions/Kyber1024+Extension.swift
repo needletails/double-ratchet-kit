@@ -9,7 +9,7 @@ import Foundation
 import BSON
 
 extension Kyber1024.KeyAgreement.PrivateKey {
-    func encode() -> Data {
+    public func encode() -> Data {
         do {
             return try BSONEncoder().encodeData(self)
         } catch {
@@ -19,7 +19,7 @@ extension Kyber1024.KeyAgreement.PrivateKey {
 }
 
 extension Data {
-    func decodeKyber1024() -> Kyber1024.KeyAgreement.PrivateKey {
+    public func decodeKyber1024() -> Kyber1024.KeyAgreement.PrivateKey {
         do {
             return try BSONDecoder().decodeData(Kyber1024.KeyAgreement.PrivateKey.self, from: self)
         } catch {

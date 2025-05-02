@@ -11,13 +11,97 @@ import NeedleTailCrypto
 import SwiftKyber
 @testable import DoubleRatchetKit
 
-@Suite
+@Suite(.serialized)
 actor RatchetStateManagerTests: SessionIdentityDelegate {
-
-    func updateSessionIdentity(_ identity: SessionIdentity) async throws {
-        //Update Cache If needed
-        print("RECIEVED UPDATE")
+    
+    struct KeyPair {
+        let id: UUID
+        let publicKey: Curve25519PublicKeyRepresentable
+        let privateKey: Curve25519PrivateKeyRepresentable
     }
+    
+    private var senderCachedKeyPairs: [KeyPair]?
+    private var recipientCachedKeyPairs: [KeyPair]?
+
+    func senderOneTimeKeys() throws -> [KeyPair] {
+            if let cached = senderCachedKeyPairs { return cached }
+            let batch = try generateBatch()
+            senderCachedKeyPairs = batch
+            return batch
+        }
+    func recipientOneTimeKeys() throws -> [KeyPair] {
+            if let cached = senderCachedKeyPairs { return cached }
+            let batch = try generateBatch()
+            senderCachedKeyPairs = batch
+            return batch
+        }
+
+        private func generateBatch() throws -> [KeyPair] {
+            try (0..<100).map { _ in
+                let id = UUID()
+                let priv = crypto.generateCurve25519PrivateKey()
+                return KeyPair(
+                  id: id,
+                  publicKey: try .init(id: id, priv.publicKey.rawRepresentation),
+                  privateKey: try .init(id: id, priv.rawRepresentation)
+                )
+            }
+        }
+    
+    
+    func fetchPrivateOneTimeKey(_ id: UUID?) async throws -> DoubleRatchetKit.Curve25519PrivateKeyRepresentable {
+        guard let key = try recipientOneTimeKeys().first(where: { $0.id == id }) else {
+            fatalError()
+        }
+        return key.privateKey
+    }
+    
+    func removePrivateOneTimeKey(_ id: UUID?) async throws {
+        guard let id else { return }
+
+        var recipientKeys = try recipientOneTimeKeys()
+        let recipientCountBefore = recipientKeys.count
+        recipientKeys.removeAll(where: { $0.id == id })
+        let recipientRemoved = recipientCountBefore != recipientKeys.count
+
+        var senderKeys = try senderOneTimeKeys()
+        let senderCountBefore = senderKeys.count
+        senderKeys.removeAll(where: { $0.id == id })
+        let senderRemoved = senderCountBefore != senderKeys.count
+
+        if !recipientRemoved && !senderRemoved {
+            print("⚠️ Private one-time key with id \(id) not found in local DB.")
+        }
+        let priv = crypto.generateCurve25519PrivateKey()
+        let kp = KeyPair(
+          id: id,
+          publicKey: try .init(id: id, priv.publicKey.rawRepresentation),
+          privateKey: try .init(id: id, priv.rawRepresentation))
+        recipientKeys.append(kp)
+        #expect(recipientKeys.count == 100)
+    }
+
+    func removePublicOneTimeKey(_ id: UUID?) async throws {
+        guard let id else { return }
+
+        var recipientKeys = try recipientOneTimeKeys()
+        let recipientCountBefore = recipientKeys.count
+        recipientKeys.removeAll(where: { $0.id == id })
+        let recipientRemoved = recipientCountBefore != recipientKeys.count
+
+        var senderKeys = try senderOneTimeKeys()
+        let senderCountBefore = senderKeys.count
+        senderKeys.removeAll(where: { $0.id == id })
+        let senderRemoved = senderCountBefore != senderKeys.count
+
+        if !recipientRemoved && !senderRemoved {
+            print("⚠️ Public one-time key with id \(id) not found in remote DB.")
+        }
+        #expect(recipientKeys.count == 99)
+    }
+
+
+    func updateSessionIdentity(_ identity: SessionIdentity) async throws {}
     
     
     let executor = TestableExecutor(queue: .init(label: "testable-executor"))
@@ -37,16 +121,14 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         try SessionIdentity(
             id: UUID(),
             props: .init(
-                secretName: "sender",
-                deviceId: UUID(),
-                sessionContextId: 1,
-                publicKeyRepesentable: lltpk.publicKey.rawRepresentation,
-                publicSigningRepresentable: lspk.publicKey.rawRepresentation,
-                kyber1024PublicKey: senderKEM.publicKey,
-                state: nil,
-                deviceName: "SenderDevice",
-                isMasterDevice: true
-            ),
+                    secretName: "sender",
+                    deviceId: UUID(),
+                    sessionContextId: 1,
+                    publicLongTermKey: lltpk.publicKey.rawRepresentation,
+                    publicSigningKey: lspk.publicKey.rawRepresentation,
+                    kyber1024PublicKey:  senderKEM.publicKey.rawRepresentation,
+                    deviceName: "SenderDevice",
+                    isMasterDevice: true),
             symmetricKey: databaseSymmetricKey)
     }
 
@@ -62,32 +144,30 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 secretName: "receiver",
                 deviceId: UUID(),
                 sessionContextId: 1,
-                publicKeyRepesentable: rltpk.publicKey.rawRepresentation,
-                publicSigningRepresentable: rspk.publicKey.rawRepresentation,
-                kyber1024PublicKey: receiverKEM.publicKey,
-                state: nil,
+                publicLongTermKey: rltpk.publicKey.rawRepresentation,
+                publicSigningKey: rspk.publicKey.rawRepresentation,
+                kyber1024PublicKey:  receiverKEM.publicKey.rawRepresentation,
                 deviceName: "ReceiverDevice",
-                isMasterDevice: true
-            ),
+                isMasterDevice: true),
             symmetricKey: databaseSymmetricKey
         )
     }
 
     @Test
     func testRatchetEncryptDecrypt() async throws {
-        let sendingManager = RatchetStateManager<SHA256>(executor: executor)        
+        let sendingManager = RatchetStateManager<SHA256>(executor: executor)
+        await sendingManager.setDelegate(self)
         let receivingManager = RatchetStateManager<SHA256>(executor: executor)
+        await receivingManager.setDelegate(self)
 
         // Generate sender keys
         let senderltpk = crypto.generateCurve25519PrivateKey()
-        let senderotpk = crypto.generateCurve25519PrivateKey()
         let senderspk = crypto.generateCurve25519SigningPrivateKey()
         let senderKEM = try crypto.generateKyber1024PrivateSigningKey()
         let senderDBSK = SymmetricKey(size: .bits256)
         
         // Generate receiver keys
         let recipientltpk = crypto.generateCurve25519PrivateKey()
-        let recipientotpk = crypto.generateCurve25519PrivateKey()
         let recipientspk = crypto.generateCurve25519SigningPrivateKey()
         let recipientKEM = try crypto.generateKyber1024PrivateSigningKey()
         let recipientDBSK = SymmetricKey(size: .bits256)
@@ -97,31 +177,35 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         // Create Receiver's Identity
         let recipientIdentity = try makeReceiverIdentity(recipientltpk, recipientspk, recipientKEM, recipientDBSK)
         
+        let localPrivateOneTimeKey = try senderOneTimeKeys().randomElement()
+        let remotePublicOneTimeKey = try recipientOneTimeKeys().randomElement()!.publicKey
+
         // Initialize Sender
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
             remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
-            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey:  remotePublicOneTimeKey,
             remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
             localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
-            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localPrivateOneTimeKey: localPrivateOneTimeKey!.privateKey,
             localKyber1024PrivateKey: .init(senderKEM.encode()))
         
         let originalPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
         
         // Sender encrypts a message
         let encrypted = try await sendingManager.ratchetEncrypt(plainText: originalPlaintext)
+        let localPrivateOneTimeKey1 = try await fetchPrivateOneTimeKey(encrypted.header.oneTimeId)
         
         // Receiver decrypts it
         let decryptedPlaintext = try await receivingManager.recipientInitialization(
             sessionIdentity: recipientIdentity,
             sessionSymmetricKey: recipientDBSK,
             remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
-            remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: encrypted.header.remotePublicOneTimeKey,
             remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
             localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
-            localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+            localPrivateOneTimeKey: localPrivateOneTimeKey1,
             localKyber1024PrivateKey: .init(recipientKEM.encode()),
             initialMessage: encrypted)
         
@@ -130,16 +214,18 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         // 🚀 NOW Send a Second Message to verify ratchet advancement!
         let secondPlaintext = "Second ratcheted message!".data(using: .utf8)!
         let secondEncrypted = try await sendingManager.ratchetEncrypt(plainText: secondPlaintext)
+        
+        let localPrivateOneTimeKey2 = try await fetchPrivateOneTimeKey(secondEncrypted.header.oneTimeId)
 
         // Receiver decrypts it
         let secondDecryptedPlaintext = try await receivingManager.recipientInitialization(
             sessionIdentity: recipientIdentity,
             sessionSymmetricKey: recipientDBSK,
             remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
-            remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey:  secondEncrypted.header.remotePublicOneTimeKey,
             remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
             localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
-            localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+            localPrivateOneTimeKey: localPrivateOneTimeKey2,
             localKyber1024PrivateKey: .init(recipientKEM.encode()),
             initialMessage: secondEncrypted)
 
@@ -150,31 +236,33 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     @Test
     func testPerformanceThousandsOfMessages() async throws {
         let sendingManager = RatchetStateManager<SHA256>(executor: executor)
-        
+        await sendingManager.setDelegate(self)
+
         // Generate sender keys
         let senderltpk = crypto.generateCurve25519PrivateKey()
-        let senderotpk = crypto.generateCurve25519PrivateKey()
         let senderspk = crypto.generateCurve25519SigningPrivateKey()
         let senderKEM = try crypto.generateKyber1024PrivateSigningKey()
         let senderDBSK = SymmetricKey(size: .bits256)
         
         // Generate receiver keys
         let recipientltpk = crypto.generateCurve25519PrivateKey()
-        let recipientotpk = crypto.generateCurve25519PrivateKey()
         let recipientKEM = try crypto.generateKyber1024PrivateSigningKey()
 
         // Create Sender's Identity
         let senderIdentity = try makeSenderIdentity(senderltpk, senderspk, senderKEM, senderDBSK)
         
-        
+        let localPrivateOneTimeKey = try senderOneTimeKeys().randomElement()
+        let remotePublicOneTimeKey = try recipientOneTimeKeys().randomElement()!.publicKey
+
+        // Initialize Sender
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
             remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
-            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey:  remotePublicOneTimeKey,
             remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
             localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
-            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localPrivateOneTimeKey: localPrivateOneTimeKey!.privateKey,
             localKyber1024PrivateKey: .init(senderKEM.encode()))
 
         let payload = Data(repeating: 0x41, count: 128) // 128 bytes of "A"
@@ -198,18 +286,18 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     @Test
     func testStressOutOfOrderMessages() async throws {
         let sendingManager = RatchetStateManager<SHA256>(executor: executor)
+        await sendingManager.setDelegate(self)
         let receivingManager = RatchetStateManager<SHA256>(executor: executor)
-        
+        await receivingManager.setDelegate(self)
+
         // Generate sender keys
         let senderltpk = crypto.generateCurve25519PrivateKey()
-        let senderotpk = crypto.generateCurve25519PrivateKey()
         let senderspk = crypto.generateCurve25519SigningPrivateKey()
         let senderKEM = try crypto.generateKyber1024PrivateSigningKey()
         let senderDBSK = SymmetricKey(size: .bits256)
         
         // Generate receiver keys
         let recipientltpk = crypto.generateCurve25519PrivateKey()
-        let recipientotpk = crypto.generateCurve25519PrivateKey()
         let recipientspk = crypto.generateCurve25519SigningPrivateKey()
         let recipientKEM = try crypto.generateKyber1024PrivateSigningKey()
         let recipientDBSK = SymmetricKey(size: .bits256)
@@ -218,17 +306,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         
         // Create Receiver's Identity
         let recipientIdentity = try makeReceiverIdentity(recipientltpk, recipientspk, recipientKEM, recipientDBSK)
+        
+        let localPrivateOneTimeKey = try senderOneTimeKeys().randomElement()
+        let remotePublicOneTimeKey = try recipientOneTimeKeys().randomElement()!.publicKey
 
+        // Initialize Sender
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
             remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
-            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey:  remotePublicOneTimeKey,
             remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
             localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
-            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localPrivateOneTimeKey: localPrivateOneTimeKey!.privateKey,
             localKyber1024PrivateKey: .init(senderKEM.encode()))
-
 
         let messages = try await (1...5).asyncMap { i in
             try await sendingManager.ratchetEncrypt(plainText: "Message \(i)".data(using: .utf8)!)
@@ -239,14 +330,17 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
 
         for encrypted in shuffledMessages {
             do {
+                let localPrivateOneTimeKey1 = try await fetchPrivateOneTimeKey(encrypted.header.oneTimeId)
+                
+                // Receiver decrypts it
                 _ = try await receivingManager.recipientInitialization(
                     sessionIdentity: recipientIdentity,
                     sessionSymmetricKey: recipientDBSK,
                     remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
-                    remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+                    remotePublicOneTimeKey: encrypted.header.remotePublicOneTimeKey,
                     remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
                     localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
-                    localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+                    localPrivateOneTimeKey: localPrivateOneTimeKey1,
                     localKyber1024PrivateKey: .init(recipientKEM.encode()),
                     initialMessage: encrypted)
             } catch {
@@ -279,18 +373,18 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     @Test
     func testSerializationAndResumingRatchet() async throws {
         let sendingManager = RatchetStateManager<SHA256>(executor: executor)
+        await sendingManager.setDelegate(self)
         let receivingManager = RatchetStateManager<SHA256>(executor: executor)
-        
+        await receivingManager.setDelegate(self)
+
         // Generate sender keys
         let senderltpk = crypto.generateCurve25519PrivateKey()
-        let senderotpk = crypto.generateCurve25519PrivateKey()
         let senderspk = crypto.generateCurve25519SigningPrivateKey()
         let senderKEM = try crypto.generateKyber1024PrivateSigningKey()
         let senderDBSK = SymmetricKey(size: .bits256)
         
         // Generate receiver keys
         let recipientltpk = crypto.generateCurve25519PrivateKey()
-        let recipientotpk = crypto.generateCurve25519PrivateKey()
         let recipientspk = crypto.generateCurve25519SigningPrivateKey()
         let recipientKEM = try crypto.generateKyber1024PrivateSigningKey()
         let recipientDBSK = SymmetricKey(size: .bits256)
@@ -300,30 +394,34 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         // Create Receiver's Identity
         let recipientIdentity = try makeReceiverIdentity(recipientltpk, recipientspk, recipientKEM, recipientDBSK)
         
+        let localPrivateOneTimeKey = try senderOneTimeKeys().randomElement()
+        let remotePublicOneTimeKey = try recipientOneTimeKeys().randomElement()!.publicKey
+
+        // Initialize Sender
         try await sendingManager.senderInitialization(
             sessionIdentity: senderIdentity,
             sessionSymmetricKey: senderDBSK,
             remotePublicLongTermKey: .init(recipientltpk.publicKey.rawRepresentation),
-            remotePublicOneTimeKey: .init(recipientotpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey:  remotePublicOneTimeKey,
             remoteKyber1024PublicKey: .init(recipientKEM.publicKey.rawRepresentation),
             localPrivateLongTermKey: .init(senderltpk.rawRepresentation),
-            localPrivateOneTimeKey: .init(senderotpk.rawRepresentation),
+            localPrivateOneTimeKey: localPrivateOneTimeKey!.privateKey,
             localKyber1024PrivateKey: .init(senderKEM.encode()))
-
-
+        
         let plaintext = "Persist me!".data(using: .utf8)!
         let encrypted = try await sendingManager.ratchetEncrypt(plainText: plaintext)
-
+        let localPrivateOneTimeKey1 = try await fetchPrivateOneTimeKey(encrypted.header.oneTimeId)
+        
         try await Task.sleep(until: .now + .seconds(10))
 
         let decrypted = try await receivingManager.recipientInitialization(
             sessionIdentity: recipientIdentity,
             sessionSymmetricKey: recipientDBSK,
             remotePublicLongTermKey: .init(senderltpk.publicKey.rawRepresentation),
-            remotePublicOneTimeKey: .init(senderotpk.publicKey.rawRepresentation),
+            remotePublicOneTimeKey: encrypted.header.remotePublicOneTimeKey,
             remoteKyber1024PublicKey: .init(senderKEM.publicKey.rawRepresentation),
             localPrivateLongTermKey: .init(recipientltpk.rawRepresentation),
-            localPrivateOneTimeKey: .init(recipientotpk.rawRepresentation),
+            localPrivateOneTimeKey: localPrivateOneTimeKey1,
             localKyber1024PrivateKey: .init(recipientKEM.encode()),
             initialMessage: encrypted)
 
