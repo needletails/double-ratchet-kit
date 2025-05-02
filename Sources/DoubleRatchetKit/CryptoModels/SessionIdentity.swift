@@ -8,6 +8,7 @@ import Foundation
 import Crypto
 import BSON
 import NeedleTailCrypto
+import SwiftKyber
 
 /// Protocol defining the base model functionality.
 public protocol SecureModelProtocol: Codable, Sendable {
@@ -39,8 +40,9 @@ public struct _SessionIdentity: Codable, Sendable {
     public let secretName: String
     public let deviceId: UUID
     public let sessionContextId: Int
-    public let publicKeyRepesentable: Data
-    public let publicSigningRepresentable: Data
+    public let publicLongTermKey: Data
+    public let publicSigningKey: Data
+    public let kyber1024PublicKey: Data
     public var state: RatchetState?
     public var deviceName: String
     public var serverTrusted: Bool?
@@ -74,8 +76,9 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public let secretName: String
         public let deviceId: UUID
         public let sessionContextId: Int
-        public let publicKeyRepesentable: Data
-        public let publicSigningRepresentable: Data
+        public let publicLongTermKey: Data
+        public let publicSigningKey: Data
+        public let kyber1024PublicKey: Data
         public var state: RatchetState?
         public let deviceName: String
         public var serverTrusted: Bool?
@@ -86,8 +89,9 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             secretName: String,
             deviceId: UUID,
             sessionContextId: Int,
-            publicKeyRepesentable: Data,
-            publicSigningRepresentable: Data,
+            publicLongTermKey: Data,
+            publicSigningKey: Data,
+            kyber1024PublicKey: Data,
             state: RatchetState? = nil,
             deviceName: String,
             serverTrusted: Bool? = nil,
@@ -97,8 +101,9 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.secretName = secretName
             self.deviceId = deviceId
             self.sessionContextId = sessionContextId
-            self.publicKeyRepesentable = publicKeyRepesentable
-            self.publicSigningRepresentable = publicSigningRepresentable
+            self.publicLongTermKey = publicLongTermKey
+            self.publicSigningKey = publicSigningKey
+            self.kyber1024PublicKey = kyber1024PublicKey
             self.state = state
             self.deviceName = deviceName
             self.serverTrusted = serverTrusted
@@ -155,6 +160,16 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         return try await self.decryptProps(symmetricKey: symmetricKey)
     }
     
+    public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws -> Self? {
+        let crypto = NeedleTailCrypto()
+        let data = try BSONEncoder().encodeData(props)
+        guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
+            throw CryptoError.encryptionFailed
+        }
+        self.data = encryptedData
+        return self
+    }
+    
     public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
         guard let props = await self.props(symmetricKey: symmetricKey) else {
             throw CryptoError.propsError
@@ -164,8 +179,9 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             secretName: props.secretName,
             deviceId: props.deviceId,
             sessionContextId: props.sessionContextId,
-            publicKeyRepesentable: props.publicKeyRepesentable,
-            publicSigningRepresentable: props.publicSigningRepresentable,
+            publicLongTermKey: props.publicLongTermKey,
+            publicSigningKey: props.publicSigningKey,
+            kyber1024PublicKey: props.kyber1024PublicKey,
             deviceName: props.deviceName,
             isMasterDevice: props.isMasterDevice
         ) as! T
