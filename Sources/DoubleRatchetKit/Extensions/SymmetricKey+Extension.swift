@@ -25,3 +25,16 @@ extension SymmetricKey: Codable {
         self.init(data: data) // Initialize the SymmetricKey with the decoded data.
     }
 }
+
+
+extension SymmetricKey {
+    var bytes: Data {
+        self.withUnsafeBytes({ Data($0) })
+    }
+}
+
+extension SharedSecret {
+    var bytes: Data {
+        self.withUnsafeBytes({ Data($0) })
+    }
+}
