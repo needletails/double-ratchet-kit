@@ -32,7 +32,7 @@ public protocol SecureModelProtocol: Codable, Sendable {
 
 /// Custom error type for encryption-related errors.
 public enum CryptoError: Error {
-    case encryptionFailed, decryptionFailed, propsError
+    case encryptionFailed, decryptionFailed, propsError, messageOutOfOrder
 }
 
 public struct _SessionIdentity: Codable, Sendable {
@@ -42,7 +42,8 @@ public struct _SessionIdentity: Codable, Sendable {
     public let sessionContextId: Int
     public let publicLongTermKey: Data
     public let publicSigningKey: Data
-    public let kyber1024PublicKey: Data
+    public let publicOneTimeKey: Curve25519PublicKeyRepresentable?
+    public let kyber1024PublicKey: Kyber1024PublicKeyRepresentable
     public var state: RatchetState?
     public var deviceName: String
     public var serverTrusted: Bool?
@@ -76,9 +77,10 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public let secretName: String
         public let deviceId: UUID
         public let sessionContextId: Int
-        public let publicLongTermKey: Data
+        public var publicLongTermKey: Data
         public let publicSigningKey: Data
-        public let kyber1024PublicKey: Data
+        public let publicOneTimeKey: Curve25519PublicKeyRepresentable?
+        public var kyber1024PublicKey: Kyber1024PublicKeyRepresentable
         public var state: RatchetState?
         public let deviceName: String
         public var serverTrusted: Bool?
@@ -91,7 +93,8 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             sessionContextId: Int,
             publicLongTermKey: Data,
             publicSigningKey: Data,
-            kyber1024PublicKey: Data,
+            kyber1024PublicKey: Kyber1024PublicKeyRepresentable,
+            publicOneTimeKey: Curve25519PublicKeyRepresentable?,
             state: RatchetState? = nil,
             deviceName: String,
             serverTrusted: Bool? = nil,
@@ -103,6 +106,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.sessionContextId = sessionContextId
             self.publicLongTermKey = publicLongTermKey
             self.publicSigningKey = publicSigningKey
+            self.publicOneTimeKey = publicOneTimeKey
             self.kyber1024PublicKey = kyber1024PublicKey
             self.state = state
             self.deviceName = deviceName
@@ -137,7 +141,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     /// - Throws: An error if decryption fails.
     public func decryptProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
         let crypto = NeedleTailCrypto()
-        guard let decrypted = try crypto.decrypt(data: self.data, symmetricKey: symmetricKey) else {
+        guard let decrypted = try crypto.decrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.decryptionFailed
         }
         return try BSONDecoder().decodeData(UnwrappedProps.self, from: decrypted)
@@ -160,14 +164,13 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         return try await self.decryptProps(symmetricKey: symmetricKey)
     }
     
-    public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws -> Self? {
+    public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws {
         let crypto = NeedleTailCrypto()
         let data = try BSONEncoder().encodeData(props)
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
-        return self
     }
     
     public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
@@ -181,6 +184,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             sessionContextId: props.sessionContextId,
             publicLongTermKey: props.publicLongTermKey,
             publicSigningKey: props.publicSigningKey,
+            publicOneTimeKey: props.publicOneTimeKey,
             kyber1024PublicKey: props.kyber1024PublicKey,
             deviceName: props.deviceName,
             isMasterDevice: props.isMasterDevice
