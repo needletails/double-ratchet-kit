@@ -17,7 +17,7 @@ public protocol SecureModelProtocol: Codable, Sendable {
     /// Asynchronously sets the properties of the model using the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
-    func decryptProps(symmetricKey: SymmetricKey, data: Data) async throws -> Props
+    func decryptProps(symmetricKey: SymmetricKey) async throws -> Props
     
     /// Updates the properties with the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
@@ -42,7 +42,7 @@ public struct _SessionIdentity: Codable, Sendable {
     public let sessionContextId: Int
     public let publicLongTermKey: Data
     public let publicSigningKey: Data
-    public let publicOneTimeKey: Data?
+    public let publicOneTimeKey: Curve25519PublicKeyRepresentable?
     public let kyber1024PublicKey: Kyber1024PublicKeyRepresentable
     public var state: RatchetState?
     public var deviceName: String
@@ -65,7 +65,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     /// Asynchronously retrieves the decrypted properties, if available.
     public func props(symmetricKey: SymmetricKey) async -> UnwrappedProps? {
         do {
-            return try await decryptProps(symmetricKey: symmetricKey, data: self.data)
+            return try await decryptProps(symmetricKey: symmetricKey)
         } catch {
             return nil
         }
@@ -79,7 +79,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public let sessionContextId: Int
         public var publicLongTermKey: Data
         public let publicSigningKey: Data
-        public let publicOneTimeKey: Data?
+        public let publicOneTimeKey: Curve25519PublicKeyRepresentable?
         public var kyber1024PublicKey: Kyber1024PublicKeyRepresentable
         public var state: RatchetState?
         public let deviceName: String
@@ -94,7 +94,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             publicLongTermKey: Data,
             publicSigningKey: Data,
             kyber1024PublicKey: Kyber1024PublicKeyRepresentable,
-            publicOneTimeKey: Data?,
+            publicOneTimeKey: Curve25519PublicKeyRepresentable?,
             state: RatchetState? = nil,
             deviceName: String,
             serverTrusted: Bool? = nil,
@@ -139,7 +139,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
     /// - Throws: An error if decryption fails.
-    public func decryptProps(symmetricKey: SymmetricKey, data: Data) async throws -> UnwrappedProps {
+    public func decryptProps(symmetricKey: SymmetricKey) async throws -> UnwrappedProps {
         let crypto = NeedleTailCrypto()
         guard let decrypted = try crypto.decrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.decryptionFailed
@@ -161,7 +161,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
-        return try await self.decryptProps(symmetricKey: symmetricKey, data: encryptedData)
+        return try await self.decryptProps(symmetricKey: symmetricKey)
     }
     
     public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws {
