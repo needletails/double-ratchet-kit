@@ -35,21 +35,33 @@ public enum CryptoError: Error {
     case encryptionFailed, decryptionFailed, propsError, messageOutOfOrder
 }
 
+/// Represents the stored identity for an encrypted session.
+/// - Note: Field names correspond to Signal protocol key types.
 public struct _SessionIdentity: Codable, Sendable {
     public let id: UUID
     public let secretName: String
     public let deviceId: UUID
     public let sessionContextId: Int
+    
+    /// Long-term identity key (Curve25519 public key) → **IKB**
     public let publicLongTermKey: Data
+    
+    /// Medium-term signed pre-key (Curve25519 public key) → **SPKB**
     public let publicSigningKey: Data
+    
+    /// Ephemeral one-time pre-key (Curve25519 public key) → **OPKBₙ**
     public let publicOneTimeKey: Curve25519PublicKeyRepresentable?
+    
+    /// PQ post‑quantum signed pre-key (Kyber1024) → **PQSPKB**
     public let kyber1024PublicKey: Kyber1024PublicKeyRepresentable
+    
     public var state: RatchetState?
     public var deviceName: String
     public var serverTrusted: Bool?
     public var previousRekey: Date?
     public var isMasterDevice: Bool
 }
+
 
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
@@ -70,17 +82,26 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             return nil
         }
     }
-
     
-    /// Struct representing the unwrapped properties of the message.
+    
+    /// Model class handling encrypted storage of `_SessionIdentity`.
+    ///
+    /// Users should retrieve or update values via `UnwrappedProps`, which securely maps to Signal keys:
+    /// - `publicLongTermKey` → **IKB**
+    /// - `publicSigningKey` → **SPKB**
+    /// - `publicOneTimeKey` → **OPKBₙ**
+    /// - `kyber1024PublicKey` → **PQSPKB**
     public struct UnwrappedProps: Codable & Sendable {
+        
         public let secretName: String
         public let deviceId: UUID
         public let sessionContextId: Int
-        public var publicLongTermKey: Data
-        public let publicSigningKey: Data
-        public let publicOneTimeKey: Curve25519PublicKeyRepresentable?
-        public var kyber1024PublicKey: Kyber1024PublicKeyRepresentable
+        
+        public var publicLongTermKey: Data           // → IKB
+        public let publicSigningKey: Data            // → SPKB
+        public let publicOneTimeKey: Curve25519PublicKeyRepresentable? // → OPKBₙ
+        public var kyber1024PublicKey: Kyber1024PublicKeyRepresentable // → PQSPKB
+        
         public var state: RatchetState?
         public let deviceName: String
         public var serverTrusted: Bool?
