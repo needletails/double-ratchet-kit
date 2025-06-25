@@ -17,8 +17,8 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     struct KeyPair {
         let id: UUID
-        let publicKey: Curve25519PublicKeyRepresentable
-        let privateKey: Curve25519PrivateKeyRepresentable
+        let publicKey: CurvePublicKey
+        let privateKey: CurvePrivateKey
     }
     
     private var aliceCachedKeyPairs: [KeyPair]?
@@ -127,10 +127,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 secretName: "alice",
                 deviceId: deviceId,
                 sessionContextId: 1,
-                publicLongTermKey: lltpk.publicKey.rawRepresentation,
-                publicSigningKey: lspk.publicKey.rawRepresentation,
-                kyber1024PublicKey:  .init(aliceKEM.publicKey.rawRepresentation),
-                publicOneTimeKey: .init(publicOTK.rawRepresentation),
+                longTermPublicKey: lltpk.publicKey.rawRepresentation,
+                signingPublicKey: lspk.publicKey.rawRepresentation,
+                pqKemPublicKey:  .init(aliceKEM.publicKey.rawRepresentation),
+                oneTimePublicKey: .init(publicOTK.rawRepresentation),
                 deviceName: "AliceDevice",
                 isMasterDevice: true),
             symmetricKey: databaseSymmetricKey)
@@ -151,10 +151,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 secretName: "bob",
                 deviceId: deviceId,
                 sessionContextId: 1,
-                publicLongTermKey: rltpk.publicKey.rawRepresentation,
-                publicSigningKey: rspk.publicKey.rawRepresentation,
-                kyber1024PublicKey: .init(receiverKEM.publicKey.rawRepresentation),
-                publicOneTimeKey: .init(publicOTK.rawRepresentation),
+                longTermPublicKey: rltpk.publicKey.rawRepresentation,
+                signingPublicKey: rspk.publicKey.rawRepresentation,
+                pqKemPublicKey: .init(receiverKEM.publicKey.rawRepresentation),
+                oneTimePublicKey: .init(publicOTK.rawRepresentation),
                 deviceName: "BobDevice",
                 isMasterDevice: true),
             symmetricKey: databaseSymmetricKey
@@ -197,20 +197,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
             
             let aliceLongTermId = UUID()
-            let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-            let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+            let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+            let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
             
             let bobLongTermId = UUID()
-            let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-            let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+            let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+            let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
             
             let aliceKyberId = UUID()
-            let aliceKyberPublic = try Kyber1024PublicKeyRepresentable(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
-            let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+            let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+            let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
             
             let bobKyberId = UUID()
-            let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-            let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+            let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+            let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
             
             
             // Initialize Sender
@@ -220,11 +220,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate))
+                    pqKem: aliceKyberPrivate))
             
             let originalPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
             
@@ -237,12 +237,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: encrypted.header.remotePublicOneTimeKey!,
-                    kyber: encrypted.header.remoteKyber1024PublicKey),
+                    oneTime: encrypted.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate))
+                    pqKem: bobKyberPrivate))
             
             let decryptedPlaintext = try await bobManager.ratchetDecrypt(encrypted)
             #expect(decryptedPlaintext == originalPlaintext, "Decrypted plaintext must match the original plaintext.")
@@ -260,11 +260,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: aliceKyberPublic),
+                    pqKem: aliceKyberPublic),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate))
+                    pqKem: bobKyberPrivate))
             
             let encrypted2 = try await bobManager.ratchetEncrypt(plainText: originalPlaintext)
             
@@ -274,11 +274,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate))
+                    pqKem: aliceKyberPrivate))
             
             // Decrypt message from Bob -> Alice (2nd message)
             let decryptedSecond = try await aliceManager.ratchetDecrypt(encrypted2)
@@ -338,20 +338,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobDBSK = SymmetricKey(size: .bits256)
         
         let sKyberId = UUID()
-        let sKyberPublic = try Kyber1024PublicKeyRepresentable(id: sKyberId, aliceKEM.publicKey.rawRepresentation)
-        let sKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: sKyberId, aliceKEM.encode())
+        let sKyberPublic = try PQKemPublicKey(id: sKyberId, aliceKEM.publicKey.rawRepresentation)
+        let sKyberPrivate = try PQKemPrivateKey(id: sKyberId, aliceKEM.encode())
         
         let rKyberId = UUID()
-        let rKyberPublic = try Kyber1024PublicKeyRepresentable(id: rKyberId, bobKEM.publicKey.rawRepresentation)
-        let rKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: rKyberId, bobKEM.encode())
+        let rKyberPublic = try PQKemPublicKey(id: rKyberId, bobKEM.publicKey.rawRepresentation)
+        let rKyberPrivate = try PQKemPrivateKey(id: rKyberId, bobKEM.encode())
         
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
         
         let bobLongTermId = UUID()
-        let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
         
         senderIdentity = try makeSenderIdentity(
             aliceLtpk,
@@ -385,11 +385,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: rKyberPublic),
+                    pqKem: rKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: sKyberPrivate)
+                    pqKem: sKyberPrivate)
             )
         })
         
@@ -402,12 +402,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: firstEncrypted.header.remotePublicOneTimeKey!,
-                    kyber: firstEncrypted.header.remoteKyber1024PublicKey),
+                    oneTime: firstEncrypted.header.remoteOneTimePublicKey!,
+                    pqKem: firstEncrypted.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: rKyberPrivate)
+                    pqKem: rKyberPrivate)
             )
         })
         
@@ -430,11 +430,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: sKyberPublic),
+                    pqKem: sKyberPublic),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: rKyberPrivate)
+                    pqKem: rKyberPrivate)
             )
         })
         
@@ -445,11 +445,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: rKyberPublic),
+                    pqKem: rKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: sKyberPrivate)
+                    pqKem: sKyberPrivate)
             )
         })
         
@@ -494,12 +494,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobDBSK = SymmetricKey(size: .bits256)
         
         let aliceKyberId = UUID()
-        let aliceKyberPublic = try Kyber1024PublicKeyRepresentable(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
-        let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+        let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+        let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
         
         let bobKyberId = UUID()
-        let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-        let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+        let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+        let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
         
         senderIdentity = try makeSenderIdentity(
             aliceLtpk,
@@ -525,12 +525,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
         
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
         
         let bobLongTermId = UUID()
-        let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
         
         // MARK: 4. Alice → Bob: Continue sending messages 2 through 80
         let plaintext = "Message from Alice".data(using: .utf8)!
@@ -542,11 +542,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate)
+                    pqKem: aliceKyberPrivate)
             )
         })
         
@@ -559,12 +559,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: encrypted.header.remotePublicOneTimeKey!,
-                    kyber: encrypted.header.remoteKyber1024PublicKey),
+                    oneTime: encrypted.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate)
+                    pqKem: bobKyberPrivate)
             )
         })
         let decrypted = try! await bobManager.ratchetDecrypt(encrypted)
@@ -577,11 +577,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: aliceKyberPublic),
+                    pqKem: aliceKyberPublic),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate)
+                    pqKem: bobKyberPrivate)
             )
         })
         
@@ -594,12 +594,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
-                    oneTime: encrypted2.header.remotePublicOneTimeKey!,
-                    kyber: encrypted2.header.remoteKyber1024PublicKey),
+                    oneTime: encrypted2.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted2.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate)
+                    pqKem: aliceKyberPrivate)
             )
         })
         let decrypted2 = try! await aliceManager.ratchetDecrypt(encrypted2)
@@ -612,11 +612,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate)
+                    pqKem: aliceKyberPrivate)
             )
         })
         
@@ -629,11 +629,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate)
+                    pqKem: aliceKyberPrivate)
             )
         })
         
@@ -646,12 +646,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: encrypted3.header.remotePublicOneTimeKey!,
-                    kyber: encrypted3.header.remoteKyber1024PublicKey),
+                    oneTime: encrypted3.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted3.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate)
+                    pqKem: bobKyberPrivate)
             )
         })
         
@@ -665,12 +665,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: encrypted4.header.remotePublicOneTimeKey!,
-                    kyber: encrypted4.header.remoteKyber1024PublicKey),
+                    oneTime: encrypted4.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted4.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate)
+                    pqKem: bobKyberPrivate)
             )
         })
         let decrypted4 = try await bobManager.ratchetDecrypt(encrypted4)
@@ -683,11 +683,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: aliceKyberPublic),
+                    pqKem: aliceKyberPublic),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate)
+                    pqKem: bobKyberPrivate)
             )
         })
         
@@ -699,12 +699,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
-                    oneTime: encrypted5.header.remotePublicOneTimeKey!,
-                    kyber: encrypted5.header.remoteKyber1024PublicKey),
+                    oneTime: encrypted5.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted5.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate)
+                    pqKem: aliceKyberPrivate)
             )
         })
         let decrypted5 = try await bobManager.ratchetDecrypt(encrypted5)
@@ -717,11 +717,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: aliceKyberPublic),
+                    pqKem: aliceKyberPublic),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate)
+                    pqKem: bobKyberPrivate)
             )
         })
         
@@ -733,12 +733,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
-                    oneTime: encrypted6.header.remotePublicOneTimeKey!,
-                    kyber: encrypted6.header.remoteKyber1024PublicKey),
+                    oneTime: encrypted6.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted6.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate)
+                    pqKem: aliceKyberPrivate)
             )
         })
         let decrypted6 = try await bobManager.ratchetDecrypt(encrypted6)
@@ -794,19 +794,19 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobInitialOneTimePrivate = bobOneTimeKeyPair.privateKey
         
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
         
         let bobLongTermId = UUID()
-        let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
         
         let aliceKyberId = UUID()
-        let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+        let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
         
         let bobKyberId = UUID()
-        let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-        let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+        let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+        let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
         
         // MARK: 4. Alice → Bob: Continue sending messages 2 through 80
         let plaintext1 = "Message 1 from Alice".data(using: .utf8)!
@@ -820,12 +820,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic
+                    pqKem: bobKyberPublic
                 ),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate
+                    pqKem: aliceKyberPrivate
                 )
             )
         })
@@ -839,12 +839,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic,
+                    pqKem: bobKyberPublic,
                 ),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate
+                    pqKem: aliceKyberPrivate
                 )
             )
         })
@@ -859,12 +859,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic,
+                    pqKem: bobKyberPublic,
                 ),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate
+                    pqKem: aliceKyberPrivate
                 )
             )
         })
@@ -880,13 +880,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: encrypted3.header.remotePublicOneTimeKey!,
-                    kyber: encrypted3.header.remoteKyber1024PublicKey
+                    oneTime: encrypted3.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted3.header.remotePQKemPublicKey
                 ),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate
+                    pqKem: bobKyberPrivate
                 )
             )
         })
@@ -908,13 +908,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: encrypted1.header.remotePublicOneTimeKey!,
-                    kyber: encrypted1.header.remoteKyber1024PublicKey
+                    oneTime: encrypted1.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted1.header.remotePQKemPublicKey
                 ),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate
+                    pqKem: bobKyberPrivate
                 )
             )
         })
@@ -936,13 +936,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
-                    oneTime: encrypted2.header.remotePublicOneTimeKey!,
-                    kyber: encrypted2.header.remoteKyber1024PublicKey
+                    oneTime: encrypted2.header.remoteOneTimePublicKey!,
+                    pqKem: encrypted2.header.remotePQKemPublicKey
                 ),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate
+                    pqKem: bobKyberPrivate
                 )
             )
         })
@@ -964,13 +964,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     sessionSymmetricKey: bobDBSK,
                     remoteKeys: .init(
                         longTerm: alicePublicLongTerm,
-                        oneTime: encrypted1.header.remotePublicOneTimeKey!,
-                        kyber: encrypted1.header.remoteKyber1024PublicKey
+                        oneTime: encrypted1.header.remoteOneTimePublicKey!,
+                        pqKem: encrypted1.header.remotePQKemPublicKey
                     ),
                     localKeys: .init(
                         longTerm: bobPrivateLongTerm,
                         oneTime: bobInitialOneTimePrivate,
-                        kyber: bobKyberPrivate
+                        pqKem: bobKyberPrivate
                     )
                 )
                 
@@ -1024,20 +1024,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
         
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
         
         let bobLongTermId = UUID()
-        let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
         
         let aliceKyberId = UUID()
-        let aliceKyberPublic = try Kyber1024PublicKeyRepresentable(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
-        let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+        let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+        let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
         
         let bobKyberId = UUID()
-        let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-        let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+        let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+        let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
         
         // Initialize Sender
         try await aliceManager.senderInitialization(
@@ -1046,11 +1046,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: bobPublicLongTerm,
                 oneTime: bobInitialOneTimePublic,
-                kyber: bobKyberPublic),
+                pqKem: bobKyberPublic),
             localKeys: .init(
                 longTerm: alicePrivateLongTerm,
                 oneTime: aliceInitialOneTimePrivate,
-                kyber: aliceKyberPrivate))
+                pqKem: aliceKyberPrivate))
         
         let payload = Data(repeating: 0x41, count: 128) // 128 bytes of "A"
         let messageCount = 10_000
@@ -1071,11 +1071,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: alicePublicLongTerm,
                 oneTime: aliceInitialOneTimePublic,
-                kyber: aliceKyberPublic),
+                pqKem: aliceKyberPublic),
             localKeys: .init(
                 longTerm: bobPrivateLongTerm,
                 oneTime: bobInitialOneTimePrivate,
-                kyber: bobKyberPrivate))
+                pqKem: bobKyberPrivate))
         
         for message in messages {
             _ = try await bobManager.ratchetDecrypt(message)
@@ -1122,20 +1122,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
         
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
         
         let bobLongTermId = UUID()
-        let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
         
         let aliceKyberId = UUID()
-        let aliceKyberPublic = try Kyber1024PublicKeyRepresentable(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
-        let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+        let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+        let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
         
         let bobKyberId = UUID()
-        let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-        let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+        let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+        let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
         
         try await aliceManager.senderInitialization(
             sessionIdentity: senderIdentity,
@@ -1143,11 +1143,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: bobPublicLongTerm,
                 oneTime: bobInitialOneTimePublic,
-                kyber: bobKyberPublic),
+                pqKem: bobKyberPublic),
             localKeys: .init(
                 longTerm: alicePrivateLongTerm,
                 oneTime: aliceInitialOneTimePrivate,
-                kyber: aliceKyberPrivate))
+                pqKem: aliceKyberPrivate))
         
         var messages = try await (0...80).asyncMap { i in
             try await aliceManager.ratchetEncrypt(plainText: "Message \(i)".data(using: .utf8)!)
@@ -1159,11 +1159,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: alicePublicLongTerm,
                 oneTime: aliceInitialOneTimePublic,
-                kyber: aliceKyberPublic),
+                pqKem: aliceKyberPublic),
             localKeys: .init(
                 longTerm: bobPrivateLongTerm,
                 oneTime: bobInitialOneTimePrivate,
-                kyber: bobKyberPrivate))
+                pqKem: bobKyberPrivate))
         
         let firstMessage = messages.removeFirst()
         _ = try await bobManager.ratchetDecrypt(firstMessage)
@@ -1212,20 +1212,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
         
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
         
         let bobLongTermId = UUID()
-        let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
         
         let aliceKyberId = UUID()
-        let aliceKyberPublic = try Kyber1024PublicKeyRepresentable(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
-        let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+        let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+        let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
         
         let bobKyberId = UUID()
-        let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-        let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+        let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+        let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
         
         try await aliceManager.senderInitialization(
             sessionIdentity: senderIdentity,
@@ -1233,11 +1233,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: bobPublicLongTerm,
                 oneTime: bobInitialOneTimePublic,
-                kyber: bobKyberPublic),
+                pqKem: bobKyberPublic),
             localKeys: .init(
                 longTerm: alicePrivateLongTerm,
                 oneTime: aliceInitialOneTimePrivate,
-                kyber: aliceKyberPrivate)
+                pqKem: aliceKyberPrivate)
         )
         
         _ = try await bobManager.recipientInitialization(
@@ -1246,11 +1246,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: alicePublicLongTerm,
                 oneTime: aliceInitialOneTimePublic,
-                kyber: aliceKyberPublic),
+                pqKem: aliceKyberPublic),
             localKeys: .init(
                 longTerm: bobPrivateLongTerm,
                 oneTime: bobInitialOneTimePrivate,
-                kyber: bobKyberPrivate))
+                pqKem: bobKyberPrivate))
         
         
         var messages = try await (1...80).asyncMap { i in
@@ -1329,20 +1329,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
         
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
         
         let bobLongTermId = UUID()
-        let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
         
         let aliceKyberId = UUID()
-        let aliceKyberPublic = try Kyber1024PublicKeyRepresentable(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
-        let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+        let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+        let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
         
         let bobKyberId = UUID()
-        let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-        let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+        let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+        let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
         
         // Initialize Sender
         try await aliceManager.senderInitialization(
@@ -1351,11 +1351,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: bobPublicLongTerm,
                 oneTime: bobInitialOneTimePublic,
-                kyber: bobKyberPublic),
+                pqKem: bobKyberPublic),
             localKeys: .init(
                 longTerm: alicePrivateLongTerm,
                 oneTime: aliceInitialOneTimePrivate,
-                kyber: aliceKyberPrivate)
+                pqKem: aliceKyberPrivate)
         )
         
         let plaintext = "Persist me!".data(using: .utf8)!
@@ -1369,11 +1369,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             remoteKeys: .init(
                 longTerm: alicePublicLongTerm,
                 oneTime: aliceInitialOneTimePublic,
-                kyber: aliceKyberPublic),
+                pqKem: aliceKyberPublic),
             localKeys: .init(
                 longTerm: bobPrivateLongTerm,
                 oneTime: bobInitialOneTimePrivate,
-                kyber: bobKyberPrivate))
+                pqKem: bobKyberPrivate))
         let decrypted = try await bobManager.ratchetDecrypt(encrypted)
         #expect(decrypted == plaintext)
         try await aliceManager.shutdown()
@@ -1423,20 +1423,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
             
             let aliceLongTermId = UUID()
-            let alicePrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-            let alicePublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+            let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
+            let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
             
             let bobLongTermId = UUID()
-            let bobPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobLongTermId, bobLtpk.rawRepresentation)
-            let bobPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+            let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
+            let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
             
             let aliceKyberId = UUID()
-            let aliceKyberPublic = try Kyber1024PublicKeyRepresentable(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
-            let aliceKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: aliceKyberId, aliceKEM.encode())
+            let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+            let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
             
             let bobKyberId = UUID()
-            let bobKyberPublic = try Kyber1024PublicKeyRepresentable(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
-            let bobKyberPrivate = try Kyber1024PrivateKeyRepresentable(id: bobKyberId, bobKEM.encode())
+            let bobKyberPublic = try PQKemPublicKey(id: bobKyberId, bobKEM.publicKey.rawRepresentation)
+            let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
             
             // Initialize Sender
             try! await aliceManager.senderInitialization(
@@ -1445,11 +1445,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate))
+                    pqKem: aliceKyberPrivate))
             
             let originalPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
             
@@ -1463,11 +1463,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: aliceKyberPublic),
+                    pqKem: aliceKyberPublic),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate))
+                    pqKem: bobKyberPrivate))
             
             let decryptedPlaintext = try! await bobManager.ratchetDecrypt(encrypted)
             #expect(decryptedPlaintext == originalPlaintext, "Decrypted plaintext must match the original plaintext.")
@@ -1484,11 +1484,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: alicePublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: aliceKyberPublic),
+                    pqKem: aliceKyberPublic),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate))
+                    pqKem: bobKyberPrivate))
             
             let encrypted2 = try! await bobManager.ratchetEncrypt(plainText: originalPlaintext)
             
@@ -1498,11 +1498,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate))
+                    pqKem: aliceKyberPrivate))
             
             // Decrypt message from Bob -> Alice (2nd message)
             let decryptedSecond = try! await aliceManager.ratchetDecrypt(encrypted2)
@@ -1538,12 +1538,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let rotatedRecipientltpk = crypto.generateCurve25519PrivateKey()
             
             let aliceRotatedLongTermId = UUID()
-            let aliceRotatedPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: aliceRotatedLongTermId, rotatedaliceLtpk.rawRepresentation)
-            let aliceRotatedPublicLongTerm = try Curve25519PublicKeyRepresentable(id: aliceRotatedLongTermId, rotatedaliceLtpk.publicKey.rawRepresentation)
+            let aliceRotatedPrivateLongTerm = try CurvePrivateKey(id: aliceRotatedLongTermId, rotatedaliceLtpk.rawRepresentation)
+            let aliceRotatedPublicLongTerm = try CurvePublicKey(id: aliceRotatedLongTermId, rotatedaliceLtpk.publicKey.rawRepresentation)
             
             let bobRotatedLongTermId = UUID()
-            let bobRotatedPrivateLongTerm = try Curve25519PrivateKeyRepresentable(id: bobRotatedLongTermId, rotatedRecipientltpk.rawRepresentation)
-            let bobRotatedPublicLongTerm = try Curve25519PublicKeyRepresentable(id: bobRotatedLongTermId, rotatedRecipientltpk.publicKey.rawRepresentation)
+            let bobRotatedPrivateLongTerm = try CurvePrivateKey(id: bobRotatedLongTermId, rotatedRecipientltpk.rawRepresentation)
+            let bobRotatedPublicLongTerm = try CurvePublicKey(id: bobRotatedLongTermId, rotatedRecipientltpk.publicKey.rawRepresentation)
             
             try! await aliceManager.senderInitialization(
                 sessionIdentity: recipientIdentity,
@@ -1551,11 +1551,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: bobPublicLongTerm,
                     oneTime: bobInitialOneTimePublic,
-                    kyber: bobKyberPublic),
+                    pqKem: bobKyberPublic),
                 localKeys: .init(
                     longTerm: aliceRotatedPrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate))
+                    pqKem: aliceKyberPrivate))
             
             let rotatedPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
             
@@ -1567,12 +1567,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
                     longTerm: aliceRotatedPublicLongTerm,
-                    oneTime: encryptedRotated.header.remotePublicOneTimeKey!,
-                    kyber: encryptedRotated.header.remoteKyber1024PublicKey),
+                    oneTime: encryptedRotated.header.remoteOneTimePublicKey!,
+                    pqKem: encryptedRotated.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: bobPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate))
+                    pqKem: bobKyberPrivate))
             
             let decryptedPlaintextRotated = try! await bobManager.ratchetDecrypt(encryptedRotated)
             #expect(decryptedPlaintextRotated == rotatedPlaintext, "Decrypted plaintext must match the original plaintext.")
@@ -1584,11 +1584,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: .init(
                     longTerm: aliceRotatedPublicLongTerm,
                     oneTime: aliceInitialOneTimePublic,
-                    kyber: aliceKyberPublic),
+                    pqKem: aliceKyberPublic),
                 localKeys: .init(
                     longTerm: bobRotatedPrivateLongTerm,
                     oneTime: bobInitialOneTimePrivate,
-                    kyber: bobKyberPrivate))
+                    pqKem: bobKyberPrivate))
             
             
             let rotatedPlaintext2 = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
@@ -1599,12 +1599,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: .init(
                     longTerm: bobRotatedPublicLongTerm,
-                    oneTime: encryptedRotated2.header.remotePublicOneTimeKey!,
-                    kyber: encryptedRotated2.header.remoteKyber1024PublicKey),
+                    oneTime: encryptedRotated2.header.remoteOneTimePublicKey!,
+                    pqKem: encryptedRotated2.header.remotePQKemPublicKey),
                 localKeys: .init(
                     longTerm: alicePrivateLongTerm,
                     oneTime: aliceInitialOneTimePrivate,
-                    kyber: aliceKyberPrivate))
+                    pqKem: aliceKyberPrivate))
             
             // Decrypt message from Bob -> Alice (2nd message)
             let decryptedRotatedSecond = try! await aliceManager.ratchetDecrypt(encryptedRotated2)
@@ -1617,11 +1617,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     remoteKeys: .init(
                         longTerm: bobRotatedPublicLongTerm,
                         oneTime: bobInitialOneTimePublic,
-                        kyber: bobKyberPublic),
+                        pqKem: bobKyberPublic),
                     localKeys: .init(
                         longTerm: aliceRotatedPrivateLongTerm,
                         oneTime: aliceInitialOneTimePrivate,
-                        kyber: aliceKyberPrivate))
+                        pqKem: aliceKyberPrivate))
                 return try! await aliceManager.ratchetEncrypt(plainText: "Message \(i)".data(using: .utf8)!)
             }
             
@@ -1632,11 +1632,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     remoteKeys: .init(
                         longTerm: aliceRotatedPublicLongTerm,
                         oneTime: aliceInitialOneTimePublic,
-                        kyber: aliceKyberPublic),
+                        pqKem: aliceKyberPublic),
                     localKeys: .init(
                         longTerm: bobRotatedPrivateLongTerm,
                         oneTime: bobInitialOneTimePrivate,
-                        kyber: bobKyberPrivate))
+                        pqKem: bobKyberPrivate))
                 _ = try await bobManager.ratchetDecrypt(message)
             }
             
@@ -1649,7 +1649,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     }
     
     func updateOneTimeKey(remove id: UUID) async { }
-    func fetchPrivateOneTimeKey(_ id: UUID?) async throws -> DoubleRatchetKit.Curve25519PrivateKeyRepresentable? { nil }
+    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> DoubleRatchetKit.CurvePrivateKey? { nil }
     func updateOneTimeKey() async { }
     func removePrivateOneTimeKey(_ id: UUID) async { }
     func removePublicOneTimeKey(_ id: UUID) async { }

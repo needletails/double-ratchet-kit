@@ -186,26 +186,26 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     /// Container for cryptographic key material used in ratchet initialization.
     private struct EncryptionKeys: Sendable {
-        let remotePublicLongTermKey: RemotePublicLongTermKey
-        let remotePublicOneTimeKey: RemotePublicOneTimeKey?
-        let remoteKyber1024PublicKey: RemoteKyber1024PublicKey
-        let localPrivateLongTermKey: LocalPrivateLongTermKey
-        let localPrivateOneTimeKey: LocalPrivateOneTimeKey?
-        let localKyber1024PrivateKey: LocalKyber1024PrivateKey
+        let remoteLongTermPublicKey: RemoteLongTermPublicKey
+        let remoteOneTimePublicKey: RemoteOneTimePublicKey?
+        let remotePQKemPublicKey: RemotePQKemPublicKey
+        let localLongTermPrivateKey: LocalLongTermPrivateKey
+        let localOneTimePrivateKey: LocalOneTimePrivateKey?
+        let localPQKemPrivateKey: LocalPQKemPrivateKey
         
-        init(remotePublicLongTermKey: RemotePublicLongTermKey,
-             remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-             remoteKyber1024PublicKey: RemoteKyber1024PublicKey,
-             localPrivateLongTermKey: LocalPrivateLongTermKey,
-             localPrivateOneTimeKey: LocalPrivateOneTimeKey?,
-             localKyber1024PrivateKey: LocalKyber1024PrivateKey
+        init(remotePublicLongTermKey: RemoteLongTermPublicKey,
+             remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+             remotePQKemPublicKey: RemotePQKemPublicKey,
+             localLongTermPrivateKey: LocalLongTermPrivateKey,
+             localOneTimePrivateKey: LocalOneTimePrivateKey?,
+             localPQKemPrivateKey: LocalPQKemPrivateKey
         ) {
-            self.remotePublicLongTermKey = remotePublicLongTermKey
-            self.remotePublicOneTimeKey = remotePublicOneTimeKey
-            self.remoteKyber1024PublicKey = remoteKyber1024PublicKey
-            self.localPrivateLongTermKey = localPrivateLongTermKey
-            self.localPrivateOneTimeKey = localPrivateOneTimeKey
-            self.localKyber1024PrivateKey = localKyber1024PrivateKey
+            self.remoteLongTermPublicKey = remotePublicLongTermKey
+            self.remoteOneTimePublicKey = remoteOneTimePublicKey
+            self.remotePQKemPublicKey = remotePQKemPublicKey
+            self.localLongTermPrivateKey = localLongTermPrivateKey
+            self.localOneTimePrivateKey = localOneTimePrivateKey
+            self.localPQKemPrivateKey = localPQKemPrivateKey
         }
         
         public init(
@@ -214,11 +214,11 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         ) {
             self.init(
                 remotePublicLongTermKey: remote.longTerm.rawRepresentation,
-                remotePublicOneTimeKey: remote.oneTime,
-                remoteKyber1024PublicKey: remote.kyber,
-                localPrivateLongTermKey: local.longTerm.rawRepresentation,
-                localPrivateOneTimeKey: local.oneTime,
-                localKyber1024PrivateKey: local.kyber)
+                remoteOneTimePublicKey: remote.oneTime,
+                remotePQKemPublicKey: remote.pqKem,
+                localLongTermPrivateKey: local.longTerm.rawRepresentation,
+                localOneTimePrivateKey: local.oneTime,
+                localPQKemPrivateKey: local.pqKem)
         }
     }
     
@@ -261,18 +261,18 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 }
                 
                 func checkKeyChanges() {
-                    if state.localPrivateLongTermKey != keys.localPrivateLongTermKey {
+                    if state.localLongTermPrivateKey != keys.localLongTermPrivateKey {
                         logger.log(level: .trace, message: "Sending long term key has changed")
                         changesDetected = true
                     }
                     
-                    if state.localPrivateOneTimeKey != keys.localPrivateOneTimeKey {
+                    if state.localOneTimePrivateKey != keys.localOneTimePrivateKey {
                         logger.log(level: .trace, message: "Sending one time key has changed")
                         changesDetected = true
                     }
                     
-                    if state.localKyber1024PrivateKey != keys.localKyber1024PrivateKey {
-                        logger.log(level: .trace, message: "Sending kyber key has changed")
+                    if state.localPQKemPrivateKey != keys.localPQKemPrivateKey {
+                        logger.log(level: .trace, message: "Sending pqKem key has changed")
                         changesDetected = true
                     }
                 }
@@ -281,9 +281,9 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 if changesDetected {
                     currentProps.state = try await diffieHellmanRatchet(
                         localKeys: .init(
-                            longTerm: .init(keys.localPrivateLongTermKey),
-                            oneTime: keys.localPrivateOneTimeKey,
-                            kyber: keys.localKyber1024PrivateKey))
+                            longTerm: .init(keys.localLongTermPrivateKey),
+                            oneTime: keys.localOneTimePrivateKey,
+                            pqKem: keys.localPQKemPrivateKey))
                 } else if let state = currentProps.state, state.sendingHandshakeFinished == false {
                     //Do intial sending setup and update the state with the ciphertext and sending key
                     
@@ -305,12 +305,12 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 }
                 
                 //Just update the keys
-                currentProps.state = await currentProps.state?.updateRemotePublicLongTermKey(keys.remotePublicLongTermKey)
-                currentProps.state = await currentProps.state?.updateRemotePublicOneTimeKey(keys.remotePublicOneTimeKey)
-                currentProps.state = await currentProps.state?.updateRemoteKyber1024PublicKey(keys.remoteKyber1024PublicKey)
-                currentProps.state = await currentProps.state?.updateLocalPrivateLongTermKey(keys.localPrivateLongTermKey)
-                currentProps.state = await currentProps.state?.updateLocalPrivateOneTimeKey(keys.localPrivateOneTimeKey)
-                currentProps.state = await currentProps.state?.updatelocalKyber1024PrivateKey(keys.localKyber1024PrivateKey)
+                currentProps.state = await currentProps.state?.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
+                currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
+                currentProps.state = await currentProps.state?.updateRemotePQKemPublicKey(keys.remotePQKemPublicKey)
+                currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
+                currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
+                currentProps.state = await currentProps.state?.updateLocalPQKemPrivateKey(keys.localPQKemPrivateKey)
             case .receiving(_):
                 break
             }
@@ -398,26 +398,26 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         switch messageType {
         case .receiving(let recipientKeys):
             return RatchetState(
-                remotePublicLongTermKey: recipientKeys.remotePublicLongTermKey,
-                remotePublicOneTimeKey: recipientKeys.remotePublicOneTimeKey,
-                remoteKyber1024PublicKey: recipientKeys.remoteKyber1024PublicKey,
-                localPrivateLongTermKey: recipientKeys.localPrivateLongTermKey,
-                localPrivateOneTimeKey: recipientKeys.localPrivateOneTimeKey,
-                localKyber1024PrivateKey: recipientKeys.localKyber1024PrivateKey)
+                remoteLongTermPublicKey: recipientKeys.remoteLongTermPublicKey,
+                remoteOneTimePublicKey: recipientKeys.remoteOneTimePublicKey,
+                remotePQKemPublicKey: recipientKeys.remotePQKemPublicKey,
+                localLongTermPrivateKey: recipientKeys.localLongTermPrivateKey,
+                localOneTimePrivateKey: recipientKeys.localOneTimePrivateKey,
+                localPQKemPrivateKey: recipientKeys.localPQKemPrivateKey)
         case .sending(let senderKeys):
             let (sendingKey, cipher) = try await deriveNextMessageKey(
-                localPrivateLongTermKey: senderKeys.localPrivateLongTermKey,
-                remotePublicLongTermKey: senderKeys.remotePublicLongTermKey,
-                localPrivateOneTimeKey: senderKeys.localPrivateOneTimeKey,
-                remotePublicOneTimeKey: senderKeys.remotePublicOneTimeKey,
-                remoteKyber1024PublicKey: senderKeys.remoteKyber1024PublicKey)
+                localLongTermPrivateKey: senderKeys.localLongTermPrivateKey,
+                remotePublicLongTermKey: senderKeys.remoteLongTermPublicKey,
+                localOneTimePrivateKey: senderKeys.localOneTimePrivateKey,
+                remoteOneTimePublicKey: senderKeys.remoteOneTimePublicKey,
+                remotePQKemPublicKey: senderKeys.remotePQKemPublicKey)
             return RatchetState(
-                remotePublicLongTermKey: senderKeys.remotePublicLongTermKey,
-                remotePublicOneTimeKey: senderKeys.remotePublicOneTimeKey,
-                remoteKyber1024PublicKey: senderKeys.remoteKyber1024PublicKey,
-                localPrivateLongTermKey: senderKeys.localPrivateLongTermKey,
-                localPrivateOneTimeKey: senderKeys.localPrivateOneTimeKey,
-                localKyber1024PrivateKey: senderKeys.localKyber1024PrivateKey,
+                remoteLongTermPublicKey: senderKeys.remoteLongTermPublicKey,
+                remoteOneTimePublicKey: senderKeys.remoteOneTimePublicKey,
+                remotePQKemPublicKey: senderKeys.remotePQKemPublicKey,
+                localLongTermPrivateKey: senderKeys.localLongTermPrivateKey,
+                localOneTimePrivateKey: senderKeys.localOneTimePrivateKey,
+                localPQKemPrivateKey: senderKeys.localPQKemPrivateKey,
                 rootKey: cipher.symmetricKey,
                 messageCiphertext: cipher.ciphertext,
                 sendingKey: sendingKey)
@@ -435,8 +435,8 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Parameters:
     ///   - sessionIdentity: A unique identity used to bind the session cryptographically (e.g. user or device identity).
     ///   - sessionSymmetricKey: A symmetric key used to encrypt metadata or protect session state.
-    ///   - remoteKeys: The recipient's public keys, including long-term, one-time, and Kyber keys.
-    ///   - localKeys: The sender's private keys, including long-term, one-time, and Kyber keys.
+    ///   - remoteKeys: The recipient's public keys, including long-term, one-time, and PQKem keys.
+    ///   - localKeys: The sender's private keys, including long-term, one-time, and PQKem keys.
     /// - Throws: An error if the session cannot be initialized (e.g. invalid keys, storage issues).
     public func senderInitialization(
         sessionIdentity: SessionIdentity,
@@ -548,11 +548,11 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             
             // Step 3: Derive symmetric header encryption key using hybrid PQXDH.
             let headerCipher = try await derivePQXDHFinalKey(
-                localPrivateLongTermKey: state.localPrivateLongTermKey,
-                remotePublicLongTermKey: state.remotePublicLongTermKey,
-                localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-                remotePublicOneTimeKey: state.remotePublicOneTimeKey,
-                remoteKyber1024PublicKey: state.remoteKyber1024PublicKey)
+                localLongTermPrivateKey: state.localLongTermPrivateKey,
+                remotePublicLongTermKey: state.remoteLongTermPublicKey,
+                localOneTimePrivateKey: state.localOneTimePrivateKey,
+                remoteOneTimePublicKey: state.remoteOneTimePublicKey,
+                remotePQKemPublicKey: state.remotePQKemPublicKey)
             
             state = await state.updateHeaderCiphertext(headerCipher.ciphertext)
             state = await state.updateSendingHeaderKey(headerCipher.symmetricKey)
@@ -579,27 +579,27 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         state = await state.updateSendingNextHeaderKey(nextSendingHeaderKey)
         
         // Step 5: Reconstruct local public keys to embed into the header.
-        let localPublicLongTermKey = try Curve25519PrivateKey(rawRepresentation: state.localPrivateLongTermKey)
+        let localLongTermPublicKey = try Curve25519PrivateKey(rawRepresentation: state.localLongTermPrivateKey)
             .publicKey.rawRepresentation
         
-        var remotePublicOneTimeKey: RemotePublicOneTimeKey?
-        if let localPrivateOneTimeKey = state.localPrivateOneTimeKey {
-            let localPublicOneTimeKey = try Curve25519PrivateKey(rawRepresentation: localPrivateOneTimeKey.rawRepresentation).publicKey.rawRepresentation
-            remotePublicOneTimeKey = try RemotePublicOneTimeKey(id: localPrivateOneTimeKey.id, localPublicOneTimeKey)
+        var remoteOneTimePublicKey: RemoteOneTimePublicKey?
+        if let localOneTimePrivateKey = state.localOneTimePrivateKey {
+            let localOneTimePublicKey = try Curve25519PrivateKey(rawRepresentation: localOneTimePrivateKey.rawRepresentation).publicKey.rawRepresentation
+            remoteOneTimePublicKey = try RemoteOneTimePublicKey(id: localOneTimePrivateKey.id, localOneTimePublicKey)
         }
-        let localKyber1024PublicKey = state.localKyber1024PrivateKey.rawRepresentation.decodeKyber1024()
+        let localPQKemPublicKey = state.localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
             .publicKey.rawRepresentation
-        let remoteKyber1024PublicKey = try RemoteKyber1024PublicKey(id: state.localKyber1024PrivateKey.id, localKyber1024PublicKey)
+        let remotePQKemPublicKey = try RemotePQKemPublicKey(id: state.localPQKemPrivateKey.id, localPQKemPublicKey)
         self.state = state
         
         // Step 6: Encrypt the message header using AEAD.
         let encryptedHeader = try await encryptHeader(
             messageHeader,
-            remotePublicLongTermKey: localPublicLongTermKey,
-            remotePublicOneTimeKey: remotePublicOneTimeKey,
-            remoteKyber1024PublicKey: remoteKyber1024PublicKey,
-            curveOneTimeKeyId: state.remotePublicOneTimeKey?.id,
-            kyberOneTimeKeyId: state.remoteKyber1024PublicKey.id)
+            remoteLongTermPublicKey: localLongTermPublicKey,
+            remoteOneTimePublicKey: remoteOneTimePublicKey,
+            remotePQKemPublicKey: remotePQKemPublicKey,
+            oneTimeKeyId: state.remoteOneTimePublicKey?.id,
+            pqKemOneTimeKeyId: state.remotePQKemPublicKey.id)
         
         guard let sendingKey = state.sendingKey else {
             throw RatchetError.sendingKeyIsNil
@@ -644,18 +644,18 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     
     /// Runs PQXDH, then HKDF chain-key, then HMAC ratchet to get the next message key.
-    private func deriveNextMessageKey(localPrivateLongTermKey: LocalPrivateLongTermKey,
-                                      remotePublicLongTermKey: RemotePublicLongTermKey,
-                                      localPrivateOneTimeKey: LocalPrivateOneTimeKey?,
-                                      remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-                                      remoteKyber1024PublicKey: RemoteKyber1024PublicKey
+    private func deriveNextMessageKey(localLongTermPrivateKey: LocalLongTermPrivateKey,
+                                      remotePublicLongTermKey: RemoteLongTermPublicKey,
+                                      localOneTimePrivateKey: LocalOneTimePrivateKey?,
+                                      remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+                                      remotePQKemPublicKey: RemotePQKemPublicKey
     ) async throws -> (SymmetricKey, PQXDHCipher) {
         let cipher = try await derivePQXDHFinalKey(
-            localPrivateLongTermKey: localPrivateLongTermKey,
+            localLongTermPrivateKey: localLongTermPrivateKey,
             remotePublicLongTermKey: remotePublicLongTermKey,
-            localPrivateOneTimeKey: localPrivateOneTimeKey,
-            remotePublicOneTimeKey: remotePublicOneTimeKey,
-            remoteKyber1024PublicKey: remoteKyber1024PublicKey)
+            localOneTimePrivateKey: localOneTimePrivateKey,
+            remoteOneTimePublicKey: remoteOneTimePublicKey,
+            remotePQKemPublicKey: remotePQKemPublicKey)
         
         let newChainKey = try await deriveChainKey(
             from: cipher.symmetricKey,
@@ -699,18 +699,18 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         func checkKeyChanges() {
             var changesDetected = false
             
-            if state.remotePublicLongTermKey != message.header.remotePublicLongTermKey {
+            if state.remoteLongTermPublicKey != message.header.remoteLongTermPublicKey {
                 logger.log(level: .trace, message: "Receiving long term key has changed")
                 changesDetected = true
             }
             
-            if state.remotePublicOneTimeKey != message.header.remotePublicOneTimeKey {
+            if state.remoteOneTimePublicKey != message.header.remoteOneTimePublicKey {
                 logger.log(level: .trace, message: "Receiving one time key has changed")
                 changesDetected = true
             }
             
-            if state.remoteKyber1024PublicKey != message.header.remoteKyber1024PublicKey {
-                logger.log(level: .trace, message: "Receiving kyber key has changed")
+            if state.remotePQKemPublicKey != message.header.remotePQKemPublicKey {
+                logger.log(level: .trace, message: "Receiving pqKem key has changed")
                 changesDetected = true
             }
             
@@ -728,11 +728,11 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             // If handshake not finished, derive header receiving key using PQXDH final key receiver.
             // This combines multiple DH operations to produce the symmetric key for header encryption.
             let finalHeaderReceivingKey = try await derivePQXDHFinalKeyReceiver(
-                remotePublicLongTermKey: state.remotePublicLongTermKey,
-                remotePublicOneTimeKey: state.remotePublicOneTimeKey,
-                localPrivateLongTermKey: state.localPrivateLongTermKey,
-                localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-                localKyber1024PrivateKey: state.localKyber1024PrivateKey,
+                remoteLongTermPublicKey: state.remoteLongTermPublicKey,
+                remoteOneTimePublicKey: state.remoteOneTimePublicKey,
+                localLongTermPrivateKey: state.localLongTermPrivateKey,
+                localOneTimePrivateKey: state.localOneTimePrivateKey,
+                localPQKemPrivateKey: state.localPQKemPrivateKey,
                 receivedCiphertext: message.header.headerCiphertext)
             
             // Update state with new receiving header key and persist changes.
@@ -789,11 +789,11 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             
             // After ratchet, derive next header key and update state.
             let newNextReceivingHeaderKey = try await derivePQXDHFinalKey(
-                localPrivateLongTermKey: state.localPrivateLongTermKey,
-                remotePublicLongTermKey: state.remotePublicLongTermKey,
-                localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-                remotePublicOneTimeKey: state.remotePublicOneTimeKey,
-                remoteKyber1024PublicKey: state.remoteKyber1024PublicKey)
+                localLongTermPrivateKey: state.localLongTermPrivateKey,
+                remotePublicLongTermKey: state.remoteLongTermPublicKey,
+                localOneTimePrivateKey: state.localOneTimePrivateKey,
+                remoteOneTimePublicKey: state.remoteOneTimePublicKey,
+                remotePQKemPublicKey: state.remotePQKemPublicKey)
             
             state = await state.updateReceivingNextHeaderKey(newNextReceivingHeaderKey.symmetricKey)
             keysRotated = false
@@ -802,11 +802,11 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             if !state.receivingHandshakeFinished {
                 // During handshake, derive and store next receiving header key for upcoming messages.
                 let newNextReceivingHeaderKey = try await derivePQXDHFinalKey(
-                    localPrivateLongTermKey: state.localPrivateLongTermKey,
-                    remotePublicLongTermKey: state.remotePublicLongTermKey,
-                    localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-                    remotePublicOneTimeKey: state.remotePublicOneTimeKey,
-                    remoteKyber1024PublicKey: state.remoteKyber1024PublicKey)
+                    localLongTermPrivateKey: state.localLongTermPrivateKey,
+                    remotePublicLongTermKey: state.remoteLongTermPublicKey,
+                    localOneTimePrivateKey: state.localOneTimePrivateKey,
+                    remoteOneTimePublicKey: state.remoteOneTimePublicKey,
+                    remotePQKemPublicKey: state.remotePQKemPublicKey)
                 
                 state = await state.updateReceivingNextHeaderKey(newNextReceivingHeaderKey.symmetricKey)
             } else {
@@ -821,11 +821,11 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         //Before this is header decryption and keys change logic(Keys are not changing in this scenario)
         if let key = state.skippedMessageKeys.first(where: {
             $0.messageIndex == decrypted.messageNumber &&
-            $0.remotePublicLongTermKey == header.remotePublicLongTermKey &&
-            $0.remoteKyber1024PublicKey == header.remoteKyber1024PublicKey.rawRepresentation
+            $0.remoteLongTermPublicKey == header.remoteLongTermPublicKey &&
+            $0.remotePQKemPublicKey == header.remotePQKemPublicKey.rawRepresentation
         }) {
             logger.log(level: .trace, message: "Trying skipped message key index \(key.messageIndex)")
-            if let oneTimeKey = key.remotePublicOneTimeKey, oneTimeKey != header.remotePublicOneTimeKey?.rawRepresentation {
+            if let oneTimeKey = key.remoteOneTimePublicKey, oneTimeKey != header.remoteOneTimePublicKey?.rawRepresentation {
                 throw RatchetError.expiredKey
             }
             state = await state.removeSkippedMessages(at: key.messageIndex)
@@ -857,11 +857,11 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 // First message after handshake:
                 // Derive root and chain keys from PQXDH final key receiver function.
                 let finalReceivingKey = try await derivePQXDHFinalKeyReceiver(
-                    remotePublicLongTermKey: state.remotePublicLongTermKey,
-                    remotePublicOneTimeKey: state.remotePublicOneTimeKey,
-                    localPrivateLongTermKey: state.localPrivateLongTermKey,
-                    localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-                    localKyber1024PrivateKey: state.localKyber1024PrivateKey,
+                    remoteLongTermPublicKey: state.remoteLongTermPublicKey,
+                    remoteOneTimePublicKey: state.remoteOneTimePublicKey,
+                    localLongTermPrivateKey: state.localLongTermPrivateKey,
+                    localOneTimePrivateKey: state.localOneTimePrivateKey,
+                    localPQKemPrivateKey: state.localPQKemPrivateKey,
                     receivedCiphertext: message.header.messageCiphertext)
                 
                 if state.messageCiphertext == nil {
@@ -970,9 +970,9 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         for index in startIndex ..< decrypted.messageNumber {
            
             let skipped = SkippedMessageKey(
-                remotePublicLongTermKey: header.remotePublicLongTermKey,
-                remotePublicOneTimeKey: header.remotePublicOneTimeKey?.rawRepresentation,
-                remoteKyber1024PublicKey: header.remoteKyber1024PublicKey.rawRepresentation,
+                remoteLongTermPublicKey: header.remoteLongTermPublicKey,
+                remoteOneTimePublicKey: header.remoteOneTimePublicKey?.rawRepresentation,
+                remotePQKemPublicKey: header.remotePQKemPublicKey.rawRepresentation,
                 messageIndex: index,
                 chainKey: chainKey
             )
@@ -1127,27 +1127,27 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         
         if let header {
             // 3. Update remote public keys
-            state = await state.updateRemotePublicLongTermKey(header.remotePublicLongTermKey)
+            state = await state.updateRemoteLongTermPublicKey(header.remoteLongTermPublicKey)
             logger.log(level: .trace, message: "Updating remote public long-term key")
             
             // If a new one-time key arrives, update in state
-            if state.remotePublicOneTimeKey != header.remotePublicOneTimeKey {
-                logger.log(level: .trace, message: "Updating remote one-time key: \(String(describing: header.remotePublicOneTimeKey?.id))")
-                state = await state.updateRemotePublicOneTimeKey(header.remotePublicOneTimeKey)
+            if state.remoteOneTimePublicKey != header.remoteOneTimePublicKey {
+                logger.log(level: .trace, message: "Updating remote one-time key: \(String(describing: header.remoteOneTimePublicKey?.id))")
+                state = await state.updateRemoteOneTimePublicKey(header.remoteOneTimePublicKey)
             }
             
-            // If a new Kyber1024 public key arrives, update in state
-            if state.remoteKyber1024PublicKey != header.remoteKyber1024PublicKey {
-                logger.log(level: .trace, message: "Updating remote Kyber1024 key: \(header.remoteKyber1024PublicKey.id)")
-                state = await state.updateRemoteKyber1024PublicKey(header.remoteKyber1024PublicKey)
+            // If a new PQKem public key arrives, update in state
+            if state.remotePQKemPublicKey != header.remotePQKemPublicKey {
+                logger.log(level: .trace, message: "Updating remote PQKem key: \(header.remotePQKemPublicKey.id)")
+                state = await state.updateRemotePQKemPublicKey(header.remotePQKemPublicKey)
             }
             
             let finalReceivingKey = try await derivePQXDHFinalKeyReceiver(
-                remotePublicLongTermKey: state.remotePublicLongTermKey,
-                remotePublicOneTimeKey: state.remotePublicOneTimeKey,
-                localPrivateLongTermKey: state.localPrivateLongTermKey,
-                localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-                localKyber1024PrivateKey: state.localKyber1024PrivateKey,
+                remoteLongTermPublicKey: state.remoteLongTermPublicKey,
+                remoteOneTimePublicKey: state.remoteOneTimePublicKey,
+                localLongTermPrivateKey: state.localLongTermPrivateKey,
+                localOneTimePrivateKey: state.localOneTimePrivateKey,
+                localPQKemPrivateKey: state.localPQKemPrivateKey,
                 receivedCiphertext: header.messageCiphertext)
             
             logger.log(level: .trace, message: "Deriving new receiving and sending keys and updating root key")
@@ -1166,27 +1166,27 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             
         } else if let localKeys {
             // 3. Update remote public keys
-            state = await state.updateLocalPrivateLongTermKey(localKeys.longTerm.rawRepresentation)
+            state = await state.updateLocalLongTermPrivateKey(localKeys.longTerm.rawRepresentation)
             logger.log(level: .trace, message: "Updating local public long-term key")
             
             // If a new one-time key arrives, update in state
-            if state.localPrivateOneTimeKey != localKeys.oneTime {
+            if state.localOneTimePrivateKey != localKeys.oneTime {
                 logger.log(level: .trace, message: "Updating local one-time key")
-                state = await state.updateLocalPrivateOneTimeKey(localKeys.oneTime)
+                state = await state.updateLocalOneTimePrivateKey(localKeys.oneTime)
             }
             
-            // If a new Kyber1024 public key arrives, update in state
-            if state.localKyber1024PrivateKey != localKeys.kyber {
-                logger.log(level: .trace, message: "Updating local Kyber1024 key")
-                state = await state.updatelocalKyber1024PrivateKey(localKeys.kyber)
+            // If a new PQKem public key arrives, update in state
+            if state.localPQKemPrivateKey != localKeys.pqKem {
+                logger.log(level: .trace, message: "Updating local PQKem key")
+                state = await state.updateLocalPQKemPrivateKey(localKeys.pqKem)
             }
             
             let cipher = try await derivePQXDHFinalKey(
-                localPrivateLongTermKey: state.localPrivateLongTermKey,
-                remotePublicLongTermKey: state.remotePublicLongTermKey,
-                localPrivateOneTimeKey: state.localPrivateOneTimeKey,
-                remotePublicOneTimeKey: state.remotePublicOneTimeKey,
-                remoteKyber1024PublicKey: state.remoteKyber1024PublicKey)
+                localLongTermPrivateKey: state.localLongTermPrivateKey,
+                remotePublicLongTermKey: state.remoteLongTermPublicKey,
+                localOneTimePrivateKey: state.localOneTimePrivateKey,
+                remoteOneTimePublicKey: state.remoteOneTimePublicKey,
+                remotePQKemPublicKey: state.remotePQKemPublicKey)
             
             logger.log(level: .trace, message: "Deriving new receiving and sending keys and updating root key")
             // Derive chain key from the new root key.
@@ -1225,7 +1225,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         return try localPrivateKey.sharedSecretFromKeyAgreement(with: remotePublicKeyData)
     }
     
-    /// A container for encapsulated Kyber ciphertext and resulting symmetric key.
+    /// A container for encapsulated PQKem ciphertext and resulting symmetric key.
     private struct PQXDHCipher: Sendable {
         let ciphertext: Data
         let symmetricKey: SymmetricKey
@@ -1233,35 +1233,35 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     /// Derives a PQ-X3DH hybrid key (sender side), combining Curve25519 and Kyber-1024 key exchange.
     ///
-    /// - Returns: A `PQXDHCipher` containing Kyber ciphertext and final symmetric key.
+    /// - Returns: A `PQXDHCipher` containing PQKem ciphertext and final symmetric key.
     /// - Throws: Errors during key agreement or encapsulation.
     private func derivePQXDHFinalKey(
-        localPrivateLongTermKey: LocalPrivateLongTermKey,
-        remotePublicLongTermKey: RemotePublicLongTermKey,
-        localPrivateOneTimeKey: LocalPrivateOneTimeKey?,
-        remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-        remoteKyber1024PublicKey: RemoteKyber1024PublicKey
+        localLongTermPrivateKey: LocalLongTermPrivateKey,
+        remotePublicLongTermKey: RemoteLongTermPublicKey,
+        localOneTimePrivateKey: LocalOneTimePrivateKey?,
+        remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+        remotePQKemPublicKey: RemotePQKemPublicKey
     ) async throws -> PQXDHCipher {
-        let K_A = try await deriveSharedSecret(localPrivateKey: localPrivateLongTermKey, remotePublicKey: remotePublicLongTermKey)
+        let K_A = try await deriveSharedSecret(localPrivateKey: localLongTermPrivateKey, remotePublicKey: remotePublicLongTermKey)
         
         var K_A_ot_data = Data()
-        if let localOTKey = localPrivateOneTimeKey, let remoteOTKey = remotePublicOneTimeKey {
+        if let localOTKey = localOneTimePrivateKey, let remoteOTKey = remoteOneTimePublicKey {
             let K_A_ot = try await deriveSharedSecret(localPrivateKey: localOTKey.rawRepresentation, remotePublicKey: remoteOTKey.rawRepresentation)
             K_A_ot_data = K_A_ot.bytes
         }
         
         let K_A_data = K_A.bytes
         
-        let remoteKyber1024PK = Kyber1024.KeyAgreement.PublicKey(rawRepresentation: remoteKyber1024PublicKey.rawRepresentation)
-        let (ciphertext, sharedSecret) = try remoteKyber1024PK.encapsulate()
+        let remotePQKemPK = Kyber1024.KeyAgreement.PublicKey(rawRepresentation: remotePQKemPublicKey.rawRepresentation)
+        let (ciphertext, sharedSecret) = try remotePQKemPK.encapsulate()
         let concatenatedSecrets = K_A_data + K_A_ot_data + sharedSecret.bytes
         
         let salt: Data
-        if let remoteOTKey = remotePublicOneTimeKey {
-            salt = remoteOTKey.rawRepresentation + remoteKyber1024PublicKey.rawRepresentation
+        if let remoteOTKey = remoteOneTimePublicKey {
+            salt = remoteOTKey.rawRepresentation + remotePQKemPublicKey.rawRepresentation
         } else {
             // Use the remote long-term public key as a fallback salt (stable, non-empty)
-            salt = remotePublicLongTermKey + remoteKyber1024PublicKey.rawRepresentation
+            salt = remotePublicLongTermKey + remotePQKemPublicKey.rawRepresentation
         }
         let symmetricKey = HKDF<SHA512>.deriveKey(
             inputKeyMaterial: SymmetricKey(data: concatenatedSecrets),
@@ -1273,41 +1273,41 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     
     /// Derives the PQ-X3DH final key from received ciphertext and Curve25519 keys (receiver side).
     ///
-    /// - Throws: Errors during shared secret derivation or Kyber decapsulation.
+    /// - Throws: Errors during shared secret derivation or PQKem decapsulation.
     private func derivePQXDHFinalKeyReceiver(
-        remotePublicLongTermKey: RemotePublicLongTermKey,
-        remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-        localPrivateLongTermKey: LocalPrivateLongTermKey,
-        localPrivateOneTimeKey: LocalPrivateOneTimeKey?,
-        localKyber1024PrivateKey: LocalKyber1024PrivateKey,
+        remoteLongTermPublicKey: RemoteLongTermPublicKey,
+        remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+        localLongTermPrivateKey: LocalLongTermPrivateKey,
+        localOneTimePrivateKey: LocalOneTimePrivateKey?,
+        localPQKemPrivateKey: LocalPQKemPrivateKey,
         receivedCiphertext: Data
     ) async throws -> SymmetricKey {
         
         // Derive shared secret for long-term keys
-        let K_B = try await deriveSharedSecret(localPrivateKey: localPrivateLongTermKey, remotePublicKey: remotePublicLongTermKey)
+        let K_B = try await deriveSharedSecret(localPrivateKey: localLongTermPrivateKey, remotePublicKey: remoteLongTermPublicKey)
         let K_B_data = K_B.bytes
         
         // Derive shared secret for one-time keys if both are present
         var K_B_ot_data = Data()
-        if let localOTKey = localPrivateOneTimeKey, let remoteOTKey = remotePublicOneTimeKey {
+        if let localOTKey = localOneTimePrivateKey, let remoteOTKey = remoteOneTimePublicKey {
             let K_B_ot = try await deriveSharedSecret(localPrivateKey: localOTKey.rawRepresentation, remotePublicKey: remoteOTKey.rawRepresentation)
             K_B_ot_data = K_B_ot.bytes
         }
         
-        // Derive Kyber shared secret from ciphertext
-        let localKyber1024PK = localKyber1024PrivateKey.rawRepresentation.decodeKyber1024()
-        let sharedSecret = try localKyber1024PK.sharedSecret(from: receivedCiphertext)
+        // Derive PQKem shared secret from ciphertext
+        let localPQKemPK = localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
+        let sharedSecret = try localPQKemPK.sharedSecret(from: receivedCiphertext)
         
         // Use local private one-time public key as salt if available, else fallback to long-term public key
         let salt: Data
-        if let localOTKey = localPrivateOneTimeKey {
+        if let localOTKey = localOneTimePrivateKey {
             let curveKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localOTKey.rawRepresentation)
-            let kyberKey = localKyber1024PrivateKey.rawRepresentation.decodeKyber1024()
-            salt = curveKey.publicKey.rawRepresentation + kyberKey.publicKey.rawRepresentation
+            let pqKemKey = localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
+            salt = curveKey.publicKey.rawRepresentation + pqKemKey.publicKey.rawRepresentation
         } else {
-            let curveKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localPrivateLongTermKey)
-            let kyberKey = localKyber1024PrivateKey.rawRepresentation.decodeKyber1024()
-            salt = curveKey.publicKey.rawRepresentation + kyberKey.publicKey.rawRepresentation
+            let curveKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localLongTermPrivateKey)
+            let pqKemKey = localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
+            salt = curveKey.publicKey.rawRepresentation + pqKemKey.publicKey.rawRepresentation
         }
         
         // Concatenate secrets
@@ -1330,9 +1330,9 @@ extension RatchetStateManager {
     ///
     /// - Parameters:
     ///   - header: The clear (unencrypted) message header to be encrypted.
-    ///   - remotePublicLongTermKey: The recipient's Curve25519 public key.
-    ///   - remotePublicOneTimeKey: The recipient's ephemeral Curve25519 public key.
-    ///   - remoteKyber1024PublicKey: The recipient's Kyber-1024 public key.
+    ///   - remotePublicLongTermKey: The recipient's Curve public key.
+    ///   - remoteOneTimePublicKey: The recipient's ephemeral Curve public key.
+    ///   - remotePQKemPublicKey: The recipient's PQKem public key.
     ///
     /// - Returns: An `EncryptedHeader` struct containing the ciphertext of the header and associated metadata.
     ///
@@ -1343,11 +1343,11 @@ extension RatchetStateManager {
     ///   - `RatchetError.headerEncryptionFailed` if header encryption fails.
     private func encryptHeader(
         _ header: MessageHeader,
-        remotePublicLongTermKey: RemotePublicLongTermKey,
-        remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-        remoteKyber1024PublicKey: RemoteKyber1024PublicKey,
-        curveOneTimeKeyId: UUID?,
-        kyberOneTimeKeyId: UUID
+        remoteLongTermPublicKey: RemoteLongTermPublicKey,
+        remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+        remotePQKemPublicKey: RemotePQKemPublicKey,
+        oneTimeKeyId: UUID?,
+        pqKemOneTimeKeyId: UUID
     ) async throws -> EncryptedHeader {
         let state = try await getRatchetState()
         
@@ -1384,13 +1384,13 @@ extension RatchetStateManager {
         }
         
         return EncryptedHeader(
-            remotePublicLongTermKey: remotePublicLongTermKey,
-            remotePublicOneTimeKey: remotePublicOneTimeKey,
-            remoteKyber1024PublicKey: remoteKyber1024PublicKey,
+            remoteLongTermPublicKey: remoteLongTermPublicKey,
+            remoteOneTimePublicKey: remoteOneTimePublicKey,
+            remotePQKemPublicKey: remotePQKemPublicKey,
             headerCiphertext: headerCiphertext,
             messageCiphertext: messageCiphertext,
-            curveOneTimeKeyId: curveOneTimeKeyId,
-            kyberOneTimeKeyId: kyberOneTimeKeyId,
+            oneTimeKeyId: oneTimeKeyId,
+            pqKemOneTimeKeyId: pqKemOneTimeKeyId,
             encrypted: encrypted)
     }
 }

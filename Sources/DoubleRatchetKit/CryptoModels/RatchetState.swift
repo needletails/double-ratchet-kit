@@ -7,12 +7,12 @@
 import Crypto
 import Foundation
 
-public typealias RemotePublicLongTermKey = Data
-public typealias RemotePublicOneTimeKey = Curve25519PublicKeyRepresentable
-public typealias RemoteKyber1024PublicKey = Kyber1024PublicKeyRepresentable
-public typealias LocalPrivateLongTermKey = Data
-public typealias LocalPrivateOneTimeKey = Curve25519PrivateKeyRepresentable
-public typealias LocalKyber1024PrivateKey = Kyber1024PrivateKeyRepresentable
+public typealias RemoteLongTermPublicKey = Data
+public typealias RemoteOneTimePublicKey = CurvePublicKey
+public typealias RemotePQKemPublicKey = PQKemPublicKey
+public typealias LocalLongTermPrivateKey = Data
+public typealias LocalOneTimePrivateKey = CurvePrivateKey
+public typealias LocalPQKemPrivateKey = PQKemPrivateKey
 
 typealias LocalPrivateKey = Data
 typealias RemotePublicKey = Data
@@ -32,9 +32,9 @@ public protocol SessionIdentityDelegate: AnyObject, Sendable {
     /// Fetches a previously stored private one-time Curve25519 key by its unique identifier.
     ///
     /// - Parameter id: The UUID of the one-time key to retrieve.
-    /// - Returns: The corresponding `Curve25519PrivateKeyRepresentable`.
+    /// - Returns: The corresponding `CurvePrivateKey`.
     /// - Throws: An error if the key could not be found or retrieved.
-    func fetchPrivateOneTimeKey(_ id: UUID?) async throws -> Curve25519PrivateKeyRepresentable?
+    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> CurvePrivateKey?
     
     /// Notifies that a new one-time key should be generated and made available.
     ///
@@ -46,12 +46,12 @@ public protocol SessionIdentityDelegate: AnyObject, Sendable {
 /// Represents a set of skipped message keys for later processing in the Double Ratchet protocol.
 public struct SkippedMessageKey: Codable, Sendable {
     /// The public key of the sender associated with the skipped message.
-    let remotePublicLongTermKey: Data
+    let remoteLongTermPublicKey: Data
     
     /// The public key of the sender associated with the skipped message.
-    let remotePublicOneTimeKey: Data?
+    let remoteOneTimePublicKey: Data?
     
-    let remoteKyber1024PublicKey: Data
+    let remotePQKemPublicKey: Data
     
     /// The index of the skipped message.
     let messageIndex: Int
@@ -60,9 +60,9 @@ public struct SkippedMessageKey: Codable, Sendable {
     let chainKey: SymmetricKey
     
     private enum CodingKeys: String, CodingKey, Sendable {
-        case remotePublicLongTermKey = "a"
-        case remotePublicOneTimeKey = "b"
-        case remoteKyber1024PublicKey = "c"
+        case remoteLongTermPublicKey = "a"
+        case remoteOneTimePublicKey = "b"
+        case remotePQKemPublicKey = "c"
         case messageIndex = "d"
         case chainKey = "e"
     }
@@ -95,13 +95,13 @@ public struct RatchetMessage: Codable, Sendable, Hashable {
 public struct EncryptedHeader: Sendable, Codable, Hashable {
     
     /// Sender's long-term public key.
-    public let remotePublicLongTermKey: RemotePublicLongTermKey
+    public let remoteLongTermPublicKey: RemoteLongTermPublicKey
     
     /// Sender's one-time public key.
-    public let remotePublicOneTimeKey: RemotePublicOneTimeKey?
+    public let remoteOneTimePublicKey: RemoteOneTimePublicKey?
     
-    /// Sender's Kyber1024 public key used for key agreement.
-    public let remoteKyber1024PublicKey: RemoteKyber1024PublicKey
+    /// Sender's PQKem public key used for key agreement.
+    public let remotePQKemPublicKey: RemotePQKemPublicKey
     
     /// Header encapsulated ciphertext.
     public let headerCiphertext: Data
@@ -109,9 +109,9 @@ public struct EncryptedHeader: Sendable, Codable, Hashable {
     /// Message encapsulated ciphertext.
     public let messageCiphertext: Data
     
-    public let curveOneTimeKeyId: UUID?
+    public let oneTimeKeyId: UUID?
     
-    public let kyberOneTimeKeyId: UUID?
+    public let pqKemOneTimeKeyId: UUID?
     
     /// Encrypted header body (e.g., BSON).
     public let encrypted: Data
@@ -126,96 +126,96 @@ public struct EncryptedHeader: Sendable, Codable, Hashable {
     }
     
     private enum CodingKeys: String, CodingKey, Sendable {
-        case remotePublicLongTermKey = "a"
-        case remotePublicOneTimeKey = "b"
-        case remoteKyber1024PublicKey = "c"
+        case remoteLongTermPublicKey = "a"
+        case remoteOneTimePublicKey = "b"
+        case remotePQKemPublicKey = "c"
         case headerCiphertext = "d"
         case messageCiphertext = "e"
-        case curveOneTimeKeyId = "f"
-        case kyberOneTimeKeyId = "g"
+        case oneTimeKeyId = "f"
+        case pqKemOneTimeKeyId = "g"
         case encrypted = "h"
     }
     
     /// Initializes the EncryptedHeader without a decrypted header (sending case).
     /// - Parameters:
-    ///   - remotePublicLongTermKey: The sender's long-term public key.
-    ///   - remotePublicOneTimeKey: The sender's one-time public key.
-    ///   - remoteKyber1024PublicKey: The sender's Kyber1024 public key.
+    ///   - remoteLongTermPublicKey: The sender's long-term public key.
+    ///   - remoteOneTimePublicKey: The sender's one-time public key.
+    ///   - remotePQKemPublicKey: The sender's PQKem public key.
     ///   - headerCiphertext: The ciphertext of the header.
     ///   - messageCiphertext: The ciphertext of the message.
     ///   - encrypted: The encrypted body of the header.
     public init(
-        remotePublicLongTermKey: RemotePublicLongTermKey,
-        remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-        remoteKyber1024PublicKey: RemoteKyber1024PublicKey,
+        remoteLongTermPublicKey: RemoteLongTermPublicKey,
+        remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+        remotePQKemPublicKey: RemotePQKemPublicKey,
         headerCiphertext: Data,
         messageCiphertext: Data,
-        curveOneTimeKeyId: UUID?,
-        kyberOneTimeKeyId: UUID,
+        oneTimeKeyId: UUID?,
+        pqKemOneTimeKeyId: UUID,
         encrypted: Data
     ) {
-        self.remotePublicLongTermKey = remotePublicLongTermKey
-        self.remotePublicOneTimeKey = remotePublicOneTimeKey
-        self.remoteKyber1024PublicKey = remoteKyber1024PublicKey
+        self.remoteLongTermPublicKey = remoteLongTermPublicKey
+        self.remoteOneTimePublicKey = remoteOneTimePublicKey
+        self.remotePQKemPublicKey = remotePQKemPublicKey
         self.headerCiphertext = headerCiphertext
         self.messageCiphertext = messageCiphertext
-        self.curveOneTimeKeyId = curveOneTimeKeyId
-        self.kyberOneTimeKeyId = kyberOneTimeKeyId
+        self.oneTimeKeyId = oneTimeKeyId
+        self.pqKemOneTimeKeyId = pqKemOneTimeKeyId
         self.encrypted = encrypted
         self.decrypted = nil
     }
     
     /// Initializes the EncryptedHeader with a decrypted header (receiving case).
     /// - Parameters:
-    ///   - remotePublicLongTermKey: The sender's long-term public key.
-    ///   - remotePublicOneTimeKey: The sender's one-time public key.
-    ///   - remoteKyber1024PublicKey: The sender's Kyber1024 public key.
+    ///   - remoteLongTermPublicKey: The sender's long-term public key.
+    ///   - remoteOneTimePublicKey: The sender's one-time public key.
+    ///   - remotePQKemPublicKey: The sender's PQKem public key.
     ///   - headerCiphertext: The ciphertext of the header.
     ///   - messageCiphertext: The ciphertext of the message.
     ///   - encrypted: The encrypted body of the header.
     ///   - decrypted: The decrypted **MessageHeader**.
     public init(
-        remotePublicLongTermKey: RemotePublicLongTermKey,
-        remotePublicOneTimeKey: RemotePublicOneTimeKey,
-        remoteKyber1024PublicKey: RemoteKyber1024PublicKey,
+        remoteLongTermPublicKey: RemoteLongTermPublicKey,
+        remoteOneTimePublicKey: RemoteOneTimePublicKey,
+        remotePQKemPublicKey: RemotePQKemPublicKey,
         headerCiphertext: Data,
         messageCiphertext: Data,
         encrypted: Data,
-        curveOneTimeKeyId: UUID?,
-        kyberOneTimeKeyId: UUID,
+        oneTimeKeyId: UUID?,
+        pqKemOneTimeKeyId: UUID,
         decrypted: MessageHeader
     ) {
-        self.remotePublicLongTermKey = remotePublicLongTermKey
-        self.remotePublicOneTimeKey = remotePublicOneTimeKey
-        self.remoteKyber1024PublicKey = remoteKyber1024PublicKey
+        self.remoteLongTermPublicKey = remoteLongTermPublicKey
+        self.remoteOneTimePublicKey = remoteOneTimePublicKey
+        self.remotePQKemPublicKey = remotePQKemPublicKey
         self.headerCiphertext = headerCiphertext
         self.messageCiphertext = messageCiphertext
         self.encrypted = encrypted
-        self.curveOneTimeKeyId = curveOneTimeKeyId
-        self.kyberOneTimeKeyId = kyberOneTimeKeyId
+        self.oneTimeKeyId = oneTimeKeyId
+        self.pqKemOneTimeKeyId = pqKemOneTimeKeyId
         self.decrypted = decrypted
     }
     
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(remotePublicLongTermKey)
-        hasher.combine(remotePublicOneTimeKey)
-        hasher.combine(remoteKyber1024PublicKey)
+        hasher.combine(remoteLongTermPublicKey)
+        hasher.combine(remoteOneTimePublicKey)
+        hasher.combine(remotePQKemPublicKey)
         hasher.combine(headerCiphertext)
         hasher.combine(messageCiphertext)
-        hasher.combine(curveOneTimeKeyId)
-        hasher.combine(kyberOneTimeKeyId)
+        hasher.combine(oneTimeKeyId)
+        hasher.combine(pqKemOneTimeKeyId)
         hasher.combine(encrypted)
     }
     
     public static func == (lhs: EncryptedHeader, rhs: EncryptedHeader) -> Bool {
-        return lhs.remotePublicLongTermKey == rhs.remotePublicLongTermKey
-        && lhs.remotePublicOneTimeKey   == rhs.remotePublicOneTimeKey
-        && lhs.remoteKyber1024PublicKey == rhs.remoteKyber1024PublicKey
-        && lhs.headerCiphertext         == rhs.headerCiphertext
-        && lhs.messageCiphertext        == rhs.messageCiphertext
-        && lhs.curveOneTimeKeyId        == rhs.curveOneTimeKeyId
-        && lhs.kyberOneTimeKeyId        == rhs.kyberOneTimeKeyId
-        && lhs.encrypted                == rhs.encrypted
+        return lhs.remoteLongTermPublicKey == rhs.remoteLongTermPublicKey
+        && lhs.remoteOneTimePublicKey == rhs.remoteOneTimePublicKey
+        && lhs.remotePQKemPublicKey == rhs.remotePQKemPublicKey
+        && lhs.headerCiphertext == rhs.headerCiphertext
+        && lhs.messageCiphertext == rhs.messageCiphertext
+        && lhs.oneTimeKeyId == rhs.oneTimeKeyId
+        && lhs.pqKemOneTimeKeyId == rhs.pqKemOneTimeKeyId
+        && lhs.encrypted == rhs.encrypted
     }
 }
 
@@ -297,12 +297,12 @@ public struct RatchetState: Sendable, Codable {
     
     /// Coding keys for encoding and decoding the RatchetState.
     enum CodingKeys: String, CodingKey, Sendable, Codable {
-        case localPrivateLongTermKey = "a"             // Local long-term private key.
-        case localPrivateOneTimeKey = "b"              // Local one-time private key.
-        case localKyber1024PrivateKey = "c"            // Local post-quantum key exchange private key.
-        case remotePublicLongTermKey = "d"             // Remote long-term public key.
-        case remotePublicOneTimeKey = "e"              // Remote one-time public key.
-        case remoteKyber1024PublicKey = "f"            // Remote post-quantum key exchange public key.
+        case localLongTermPrivateKey = "a"             // Local long-term private key.
+        case localOneTimePrivateKey = "b"              // Local one-time private key.
+        case localPQKemPrivateKey = "c"            // Local post-quantum key exchange private key.
+        case remoteLongTermPublicKey = "d"             // Remote long-term public key.
+        case remoteOneTimePublicKey = "e"              // Remote one-time public key.
+        case remotePQKemPublicKey = "f"            // Remote post-quantum key exchange public key.
         case messageCiphertext = "g"                   // Ciphertext of the message.
         case rootKey = "h"                             // Root symmetric key.
         case sendingKey = "i"                          // Chain key for sending.
@@ -329,22 +329,22 @@ public struct RatchetState: Sendable, Codable {
     // MARK: - Properties
     
     /// Local long-term private key.
-    private(set) public var localPrivateLongTermKey: LocalPrivateLongTermKey
+    private(set) public var localLongTermPrivateKey: LocalLongTermPrivateKey
     
     /// Local one-time private key.
-    private(set) public var localPrivateOneTimeKey: LocalPrivateOneTimeKey?
+    private(set) public var localOneTimePrivateKey: LocalOneTimePrivateKey?
     
     /// Local post-quantum key exchange private key.
-    private(set) public var localKyber1024PrivateKey: LocalKyber1024PrivateKey
+    private(set) public var localPQKemPrivateKey: LocalPQKemPrivateKey
     
     /// Remote long-term public key.
-    private(set) public var remotePublicLongTermKey: RemotePublicLongTermKey
+    private(set) public var remoteLongTermPublicKey: RemoteLongTermPublicKey
     
     /// Remote one-time public key.
-    private(set) public var remotePublicOneTimeKey: RemotePublicOneTimeKey?
+    private(set) public var remoteOneTimePublicKey: RemoteOneTimePublicKey?
     
     /// Remote post-quantum key exchange public key.
-    private(set) public var remoteKyber1024PublicKey: RemoteKyber1024PublicKey
+    private(set) public var remotePQKemPublicKey: RemotePQKemPublicKey
     
     /// Ciphertext of the message being sent or received.
     private(set) var messageCiphertext: Data?
@@ -409,59 +409,59 @@ public struct RatchetState: Sendable, Codable {
     
     /// Initializes a new RatchetState with the provided keys and parameters for receiving.
     /// - Parameters:
-    ///   - remotePublicLongTermKey: The remote party's long-term public key.
-    ///   - remotePublicOneTimeKey: The remote party's one-time public key.
-    ///   - remoteKyber1024PublicKey: The remote party's post-quantum key exchange public key.
-    ///   - localPrivateLongTermKey: The local party's long-term private key.
-    ///   - localPrivateOneTimeKey: The local party's one-time private key.
-    ///   - localKyber1024PrivateKey: The local party's post-quantum key exchange private key.
+    ///   - remoteLongTermPublicKey: The remote party's long-term public key.
+    ///   - remoteOneTimePublicKey: The remote party's one-time public key.
+    ///   - remotePQKemPublicKey: The remote party's post-quantum key exchange public key.
+    ///   - localLongTermPrivateKey: The local party's long-term private key.
+    ///   - localOneTimePrivateKey: The local party's one-time private key.
+    ///   - localPQKemPrivateKey: The local party's post-quantum key exchange private key.
     ///   - rootKey: The root symmetric key used for encryption.
     ///   - messageCiphertext: The ciphertext of the message being sent or received.
     ///   - receivingKey: The current chain key for receiving messages.
     init(
-        remotePublicLongTermKey: RemotePublicLongTermKey,
-        remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-        remoteKyber1024PublicKey: RemoteKyber1024PublicKey,
-        localPrivateLongTermKey: LocalPrivateLongTermKey,
-        localPrivateOneTimeKey: LocalPrivateOneTimeKey?,
-        localKyber1024PrivateKey: LocalKyber1024PrivateKey
+        remoteLongTermPublicKey: RemoteLongTermPublicKey,
+        remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+        remotePQKemPublicKey: RemotePQKemPublicKey,
+        localLongTermPrivateKey: LocalLongTermPrivateKey,
+        localOneTimePrivateKey: LocalOneTimePrivateKey?,
+        localPQKemPrivateKey: LocalPQKemPrivateKey
     ) {
-        self.remotePublicLongTermKey = remotePublicLongTermKey
-        self.remotePublicOneTimeKey = remotePublicOneTimeKey
-        self.remoteKyber1024PublicKey = remoteKyber1024PublicKey
-        self.localPrivateLongTermKey = localPrivateLongTermKey
-        self.localPrivateOneTimeKey = localPrivateOneTimeKey
-        self.localKyber1024PrivateKey = localKyber1024PrivateKey
+        self.remoteLongTermPublicKey = remoteLongTermPublicKey
+        self.remoteOneTimePublicKey = remoteOneTimePublicKey
+        self.remotePQKemPublicKey = remotePQKemPublicKey
+        self.localLongTermPrivateKey = localLongTermPrivateKey
+        self.localOneTimePrivateKey = localOneTimePrivateKey
+        self.localPQKemPrivateKey = localPQKemPrivateKey
     }
     
     /// Initializes a new RatchetState with the provided keys and parameters for sending.
     /// - Parameters:
-    ///   - remotePublicLongTermKey: The remote party's long-term public key.
-    ///   - remotePublicOneTimeKey: The remote party's one-time public key.
-    ///   - remoteKyber1024PublicKey: The remote party's post-quantum key exchange public key.
-    ///   - localPrivateLongTermKey: The local party's long-term private key.
-    ///   - localPrivateOneTimeKey: The local party's one-time private key.
-    ///   - localKyber1024PrivateKey: The local party's post-quantum key exchange private key.
+    ///   - remoteLongTermPublicKey: The remote party's long-term public key.
+    ///   - remoteOneTimePublicKey: The remote party's one-time public key.
+    ///   - remotePQKemPublicKey: The remote party's post-quantum key exchange public key.
+    ///   - localLongTermPrivateKey: The local party's long-term private key.
+    ///   - localOneTimePrivateKey: The local party's one-time private key.
+    ///   - localPQKemPrivateKey: The local party's post-quantum key exchange private key.
     ///   - rootKey: The root symmetric key used for encryption.
     ///   - messageCiphertext: The ciphertext of the message being sent or received.
     ///   - sendingKey: The current chain key for sending messages.
     init(
-        remotePublicLongTermKey: RemotePublicLongTermKey,
-        remotePublicOneTimeKey: RemotePublicOneTimeKey?,
-        remoteKyber1024PublicKey: RemoteKyber1024PublicKey,
-        localPrivateLongTermKey: LocalPrivateLongTermKey,
-        localPrivateOneTimeKey: LocalPrivateOneTimeKey?,
-        localKyber1024PrivateKey: LocalKyber1024PrivateKey,
+        remoteLongTermPublicKey: RemoteLongTermPublicKey,
+        remoteOneTimePublicKey: RemoteOneTimePublicKey?,
+        remotePQKemPublicKey: RemotePQKemPublicKey,
+        localLongTermPrivateKey: LocalLongTermPrivateKey,
+        localOneTimePrivateKey: LocalOneTimePrivateKey?,
+        localPQKemPrivateKey: LocalPQKemPrivateKey,
         rootKey: SymmetricKey,
         messageCiphertext: Data,
         sendingKey: SymmetricKey
     ) {
-        self.remotePublicLongTermKey = remotePublicLongTermKey
-        self.remotePublicOneTimeKey = remotePublicOneTimeKey
-        self.remoteKyber1024PublicKey = remoteKyber1024PublicKey
-        self.localPrivateLongTermKey = localPrivateLongTermKey
-        self.localPrivateOneTimeKey = localPrivateOneTimeKey
-        self.localKyber1024PrivateKey = localKyber1024PrivateKey
+        self.remoteLongTermPublicKey = remoteLongTermPublicKey
+        self.remoteOneTimePublicKey = remoteOneTimePublicKey
+        self.remotePQKemPublicKey = remotePQKemPublicKey
+        self.localLongTermPrivateKey = localLongTermPrivateKey
+        self.localOneTimePrivateKey = localOneTimePrivateKey
+        self.localPQKemPrivateKey = localPQKemPrivateKey
         self.rootKey = rootKey
         self.messageCiphertext = messageCiphertext
         self.sendingKey = sendingKey
@@ -529,25 +529,25 @@ public struct RatchetState: Sendable, Codable {
     
     /// Updates the remote long-term public key.
     /// - Parameter remotePublicKey: The new remote long-term public key.
-    func updateRemotePublicLongTermKey(_ remotePublicKey: Data) async -> Self {
+    func updateRemoteLongTermPublicKey(_ remotePublicKey: Data) async -> Self {
         var ratchetState = self
-        ratchetState.remotePublicLongTermKey = remotePublicKey
+        ratchetState.remoteLongTermPublicKey = remotePublicKey
         return ratchetState
     }
     
     /// Updates the remote one-time public key.
     /// - Parameter remoteOTPublicKey: The new remote one-time public key.
-    func updateRemotePublicOneTimeKey(_ remotePublicOneTimeKey: Curve25519PublicKeyRepresentable?) async -> Self {
+    func updateRemoteOneTimePublicKey(_ remoteOneTimePublicKey: CurvePublicKey?) async -> Self {
         var ratchetState = self
-        ratchetState.remotePublicOneTimeKey = remotePublicOneTimeKey
+        ratchetState.remoteOneTimePublicKey = remoteOneTimePublicKey
         return ratchetState
     }
     
     /// Updates the remote post-quantum key exchange public key.
-    /// - Parameter remoteKyber1024PublicKey: The new remote post-quantum public key.
-    func updateRemoteKyber1024PublicKey(_ remoteKyber1024PublicKey: Kyber1024PublicKeyRepresentable) async -> Self {
+    /// - Parameter remotePQKemPublicKey: The new remote post-quantum public key.
+    func updateRemotePQKemPublicKey(_ remotePQKemPublicKey: PQKemPublicKey) async -> Self {
         var ratchetState = self
-        ratchetState.remoteKyber1024PublicKey = remoteKyber1024PublicKey
+        ratchetState.remotePQKemPublicKey = remotePQKemPublicKey
         return ratchetState
     }
     
@@ -569,25 +569,25 @@ public struct RatchetState: Sendable, Codable {
     
     /// Updates the local long-term private key.
     /// - Parameter localPrivateKey: The new local long-term private key.
-    func updateLocalPrivateLongTermKey(_ localPrivateKey: Data) async -> Self {
+    func updateLocalLongTermPrivateKey(_ localPrivateKey: Data) async -> Self {
         var ratchetState = self
-        ratchetState.localPrivateLongTermKey = localPrivateKey
+        ratchetState.localLongTermPrivateKey = localPrivateKey
         return ratchetState
     }
     
     /// Updates the local one-time private key.
     /// - Parameter localOTPrivateKey: The new local one-time private key.
-    func updateLocalPrivateOneTimeKey(_ localOTPrivateKey: Curve25519PrivateKeyRepresentable?) async -> Self {
+    func updateLocalOneTimePrivateKey(_ localOTPrivateKey: CurvePrivateKey?) async -> Self {
         var ratchetState = self
-        ratchetState.localPrivateOneTimeKey = localOTPrivateKey
+        ratchetState.localOneTimePrivateKey = localOTPrivateKey
         return ratchetState
     }
     
     /// Updates the local post-quantum key exchange private key.
-    /// - Parameter localKyber1024PrivateKey: The new local post-quantum private key.
-    func updatelocalKyber1024PrivateKey(_ localKyber1024PrivateKey: LocalKyber1024PrivateKey) async -> Self {
+    /// - Parameter localPQKemPrivateKey: The new local post-quantum private key.
+    func updateLocalPQKemPrivateKey(_ localPQKemPrivateKey: LocalPQKemPrivateKey) async -> Self {
         var ratchetState = self
-        ratchetState.localKyber1024PrivateKey = localKyber1024PrivateKey
+        ratchetState.localPQKemPrivateKey = localPQKemPrivateKey
         return ratchetState
     }
     

@@ -28,13 +28,13 @@ extension SymmetricKey: Codable {
 
 
 extension SymmetricKey {
-    var bytes: Data {
+    public var bytes: Data {
         self.withUnsafeBytes({ Data($0) })
     }
 }
 
 extension SharedSecret {
-    var bytes: Data {
+    public var bytes: Data {
         self.withUnsafeBytes({ Data($0) })
     }
 }
