@@ -44,22 +44,23 @@ public struct _SessionIdentity: Codable, Sendable {
     public let sessionContextId: Int
     
     /// Long-term identity key (Curve25519 public key) → **IKB**
-    public let publicLongTermKey: Data
+    public let longTermPublicKey: Data
     
     /// Medium-term signed pre-key (Curve25519 public key) → **SPKB**
-    public let publicSigningKey: Data
+    public let signingPublicKey: Data
     
     /// Ephemeral one-time pre-key (Curve25519 public key) → **OPKBₙ**
-    public let publicOneTimeKey: Curve25519PublicKeyRepresentable?
+    public let oneTimePublicKey: CurvePublicKey?
     
     /// PQ post‑quantum signed pre-key (Kyber1024) → **PQSPKB**
-    public let kyber1024PublicKey: Kyber1024PublicKeyRepresentable
+    public let pqKemPublicKey: PQKemPublicKey
     
     public var state: RatchetState?
     public var deviceName: String
     public var serverTrusted: Bool?
     public var previousRekey: Date?
     public var isMasterDevice: Bool
+    public var verifiedIdentity: Bool
 }
 
 
@@ -86,56 +87,73 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     
     /// Model class handling encrypted storage of `_SessionIdentity`.
     ///
-    /// Users should retrieve or update values via `UnwrappedProps`, which securely maps to Signal keys:
-    /// - `publicLongTermKey` → **IKB**
-    /// - `publicSigningKey` → **SPKB**
-    /// - `publicOneTimeKey` → **OPKBₙ**
-    /// - `kyber1024PublicKey` → **PQSPKB**
+    /// This struct maps to cryptographic key components and session metadata.
+    /// It follows the Signal Protocol naming pattern:
+    /// - `longTermPublicKey` → **IKB**
+    /// - `signingPublicKey` → **SPKB**
+    /// - `oneTimePublicKey` → **OPKBₙ**
+    /// - `postQuantumKemPublicKey` → **PQSPKB**
     public struct UnwrappedProps: Codable & Sendable {
         
         public let secretName: String
         public let deviceId: UUID
         public let sessionContextId: Int
         
-        public var publicLongTermKey: Data           // → IKB
-        public let publicSigningKey: Data            // → SPKB
-        public let publicOneTimeKey: Curve25519PublicKeyRepresentable? // → OPKBₙ
-        public var kyber1024PublicKey: Kyber1024PublicKeyRepresentable // → PQSPKB
+        /// Identity Key Bundle (long-term public key) → IKB
+        public var longTermPublicKey: Data
         
+        /// Signed Pre-Key Bundle (signing public key) → SPKB
+        public let signingPublicKey: Data
+        
+        /// One-Time Pre-Key Bundle (optional) → OPKBₙ
+        public let oneTimePublicKey: CurvePublicKey?
+        
+        /// Post-Quantum KEM Public Key (e.g., Kyber) → PQSPKB
+        public var pqKemPublicKey: PQKemPublicKey
+        
+        /// Ratchet state for forward secrecy
         public var state: RatchetState?
+        
         public let deviceName: String
         public var serverTrusted: Bool?
         public var previousRekey: Date?
         public var isMasterDevice: Bool
+        public var verifiedIdentity: Bool
+        public var verificationCode: String?
         
         public init(
             secretName: String,
             deviceId: UUID,
             sessionContextId: Int,
-            publicLongTermKey: Data,
-            publicSigningKey: Data,
-            kyber1024PublicKey: Kyber1024PublicKeyRepresentable,
-            publicOneTimeKey: Curve25519PublicKeyRepresentable?,
+            longTermPublicKey: Data,
+            signingPublicKey: Data,
+            pqKemPublicKey: PQKemPublicKey,
+            oneTimePublicKey: CurvePublicKey?,
             state: RatchetState? = nil,
             deviceName: String,
             serverTrusted: Bool? = nil,
             previousRekey: Date? = nil,
-            isMasterDevice: Bool
+            isMasterDevice: Bool,
+            verifiedIdentity: Bool = true,
+            verificationCode: String? = nil
         ) {
             self.secretName = secretName
             self.deviceId = deviceId
             self.sessionContextId = sessionContextId
-            self.publicLongTermKey = publicLongTermKey
-            self.publicSigningKey = publicSigningKey
-            self.publicOneTimeKey = publicOneTimeKey
-            self.kyber1024PublicKey = kyber1024PublicKey
+            self.longTermPublicKey = longTermPublicKey
+            self.signingPublicKey = signingPublicKey
+            self.oneTimePublicKey = oneTimePublicKey
+            self.pqKemPublicKey = pqKemPublicKey
             self.state = state
             self.deviceName = deviceName
             self.serverTrusted = serverTrusted
             self.previousRekey = previousRekey
             self.isMasterDevice = isMasterDevice
+            self.verifiedIdentity = verifiedIdentity
+            self.verificationCode = verificationCode
         }
     }
+    
     
     public init(
         id: UUID,
@@ -203,13 +221,13 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             secretName: props.secretName,
             deviceId: props.deviceId,
             sessionContextId: props.sessionContextId,
-            publicLongTermKey: props.publicLongTermKey,
-            publicSigningKey: props.publicSigningKey,
-            publicOneTimeKey: props.publicOneTimeKey,
-            kyber1024PublicKey: props.kyber1024PublicKey,
+            longTermPublicKey: props.longTermPublicKey,
+            signingPublicKey: props.signingPublicKey,
+            oneTimePublicKey: props.oneTimePublicKey,
+            pqKemPublicKey: props.pqKemPublicKey,
             deviceName: props.deviceName,
-            isMasterDevice: props.isMasterDevice
-        ) as! T
+            isMasterDevice: props.isMasterDevice,
+            verifiedIdentity: props.verifiedIdentity) as! T
     }
 }
 
