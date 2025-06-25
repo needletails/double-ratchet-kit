@@ -310,7 +310,7 @@ public struct RatchetState: Sendable, Codable {
         case sentMessagesCount = "k"                   // Count of sent messages.
         case receivedMessagesCount = "l"               // Count of received messages.
         case previousMessagesCount = "m"               // Count of messages in the previous sending chain.
-        case skippedHeaderMesages = "n"                // Dictionary of skipped header keys.
+        case skippedHeaderMessages = "n"                // Dictionary of skipped header keys.
         case skippedMessageKeys = "o"                  // Dictionary of skipped message keys.
         case headerCiphertext = "p"                    // Header ciphertext.
         case sendingHeaderKey = "q"                    // Current sending header key.
@@ -374,7 +374,7 @@ public struct RatchetState: Sendable, Codable {
     private(set) var lastSkippedIndex: Int = 0
     
     /// A list of Skipped Header Message
-    private(set) var skippedHeaderMesages = [SkippedHeaderMessage]()
+    private(set) var skippedHeaderMessages = [SkippedHeaderMessage]()
     
     /// The Index of the Skipped Header
     private(set) var headerIndex: Int = 0
@@ -687,19 +687,19 @@ public struct RatchetState: Sendable, Codable {
     
     func updateSkippedHeaderMessage(_ message: SkippedHeaderMessage) async -> Self {
         var ratchetState = self
-        ratchetState.skippedHeaderMesages.append(message)
+        ratchetState.skippedHeaderMessages.append(message)
         return ratchetState
     }
     
     func removeSkippedHeaderMessage(_ message: SkippedHeaderMessage) async -> Self {
         var ratchetState = self
-        ratchetState.skippedHeaderMesages.removeAll(where: { $0.chainKey == message.chainKey })
+        ratchetState.skippedHeaderMessages.removeAll(where: { $0.chainKey == message.chainKey })
         return ratchetState
     }
     
     func removeAllSkippedHeaderMessage() async -> Self {
         var ratchetState = self
-        ratchetState.skippedHeaderMesages.removeAll()
+        ratchetState.skippedHeaderMessages.removeAll()
         return ratchetState
     }
     

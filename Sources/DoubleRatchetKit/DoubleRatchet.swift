@@ -41,8 +41,8 @@ import NeedleTailLogger
  This Double Ratchet is designed to work with **PQXDH**, a post-quantum secure version of X3DH for initial key agreement:
  - `SK` from PQXDH is used as the initial root key.
  - `AD` (associated data) from PQXDH is passed to message encryption/decryption.
- - Bob’s signed prekey (SPKB) becomes the initial DH ratchet public key.
- - Alice’s first Double Ratchet message includes the PQXDH initial ciphertext.
+ - Bob's signed prekey (SPKB) becomes the initial DH ratchet public key.
+ - Alice's first Double Ratchet message includes the PQXDH initial ciphertext.
  
  🔒 PQXDH Specification: https://signal.org/docs/specifications/pqxdh/
  
@@ -460,8 +460,8 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Parameters:
     ///   - sessionIdentity: A unique identity used to bind the session cryptographically (e.g. user or device identity).
     ///   - sessionSymmetricKey: A symmetric key used to decrypt or authenticate session metadata.
-    ///   - remoteKeys: The sender’s public keys used to derive the shared secret.
-    ///   - localKeys: The receiver’s private keys required for decryption and ratchet initialization.
+    ///   - remoteKeys: The sender's public keys used to derive the shared secret.
+    ///   - localKeys: The receiver's private keys required for decryption and ratchet initialization.
     /// - Throws: An error if the message cannot be decrypted or the session cannot be initialized.
     public func recipientInitialization(
         sessionIdentity: SessionIdentity,
@@ -1415,7 +1415,7 @@ extension RatchetStateManager {
         let state = try await getRatchetState()
         
         // If we have skipped header messages try and decrypt
-        for headerMessage in state.skippedHeaderMesages {
+        for headerMessage in state.skippedHeaderMessages {
             guard let (decrypted, newState) = try? await decryptHeaderMessage(
                 encryptedHeader: encryptedHeader,
                 chainKey: headerMessage.chainKey,
@@ -1447,11 +1447,11 @@ extension RatchetStateManager {
             return ratchet
         } catch {
             
-            if state.skippedHeaderMesages.count >= defaultRatchetConfiguration.maxSkippedMessageKeys {
+            if state.skippedHeaderMessages.count >= defaultRatchetConfiguration.maxSkippedMessageKeys {
                 throw RatchetError.maxSkippedHeadersExceeded
             }
             
-            for skipped in state.skippedHeaderMesages {
+            for skipped in state.skippedHeaderMessages {
                 if let (decrypted, newState) = try? await decryptHeaderMessage(
                     encryptedHeader: encryptedHeader,
                     chainKey: skipped.chainKey,
@@ -1473,7 +1473,7 @@ extension RatchetStateManager {
         var chainKey = chainKey
         
         //If we fail ratchet
-        if state.skippedHeaderMesages.count > 0 {
+        if state.skippedHeaderMessages.count > 0 {
             chainKey = try await deriveChainKey(from: chainKey, configuration: defaultRatchetConfiguration)
         }
         
@@ -1506,8 +1506,8 @@ extension RatchetStateManager {
         
         encryptedHeader.setDecrypted(header)
         
-        if state.skippedHeaderMesages.count > 0 {
-            if let headerMessage = state.skippedHeaderMesages.first(where: { $0.chainKey == chainKey }) {
+        if state.skippedHeaderMessages.count > 0 {
+            if let headerMessage = state.skippedHeaderMessages.first(where: { $0.chainKey == chainKey }) {
                 state = await state.removeSkippedHeaderMessage(headerMessage)
             }
         }

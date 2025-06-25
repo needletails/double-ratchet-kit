@@ -81,7 +81,7 @@ public struct CurvePrivateKey: Codable, Sendable, Equatable {
     }
 }
 
-/// A representation of a Curvepublic key with an associated UUID.
+/// A representation of a Curve public key with an associated UUID.
 public struct CurvePublicKey: Codable, Sendable, Hashable {
     
     /// A unique identifier for the key.
