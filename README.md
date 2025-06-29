@@ -1,4 +1,3 @@
-
 # DoubleRatchetKit
 
 A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X3DH (PQXDH)** integration, providing asynchronous forward secrecy and post-compromise security for secure messaging applications.
@@ -240,6 +239,29 @@ let kyberPublicKey = try PQKemPublicKey(id: UUID(), kyber1024PublicKey.rawRepres
 - **Automatic Rotation**: Keys change with every message
 - **Compromise Recovery**: Post-compromise security guarantees
 
+## 📚 Documentation
+
+### DocC Documentation
+
+Comprehensive documentation is available through DocC:
+
+- **Getting Started**: Quick setup and basic usage
+- **Key Concepts**: Understanding the Double Ratchet algorithm
+- **Security Model**: Security properties and threat model
+- **API Reference**: Complete API documentation
+- **Best Practices**: Implementation guidelines
+- **Performance**: Optimization strategies
+- **Error Handling**: Error management patterns
+
+To view the documentation:
+1. Open the project in Xcode
+2. Go to Product → Build Documentation
+3. View the documentation in the Documentation Navigator
+
+### API Reference
+
+For detailed API documentation, see the [API Reference](Documentation.docc/APIReference.md) or build the DocC documentation in Xcode.
+
 ## 🧪 Testing
 
 ```bash
@@ -306,7 +328,7 @@ This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE)
 ## 📞 Support
 
 - **Issues**: [GitHub Issues](https://github.com/needletails/double-ratchet-kit/issues)
-- **Documentation**: [API Reference](https://github.com/needletails/double-ratchet-kit)
+- **Documentation**: [DocC Documentation](Sources/DoubleRatchetKit/Documentation.docc/Documentation.md)
 
 ---
 
