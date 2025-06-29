@@ -260,7 +260,7 @@ To view the documentation:
 
 ### API Reference
 
-For detailed API documentation, see the [API Reference](Documentation.docc/APIReference.md) or build the DocC documentation in Xcode.
+For detailed API documentation, see the [API Reference](https://github.com/needletails/double-ratchet-kit/blob/main/Sources/DoubleRatchetKit/Documentation.docc/APIReference.md) or build the DocC documentation in Xcode.
 
 ## 🧪 Testing
 
