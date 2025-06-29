@@ -28,7 +28,9 @@ public struct PQKemPrivateKey: Codable, Sendable, Equatable {
     
     /// Initializes a new PQKem private key wrapper.
     ///
-    /// - Parameter rawRepresentation: The raw PQKem private key bytes.
+    ///- Parameters
+    ///  id: An Identifier for the object
+    ///  rawRepresentation: The raw PQKem private key bytes.
     /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         let key = rawRepresentation.decodeKyber1024()
@@ -53,7 +55,9 @@ public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable {
     
     /// Initializes a new PQKem public key wrapper.
     ///
-    /// - Parameter rawRepresentation: The raw PQKem public key bytes.
+    ///- Parameters
+    ///  id: An Identifier for the object
+    ///  rawRepresentation: The raw PQKem public key bytes.
     /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == Int(kyber1024PublicKeyLength) else {

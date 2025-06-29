@@ -46,7 +46,7 @@ import NeedleTailLogger
 
 ```swift
 // Create a serial executor for the actor
-let executor = // Some Executor
+let executor = //Some Executor
 let logger = NeedleTailLogger()
 
 // Initialize the ratchet state manager
@@ -195,9 +195,32 @@ class MySessionDelegate: SessionIdentityDelegate {
 ratchetManager.setDelegate(MySessionDelegate())
 ```
 
-## Error Handling
+## Swift Concurrency Best Practices
 
-### Common Error Patterns
+### Actor Isolation
+
+The `RatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
+
+```swift
+// All state mutations are automatically serialized
+let ratchetManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+
+Task {
+    let message1 = try await ratchetManager.ratchetEncrypt(plainText: data1)
+    let message2 = try await ratchetManager.ratchetEncrypt(plainText: data2)
+}
+```
+
+### Proper Resource Management
+
+Always call `shutdown()` when done with the ratchet manager:
+
+```swift
+// Always call shutdown when done
+try await ratchetManager.shutdown()
+```
+
+### Error Handling
 
 ```swift
 do {
@@ -214,20 +237,28 @@ do {
 }
 ```
 
-## Cleanup
+### Concurrent Session Management
 
-### Shutdown
-
-Always call shutdown when you're done with the ratchet manager:
+For managing multiple sessions, create separate manager instances:
 
 ```swift
-// Always call shutdown when done
-try await ratchetManager.shutdown()
+// Each session should have its own manager instance
+let aliceManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+let bobManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+
+// Each manager can operate concurrently
+await withTaskGroup(of: Void.self) { group in
+    group.addTask {
+        try await aliceManager.senderInitialization(/* ... */)
+    }
+    group.addTask {
+        try await bobManager.recipientInitialization(/* ... */)
+    }
+}
 ```
 
 ## Next Steps
 
 - Learn about the <doc:KeyConcepts> behind the Double Ratchet algorithm
 - Understand the <doc:SecurityModel> and threat model
-- Explore <doc:BestPractices> for secure implementation
 - Review the <doc:APIReference> for detailed method documentation 

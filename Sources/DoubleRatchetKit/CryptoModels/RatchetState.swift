@@ -152,6 +152,8 @@ public struct EncryptedHeader: Sendable, Codable, Hashable {
     ///   - remotePQKemPublicKey: The sender's PQKem public key.
     ///   - headerCiphertext: The ciphertext of the header.
     ///   - messageCiphertext: The ciphertext of the message.
+    ///   - oneTimeKeyId: The One Time Curve Key
+    ///   - pqKemOneTimeKeyId: The PQKem Key
     ///   - encrypted: The encrypted body of the header.
     public init(
         remoteLongTermPublicKey: RemoteLongTermPublicKey,
@@ -182,6 +184,8 @@ public struct EncryptedHeader: Sendable, Codable, Hashable {
     ///   - headerCiphertext: The ciphertext of the header.
     ///   - messageCiphertext: The ciphertext of the message.
     ///   - encrypted: The encrypted body of the header.
+    ///   - oneTimeKeyId: The One Time Curve Key
+    ///   - pqKemOneTimeKeyId: The PQKem Key
     ///   - decrypted: The decrypted **MessageHeader**.
     public init(
         remoteLongTermPublicKey: RemoteLongTermPublicKey,
@@ -245,6 +249,7 @@ public struct MessageHeader: Sendable, Codable {
     /// Initializes a new MessageHeader with the specified parameters.
     /// - Parameters:
     ///   - previousChainLength: The length of the previous message chain.
+    ///   - messageNumber: The message number of the given message
     public init(
         previousChainLength: Int,
         messageNumber: Int

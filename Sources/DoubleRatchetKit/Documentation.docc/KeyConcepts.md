@@ -204,6 +204,4 @@ if let key = skippedMessageKeys[messageNumber] {
 ## Next Steps
 
 - Explore the <doc:SecurityModel> for detailed security analysis
-- Learn about <doc:ProtocolFlow> for implementation details
-- Review <doc:BestPractices> for secure deployment
 - Check the <doc:APIReference> for complete API documentation 

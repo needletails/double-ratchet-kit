@@ -248,7 +248,4 @@ let finalSecret = classicalSecret + quantumSecret
 
 ## Next Steps
 
-- Learn about <doc:ProtocolFlow> for implementation details
-- Review <doc:BestPractices> for secure deployment
-- Check <doc:ErrorHandling> for error management
 - Explore the <doc:APIReference> for complete documentation 

@@ -161,6 +161,53 @@ Fetches a previously stored private one-time Curve25519 key by its unique identi
 **updateOneTimeKey(remove:)**
 Notifies that a new one-time key should be generated and made available.
 
+## Swift Concurrency Best Practices
+
+### Actor Isolation
+
+`RatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
+
+- **Isolated State**: All state mutations are isolated to the actor
+- **Concurrent Access**: Multiple threads can safely call methods concurrently
+- **Serial Execution**: Operations are executed serially within the actor
+
+### Proper Resource Management
+
+The manager automatically handles memory management for cryptographic state:
+
+- **Key Cleanup**: Used keys are automatically cleaned up
+- **State Persistence**: Session state is persisted through the delegate
+- **Resource Cleanup**: Call `shutdown()` to ensure proper cleanup
+
+### Concurrent Usage Patterns
+
+```swift
+// Safe concurrent access
+let ratchetManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+
+// Multiple tasks can safely access the same manager
+await withTaskGroup(of: RatchetMessage.self) { group in
+    group.addTask {
+        return try await ratchetManager.ratchetEncrypt(plainText: data1)
+    }
+    group.addTask {
+        return try await ratchetManager.ratchetEncrypt(plainText: data2)
+    }
+}
+```
+
+### Multiple Session Management
+
+For managing multiple sessions, create separate manager instances:
+
+```swift
+// Each session should have its own manager instance
+let session1Manager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+let session2Manager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+
+// Each manager can operate independently and concurrently
+```
+
 ## Error Handling
 
 ### Common Errors
@@ -188,37 +235,6 @@ do {
     // Handle other errors
 }
 ```
-
-## Thread Safety
-
-`RatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
-
-- **Isolated State**: All state mutations are isolated to the actor
-- **Concurrent Access**: Multiple threads can safely call methods concurrently
-- **Serial Execution**: Operations are executed serially within the actor
-
-## Memory Management
-
-The manager automatically handles memory management for cryptographic state:
-
-- **Key Cleanup**: Used keys are automatically cleaned up
-- **State Persistence**: Session state is persisted through the delegate
-- **Resource Cleanup**: Call `shutdown()` to ensure proper cleanup
-
-## Performance Considerations
-
-### Optimization Tips
-
-1. **Reuse Instances**: Reuse `RatchetStateManager` instances for multiple sessions
-2. **Efficient Executors**: Use efficient serial executors for better performance
-3. **Batch Operations**: Consider batching operations when possible
-4. **Memory Usage**: Monitor memory usage for long-running sessions
-
-### Scalability
-
-- **Multiple Sessions**: Each session should use a separate manager instance
-- **Concurrent Sessions**: Multiple managers can run concurrently
-- **Resource Limits**: Consider resource limits for large deployments
 
 ## Example Usage
 
@@ -259,5 +275,4 @@ try await ratchetManager.shutdown()
 
 - <doc:SessionIdentity> - Session identity management
 - <doc:RatchetState> - Session state structure
-- <doc:KeyManagement> - Cryptographic key management
-- <doc:ErrorHandling> - Error handling patterns 
+- <doc:KeyManagement> - Cryptographic key management 

@@ -643,5 +643,4 @@ func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: Symmetr
 
 - <doc:RatchetStateManager> - Main protocol interface
 - <doc:SessionIdentity> - Session identity management
-- <doc:KeyManagement> - Cryptographic key handling
-- <doc:ErrorHandling> - Error handling patterns 
+- <doc:KeyManagement> - Cryptographic key handling 

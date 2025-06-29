@@ -305,5 +305,3 @@ func handleOutOfOrderMessage(_ message: RatchetMessage, state: RatchetState) -> 
 - <doc:RatchetStateManager> for the main actor managing ratchet state
 - <doc:SessionIdentity> for session identity management
 - <doc:KeyManagement> for key management operations
-- <doc:ProtocolFlow> for protocol implementation details
-- <doc:BestPractices> for implementation guidelines 

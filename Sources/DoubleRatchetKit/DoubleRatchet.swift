@@ -164,7 +164,9 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     // MARK: - Initialization
     
     /// Initializes the ratchet state manager.
-    /// - Parameter executor: A `SerialExecutor` used to coordinate concurrent operations within the actor.
+    /// - Parameters:
+    ///  - executor: A `SerialExecutor` used to coordinate concurrent operations within the actor.
+    ///  - logger: The Logger
     public init(executor: any SerialExecutor, logger: NeedleTailLogger = NeedleTailLogger()) {
         self.executor = executor
         self.logger = logger
@@ -978,7 +980,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         
         // Generate and store each skipped message key up to the incoming messageNumber
         for index in startIndex ..< decrypted.messageNumber {
-           
+            
             let skipped = SkippedMessageKey(
                 remoteLongTermPublicKey: header.remoteLongTermPublicKey,
                 remoteOneTimePublicKey: header.remoteOneTimePublicKey?.rawRepresentation,

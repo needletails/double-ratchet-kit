@@ -28,13 +28,6 @@ DoubleRatchetKit implements the Signal protocol's Double Ratchet algorithm with 
 - <doc:RatchetState>
 - <doc:KeyManagement>
 
-### Advanced Topics
-
-- <doc:ProtocolFlow>
-- <doc:ErrorHandling>
-- <doc:Performance>
-- <doc:BestPractices>
-
 ### API Reference
 
 - <doc:APIReference> 
