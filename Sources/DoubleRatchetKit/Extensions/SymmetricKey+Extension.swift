@@ -21,12 +21,12 @@ extension SymmetricKey: Codable {
     /// Encodes the SymmetricKey to the given encoder.
     /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
-        let data = self.withUnsafeBytes { buffer in
+        let data = withUnsafeBytes { buffer in
             Data(buffer: buffer.bindMemory(to: UInt8.self))
         }
         try data.encode(to: encoder) // Encode the key data.
     }
-    
+
     /// Initializes a SymmetricKey from the given decoder.
     /// - Parameter decoder: The decoder to read data from.
     public init(from decoder: Decoder) throws {
@@ -35,15 +35,14 @@ extension SymmetricKey: Codable {
     }
 }
 
-
-extension SymmetricKey {
-    public var bytes: Data {
-        self.withUnsafeBytes({ Data($0) })
+public extension SymmetricKey {
+    var bytes: Data {
+        withUnsafeBytes { Data($0) }
     }
 }
 
-extension SharedSecret {
-    public var bytes: Data {
-        self.withUnsafeBytes({ Data($0) })
+public extension SharedSecret {
+    var bytes: Data {
+        withUnsafeBytes { Data($0) }
     }
 }

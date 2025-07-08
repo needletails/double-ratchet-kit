@@ -13,24 +13,24 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
-import Foundation
-import class BSON.BSONEncoder
 import struct BSON.BSONDecoder
+import class BSON.BSONEncoder
 import struct BSON.Document
+import Foundation
 import struct NIOCore.ByteBuffer
 
-extension BSONEncoder {
-    public func encodeData<T: Codable>(_ encodable: T) throws -> Data {
+public extension BSONEncoder {
+    func encodeData(_ encodable: some Codable) throws -> Data {
         try encode(encodable).makeData()
     }
 }
 
-extension BSONDecoder {
-    public func decodeBuffer<T: Codable>(_ type: T.Type, from buffer: ByteBuffer) throws -> T {
-        return try decode(type, from: Document(buffer: buffer))
+public extension BSONDecoder {
+    func decodeBuffer<T: Codable>(_ type: T.Type, from buffer: ByteBuffer) throws -> T {
+        try decode(type, from: Document(buffer: buffer))
     }
-    
-    public func decodeData<T: Codable>(_ type: T.Type, from data: Data) throws -> T {
-        return try decode(type, from: Document(data: data))
+
+    func decodeData<T: Codable>(_ type: T.Type, from data: Data) throws -> T {
+        try decode(type, from: Document(data: data))
     }
 }

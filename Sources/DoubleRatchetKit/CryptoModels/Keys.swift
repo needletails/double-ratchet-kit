@@ -22,19 +22,19 @@ import SwiftKyber
 public struct PQKemPrivateKey: Codable, Sendable, Equatable {
     /// A unique identifier for the key (e.g. device or session key).
     public let id: UUID
-    
+
     /// The raw key data.
     public let rawRepresentation: Data
-    
+
     /// Initializes a new PQKem private key wrapper.
     ///
-    ///- Parameters
+    /// - Parameters
     ///  id: An Identifier for the object
     ///  rawRepresentation: The raw PQKem private key bytes.
     /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         let key = rawRepresentation.decodeKyber1024()
-        
+
         guard key.rawRepresentation.count == Int(kyber1024PrivateKeyLength) else {
             throw KyberError.invalidKeySize
         }
@@ -49,13 +49,13 @@ public struct PQKemPrivateKey: Codable, Sendable, Equatable {
 public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable {
     /// A unique identifier for the key (e.g. device or session key).
     public let id: UUID
-    
+
     /// The raw key data.
     public let rawRepresentation: Data
-    
+
     /// Initializes a new PQKem public key wrapper.
     ///
-    ///- Parameters
+    /// - Parameters
     ///  id: An Identifier for the object
     ///  rawRepresentation: The raw PQKem public key bytes.
     /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
@@ -72,13 +72,12 @@ public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable {
 ///
 /// This is useful for identifying specific device keys across sessions.
 public struct CurvePrivateKey: Codable, Sendable, Equatable {
-    
     /// A unique identifier for the key (e.g. device or session key).
     public let id: UUID
-    
+
     /// The raw key data.
     public let rawRepresentation: Data
-    
+
     /// Initializes a new Curve private key wrapper.
     ///
     /// - Parameters:
@@ -96,13 +95,12 @@ public struct CurvePrivateKey: Codable, Sendable, Equatable {
 
 /// A representation of a Curve public key with an associated UUID.
 public struct CurvePublicKey: Codable, Sendable, Hashable {
-    
     /// A unique identifier for the key.
     public let id: UUID
-    
+
     /// The raw key data.
     public let rawRepresentation: Data
-    
+
     /// Initializes a new Curve public key wrapper.
     ///
     /// - Parameters:
@@ -120,16 +118,15 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
 
 /// A container for all remote public keys used during session setup.
 public struct RemoteKeys {
-    
     /// The remote party's long-term Curve public key.
     let longTerm: CurvePublicKey
-    
+
     /// The remote party's one-time Curve public key.
     let oneTime: CurvePublicKey?
-    
+
     /// The remote party's PQKem public key.
     let pqKem: PQKemPublicKey
-    
+
     /// Initializes a container of remote keys for session initialization.
     public init(
         longTerm: CurvePublicKey,
@@ -144,16 +141,15 @@ public struct RemoteKeys {
 
 /// A container for all local private keys used during session setup.
 public struct LocalKeys {
-    
     /// The local party's long-term Curve private key.
     let longTerm: CurvePrivateKey
-    
+
     /// The local party's one-time Curve private key.
     let oneTime: CurvePrivateKey?
-    
+
     /// The local party's pqKem private key.
     let pqKem: PQKemPrivateKey
-    
+
     /// Initializes a container of local keys for session initialization.
     public init(
         longTerm: CurvePrivateKey,

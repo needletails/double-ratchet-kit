@@ -13,31 +13,29 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
-import Foundation
-import Crypto
 import BSON
+import Crypto
+import Foundation
 import NeedleTailCrypto
 import SwiftKyber
 
 /// Protocol defining the base model functionality.
 public protocol SecureModelProtocol: Codable, Sendable {
     associatedtype Props: Codable & Sendable
-    
+
     /// Asynchronously sets the properties of the model using the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
     func decryptProps(symmetricKey: SymmetricKey) async throws -> Props
-    
+
     /// Updates the properties with the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Parameter props: The properties to update.
     /// - Returns: The updated properties, or nil if the update failed.
     func updateProps(symmetricKey: SymmetricKey, props: Props) async throws -> Props?
-    
+
     func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T
 }
-
-
 
 /// Custom error type for encryption-related errors.
 public enum CryptoError: Error {
@@ -51,19 +49,19 @@ public struct _SessionIdentity: Codable, Sendable {
     public let secretName: String
     public let deviceId: UUID
     public let sessionContextId: Int
-    
+
     /// Long-term identity key (Curve25519 public key) → **IKB**
     public let longTermPublicKey: Data
-    
+
     /// Medium-term signed pre-key (Curve25519 public key) → **SPKB**
     public let signingPublicKey: Data
-    
+
     /// Ephemeral one-time pre-key (Curve25519 public key) → **OPKBₙ**
     public let oneTimePublicKey: CurvePublicKey?
-    
+
     /// PQ post‑quantum signed pre-key (Kyber1024) → **PQSPKB**
     public let pqKemPublicKey: PQKemPublicKey
-    
+
     public var state: RatchetState?
     public var deviceName: String
     public var serverTrusted: Bool?
@@ -72,18 +70,17 @@ public struct _SessionIdentity: Codable, Sendable {
     public var verifiedIdentity: Bool
 }
 
-
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
 public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     public let id: UUID
     public var data: Data
-    
+
     enum CodingKeys: String, CodingKey, Codable, Sendable {
         case id = "a"
         case data = "b"
     }
-    
+
     /// Asynchronously retrieves the decrypted properties, if available.
     public func props(symmetricKey: SymmetricKey) async -> UnwrappedProps? {
         do {
@@ -92,8 +89,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             return nil
         }
     }
-    
-    
+
     /// Model class handling encrypted storage of `_SessionIdentity`.
     ///
     /// This struct maps to cryptographic key components and session metadata.
@@ -103,33 +99,32 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     /// - `oneTimePublicKey` → **OPKBₙ**
     /// - `postQuantumKemPublicKey` → **PQSPKB**
     public struct UnwrappedProps: Codable & Sendable {
-        
         public let secretName: String
         public let deviceId: UUID
         public let sessionContextId: Int
-        
+
         /// Identity Key Bundle (long-term public key) → IKB
         public var longTermPublicKey: Data
-        
+
         /// Signed Pre-Key Bundle (signing public key) → SPKB
         public let signingPublicKey: Data
-        
+
         /// One-Time Pre-Key Bundle (optional) → OPKBₙ
         public let oneTimePublicKey: CurvePublicKey?
-        
+
         /// Post-Quantum KEM Public Key (e.g., Kyber) → PQSPKB
         public var pqKemPublicKey: PQKemPublicKey
-        
+
         /// Ratchet state for forward secrecy
         public var state: RatchetState?
-        
+
         public let deviceName: String
         public var serverTrusted: Bool?
         public var previousRekey: Date?
         public var isMasterDevice: Bool
         public var verifiedIdentity: Bool
         public var verificationCode: String?
-        
+
         public init(
             secretName: String,
             deviceId: UUID,
@@ -162,8 +157,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.verificationCode = verificationCode
         }
     }
-    
-    
+
     public init(
         id: UUID,
         props: UnwrappedProps,
@@ -177,12 +171,12 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         self.id = id
         self.data = encryptedData
     }
-    
+
     public init(id: UUID, data: Data) {
         self.id = id
         self.data = data
     }
-    
+
     /// Asynchronously sets the properties of the model using the provided symmetric key.
     /// - Parameter symmetricKey: The symmetric key used for decryption.
     /// - Returns: The decrypted properties.
@@ -194,13 +188,13 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         }
         return try BSONDecoder().decodeData(UnwrappedProps.self, from: decrypted)
     }
-    
+
     /// Asynchronously updates the properties of the model.
     /// - Parameters:
     ///   - symmetricKey: The symmetric key used for encryption.
     ///   - props: The new unwrapped properties to be set.
     /// - Returns: The updated decrypted properties.
-    /// 
+    ///
     /// - Throws: An error if encryption fails.
     public func updateProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws -> UnwrappedProps? {
         let crypto = NeedleTailCrypto()
@@ -209,9 +203,9 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
-        return try await self.decryptProps(symmetricKey: symmetricKey)
+        return try await decryptProps(symmetricKey: symmetricKey)
     }
-    
+
     public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws {
         let crypto = NeedleTailCrypto()
         let data = try BSONEncoder().encodeData(props)
@@ -220,9 +214,9 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         }
         self.data = encryptedData
     }
-    
-    public func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T {
-        guard let props = await self.props(symmetricKey: symmetricKey) else {
+
+    public func makeDecryptedModel<T: Sendable & Codable>(of _: T.Type, symmetricKey: SymmetricKey) async throws -> T {
+        guard let props = await props(symmetricKey: symmetricKey) else {
             throw CryptoError.propsError
         }
         return _SessionIdentity(
@@ -236,7 +230,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             pqKemPublicKey: props.pqKemPublicKey,
             deviceName: props.deviceName,
             isMasterDevice: props.isMasterDevice,
-            verifiedIdentity: props.verifiedIdentity) as! T
+            verifiedIdentity: props.verifiedIdentity,
+        ) as! T
     }
 }
-
