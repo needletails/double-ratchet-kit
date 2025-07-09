@@ -110,7 +110,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public let signingPublicKey: Data
 
         /// One-Time Pre-Key Bundle (optional) → OPKBₙ
-        public let oneTimePublicKey: CurvePublicKey?
+        public var oneTimePublicKey: CurvePublicKey?
 
         /// Post-Quantum KEM Public Key (e.g., Kyber) → PQSPKB
         public var pqKemPublicKey: PQKemPublicKey
@@ -124,6 +124,18 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public var isMasterDevice: Bool
         public var verifiedIdentity: Bool
         public var verificationCode: String?
+        
+        public mutating func setLongTermPublicKey(_ data: Data) {
+            self.longTermPublicKey = data
+        }
+        
+        public mutating func setOneTimePublicKey(_ key: CurvePublicKey) {
+            self.oneTimePublicKey = key
+        }
+        
+        public mutating func setPQKemPublicKey(_ key: PQKemPublicKey) {
+            self.pqKemPublicKey = key
+        }
 
         public init(
             secretName: String,

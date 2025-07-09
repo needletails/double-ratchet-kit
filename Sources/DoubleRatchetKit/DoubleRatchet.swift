@@ -284,19 +284,33 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                     }
                 }
                 checkKeyChanges()
+                
+                // Just update the keys
+                currentProps.state = await currentProps.state?.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
+                currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
+                currentProps.state = await currentProps.state?.updateRemotePQKemPublicKey(keys.remotePQKemPublicKey)
+                currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
+                currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
+                currentProps.state = await currentProps.state?.updateLocalPQKemPrivateKey(keys.localPQKemPrivateKey)
 
                 if changesDetected {
+                     currentProps.setLongTermPublicKey(keys.remoteLongTermPublicKey)
+                    if let key = keys.remoteOneTimePublicKey {
+                        currentProps.setOneTimePublicKey(key)
+                    }
+                    
+                    currentProps.setPQKemPublicKey(keys.remotePQKemPublicKey)
                     currentProps.state = try await diffieHellmanRatchet(
                         localKeys: .init(
                             longTerm: .init(keys.localLongTermPrivateKey),
                             oneTime: keys.localOneTimePrivateKey,
-                            pqKem: keys.localPQKemPrivateKey,
-                        ))
+                            pqKem: keys.localPQKemPrivateKey))
+                    
                 } else if let state = currentProps.state, state.sendingHandshakeFinished == false {
                     // Do intial sending setup and update the state with the ciphertext and sending key
-
+                    
                     var chainKey: SymmetricKey
-
+                    
                     if let sendingKey = state.sendingKey {
                         chainKey = sendingKey
                     } else {
@@ -311,14 +325,6 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                     }
                     currentProps.state = await state.updateSendingKey(chainKey)
                 }
-
-                // Just update the keys
-                currentProps.state = await currentProps.state?.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
-                currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
-                currentProps.state = await currentProps.state?.updateRemotePQKemPublicKey(keys.remotePQKemPublicKey)
-                currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
-                currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
-                currentProps.state = await currentProps.state?.updateLocalPQKemPrivateKey(keys.localPQKemPrivateKey)
             case .receiving:
                 break
             }
@@ -556,8 +562,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         // Step 2: Construct ratchet header metadata.
         let messageHeader = MessageHeader(
             previousChainLength: state.previousMessagesCount,
-            messageNumber: state.sentMessagesCount,
-        )
+            messageNumber: state.sentMessagesCount)
 
         if !state.sendingHandshakeFinished {
             // Step 3: Derive symmetric header encryption key using hybrid PQXDH.
@@ -591,14 +596,13 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
 
         let nextSendingHeaderKey = try await deriveChainKey(
             from: sendingHeaderKey,
-            configuration: defaultRatchetConfiguration,
-        )
+            configuration: defaultRatchetConfiguration)
+        
         state = await state.updateSendingNextHeaderKey(nextSendingHeaderKey)
 
         // Step 5: Reconstruct local public keys to embed into the header.
         let localLongTermPublicKey = try Curve25519PrivateKey(rawRepresentation: state.localLongTermPrivateKey)
             .publicKey.rawRepresentation
-
         var remoteOneTimePublicKey: RemoteOneTimePublicKey?
         if let localOneTimePrivateKey = state.localOneTimePrivateKey {
             let localOneTimePublicKey = try Curve25519PrivateKey(rawRepresentation: localOneTimePrivateKey.rawRepresentation).publicKey.rawRepresentation
@@ -776,7 +780,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         // Decrypt the header now that the appropriate key is available.
         let header = try await decryptHeader(message.header)
         state = try await getRatchetState()
-
+        
         // Ensure header was successfully decrypted before continuing.
         guard let decrypted = header.decrypted else {
             throw RatchetError.headerDecryptFailed
@@ -1162,7 +1166,6 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             // 3. Update remote public keys
             state = await state.updateRemoteLongTermPublicKey(header.remoteLongTermPublicKey)
             logger.log(level: .trace, message: "Updating remote public long-term key")
-
             // If a new one-time key arrives, update in state
             if state.remoteOneTimePublicKey != header.remoteOneTimePublicKey {
                 logger.log(level: .trace, message: "Updating remote one-time key: \(String(describing: header.remoteOneTimePublicKey?.id))")
@@ -1214,7 +1217,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 logger.log(level: .trace, message: "Updating local PQKem key")
                 state = await state.updateLocalPQKemPrivateKey(localKeys.pqKem)
             }
-
+            
             let cipher = try await derivePQXDHFinalKey(
                 localLongTermPrivateKey: state.localLongTermPrivateKey,
                 remotePublicLongTermKey: state.remoteLongTermPublicKey,
