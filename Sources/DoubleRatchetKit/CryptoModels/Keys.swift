@@ -117,7 +117,7 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
 }
 
 /// A container for all remote public keys used during session setup.
-public struct RemoteKeys {
+public struct RemoteKeys: Sendable {
     /// The remote party's long-term Curve public key.
     let longTerm: CurvePublicKey
 
@@ -140,7 +140,7 @@ public struct RemoteKeys {
 }
 
 /// A container for all local private keys used during session setup.
-public struct LocalKeys {
+public struct LocalKeys: Sendable {
     /// The local party's long-term Curve private key.
     let longTerm: CurvePrivateKey
 

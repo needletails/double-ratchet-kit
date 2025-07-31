@@ -298,8 +298,7 @@ let defaultRatchetConfiguration = RatchetConfiguration(
     chainKeyData: Data([0x01]), // Data for chain key derivation.
     rootKeyData: Data([0x02, 0x03]), // Data for root key derivation.
     associatedData: "DoubleRatchetKit".data(using: .ascii)!, // Associated data for messages.
-    maxSkippedMessageKeys: 80, // Maximum number of skipped message keys to retain.
-)
+    maxSkippedMessageKeys: 80)
 
 /// Represents the state of the Double Ratchet protocol.
 public struct RatchetState: Sendable, Codable {

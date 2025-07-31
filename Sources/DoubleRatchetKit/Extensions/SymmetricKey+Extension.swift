@@ -17,7 +17,7 @@ import Crypto
 import Foundation
 
 /// Extension to make SymmetricKey conform to Codable for easy encoding and decoding.
-extension SymmetricKey: Codable {
+extension SymmetricKey: @retroactive Codable {
     /// Encodes the SymmetricKey to the given encoder.
     /// - Parameter encoder: The encoder to write data to.
     public func encode(to encoder: Encoder) throws {
