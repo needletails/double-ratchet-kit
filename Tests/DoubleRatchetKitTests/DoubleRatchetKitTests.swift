@@ -15,12 +15,13 @@
 //
 import AsyncAlgorithms
 import Crypto
-@testable import DoubleRatchetKit
 import Foundation
 import NeedleTailCrypto
+import NeedleTailLogger
 import SwiftKyber
 import Testing
-import NeedleTailLogger
+
+@testable import DoubleRatchetKit
 
 @Suite(.serialized)
 actor RatchetStateManagerTests: SessionIdentityDelegate {
@@ -55,7 +56,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     }
 
     private func generateBatch() throws -> [KeyPair] {
-        try (0 ..< 100).map { _ in
+        try (0..<100).map { _ in
             let id = UUID()
             let priv = crypto.generateCurve25519PrivateKey()
             return try KeyPair(
@@ -130,14 +131,15 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     let crypto = NeedleTailCrypto()
     var publicOneTimeKey: Data = .init()
 
-    func makeAliceIdentity(longTerm: Curve25519PrivateKey,
-                           signing: Curve25519.Signing.PrivateKey,
-                           kem: Kyber1024.KeyAgreement.PrivateKey,
-                           oneTime: Curve25519.KeyAgreement.PublicKey,
-                           databaseSymmetricKey: SymmetricKey,
-                           id: UUID = UUID(),
-                           deviceId: UUID = UUID()) throws -> SessionIdentity
-    {
+    func makeAliceIdentity(
+        longTerm: Curve25519PrivateKey,
+        signing: Curve25519.Signing.PrivateKey,
+        kem: Kyber1024.KeyAgreement.PrivateKey,
+        oneTime: Curve25519.KeyAgreement.PublicKey,
+        databaseSymmetricKey: SymmetricKey,
+        id: UUID = UUID(),
+        deviceId: UUID = UUID()
+    ) throws -> SessionIdentity {
         try SessionIdentity(
             id: id,
             props: .init(
@@ -155,14 +157,15 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         )
     }
 
-    func makeBobIdentity(longTerm: Curve25519PrivateKey,
-                         signing: Curve25519.Signing.PrivateKey,
-                         kem: Kyber1024.KeyAgreement.PrivateKey,
-                         oneTime: Curve25519.KeyAgreement.PublicKey,
-                            databaseSymmetricKey: SymmetricKey,
-                              id: UUID = UUID(),
-                              deviceId: UUID = UUID()) throws -> SessionIdentity
-    {
+    func makeBobIdentity(
+        longTerm: Curve25519PrivateKey,
+        signing: Curve25519.Signing.PrivateKey,
+        kem: Kyber1024.KeyAgreement.PrivateKey,
+        oneTime: Curve25519.KeyAgreement.PublicKey,
+        databaseSymmetricKey: SymmetricKey,
+        id: UUID = UUID(),
+        deviceId: UUID = UUID()
+    ) throws -> SessionIdentity {
         try SessionIdentity(
             id: id,
             props: .init(
@@ -183,7 +186,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     let aliceDbsk = SymmetricKey(size: .bits256)
     let bobDBSK = SymmetricKey(size: .bits256)
 
-    private func createKeys() async throws -> (aliceIdentity: SessionIdentity, bobIdentity: SessionIdentity, bundle: KeyBundle) {
+    private func createKeys() async throws -> (
+        aliceIdentity: SessionIdentity, bobIdentity: SessionIdentity, bundle: KeyBundle
+    ) {
         // Generate sender keys
         let aliceLtpk = crypto.generateCurve25519PrivateKey()
         let aliceOtpk = crypto.generateCurve25519PrivateKey()
@@ -197,10 +202,14 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobKEM = try crypto.generateKyber1024PrivateSigningKey()
 
         // Create Sender's Identity
-        let aliceIdentity = try makeAliceIdentity(longTerm: aliceLtpk, signing: aliceSpk, kem: aliceKEM, oneTime: aliceOtpk.publicKey, databaseSymmetricKey: bobDBSK)
+        let aliceIdentity = try makeAliceIdentity(
+            longTerm: aliceLtpk, signing: aliceSpk, kem: aliceKEM, oneTime: aliceOtpk.publicKey,
+            databaseSymmetricKey: bobDBSK)
 
         // Create Receiver's Identity
-        let bobIdentity = try makeBobIdentity(longTerm: bobLtpk, signing: bobSpk, kem: bobKEM, oneTime: bobOtpk.publicKey, databaseSymmetricKey: aliceDbsk)
+        let bobIdentity = try makeBobIdentity(
+            longTerm: bobLtpk, signing: bobSpk, kem: bobKEM, oneTime: bobOtpk.publicKey,
+            databaseSymmetricKey: aliceDbsk)
 
         // Store initial identities in sessionIdentities map
         sessionIdentities[aliceIdentity.id] = aliceIdentity
@@ -215,15 +224,19 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobInitialOneTimePublic = bobOneTimeKeyPair.publicKey
 
         let aliceLongTermId = UUID()
-        let alicePrivateLongTerm = try CurvePrivateKey(id: aliceLongTermId, aliceLtpk.rawRepresentation)
-        let alicePublicLongTerm = try CurvePublicKey(id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
+        let alicePrivateLongTerm = try CurvePrivateKey(
+            id: aliceLongTermId, aliceLtpk.rawRepresentation)
+        let alicePublicLongTerm = try CurvePublicKey(
+            id: aliceLongTermId, aliceLtpk.publicKey.rawRepresentation)
 
         let bobLongTermId = UUID()
         let bobPrivateLongTerm = try CurvePrivateKey(id: bobLongTermId, bobLtpk.rawRepresentation)
-        let bobPublicLongTerm = try CurvePublicKey(id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
+        let bobPublicLongTerm = try CurvePublicKey(
+            id: bobLongTermId, bobLtpk.publicKey.rawRepresentation)
 
         let aliceKyberId = UUID()
-        let aliceKyberPublic = try PQKemPublicKey(id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
+        let aliceKyberPublic = try PQKemPublicKey(
+            id: aliceKyberId, aliceKEM.publicKey.rawRepresentation)
         let aliceKyberPrivate = try PQKemPrivateKey(id: aliceKyberId, aliceKEM.encode())
 
         let bobKyberId = UUID()
@@ -231,12 +244,20 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let bobKyberPrivate = try PQKemPrivateKey(id: bobKyberId, bobKEM.encode())
 
         let bundle = KeyBundle(
-            alicePublic: RemoteKeys(longTerm: alicePublicLongTerm, oneTime: aliceInitialOneTimePublic, pqKem: aliceKyberPublic),
-            alicePrivate: LocalKeys(longTerm: alicePrivateLongTerm, oneTime: aliceInitialOneTimePrivate, pqKem: aliceKyberPrivate),
-            bobPublic: RemoteKeys(longTerm: bobPublicLongTerm, oneTime: bobInitialOneTimePublic, pqKem: bobKyberPublic),
-            bobPrivate: LocalKeys(longTerm: bobPrivateLongTerm, oneTime: bobInitialOneTimePrivate, pqKem: bobKyberPrivate)
+            alicePublic: RemoteKeys(
+                longTerm: alicePublicLongTerm, oneTime: aliceInitialOneTimePublic,
+                pqKem: aliceKyberPublic),
+            alicePrivate: LocalKeys(
+                longTerm: alicePrivateLongTerm, oneTime: aliceInitialOneTimePrivate,
+                pqKem: aliceKyberPrivate),
+            bobPublic: RemoteKeys(
+                longTerm: bobPublicLongTerm, oneTime: bobInitialOneTimePublic, pqKem: bobKyberPublic
+            ),
+            bobPrivate: LocalKeys(
+                longTerm: bobPrivateLongTerm, oneTime: bobInitialOneTimePrivate,
+                pqKem: bobKyberPrivate)
         )
-        
+
         return (aliceIdentity: aliceIdentity, bobIdentity: bobIdentity, bundle: bundle)
     }
 
@@ -250,7 +271,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     enum TestErrors: Error {
         case identityNotFound
     }
-    
+
     @Test
     func ratchetEncryptDecryptEncrypt() async throws {
         let aliceManager = RatchetStateManager<SHA256>(executor: executor)
@@ -259,23 +280,23 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await bobManager.setDelegate(self)
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             // Alice initializes as sender to Bob
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await aliceManager.senderInitialization(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
+
             let originalPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
             let encrypted = try await aliceManager.ratchetEncrypt(plainText: originalPlaintext)
-            
+
             // Bob initializes as recipient from Alice
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
@@ -285,33 +306,36 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     oneTime: encrypted.header.remoteOneTimePublicKey!,
                     pqKem: encrypted.header.remotePQKemPublicKey,
                 ),
-                localKeys: bundle.bobPrivate,
-            )
-            
+                localKeys: bundle.bobPrivate)
+
             let decryptedPlaintext = try await bobManager.ratchetDecrypt(encrypted)
-            #expect(decryptedPlaintext == originalPlaintext, "Decrypted plaintext must match the original plaintext.")
-            
+            #expect(
+                decryptedPlaintext == originalPlaintext,
+                "Decrypted plaintext must match the original plaintext.")
+
             // Test ratchet advancement with second message
             let secondPlaintext = "Second ratcheted message!".data(using: .utf8)!
             let secondEncrypted = try await aliceManager.ratchetEncrypt(plainText: secondPlaintext)
             let secondDecryptedPlaintext = try await bobManager.ratchetDecrypt(secondEncrypted)
-            #expect(secondDecryptedPlaintext == secondPlaintext, "Decrypted second plaintext must match.")
+            #expect(
+                secondDecryptedPlaintext == secondPlaintext,
+                "Decrypted second plaintext must match.")
 
             // Test bidirectional communication - Bob becomes sender to Alice
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await bobManager.senderInitialization(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
                 localKeys: bundle.bobPrivate)
-            
+
             let encrypted2 = try await bobManager.ratchetEncrypt(plainText: originalPlaintext)
-            
+
             // Alice initializes as recipient from Bob
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await aliceManager.recipientInitialization(
                 sessionIdentity: bobIdentityLatest2,
@@ -321,9 +345,8 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     oneTime: encrypted2.header.remoteOneTimePublicKey!,
                     pqKem: encrypted2.header.remotePQKemPublicKey,
                 ),
-                localKeys: bundle.alicePrivate,
-            )
-            
+                localKeys: bundle.alicePrivate)
+
             let decryptedSecond = try await aliceManager.ratchetDecrypt(encrypted2)
             #expect(decryptedSecond == originalPlaintext, "Decrypted second plaintext must match.")
 
@@ -342,7 +365,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let fifthEncrypted = try await aliceManager.ratchetEncrypt(plainText: fifthPlaintext)
             let decryptedFifth = try await bobManager.ratchetDecrypt(fifthEncrypted)
             #expect(decryptedFifth == fifthPlaintext, "Decrypted fifth plaintext must match.")
-            
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -358,13 +381,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
 
             // Alice initializes as sender to Bob
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await aliceManager.senderInitialization(
                 sessionIdentity: bobIdentityLatest,
@@ -377,7 +400,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
 
             // Bob initializes as recipient from Alice
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
@@ -390,19 +413,22 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 localKeys: bundle.bobPrivate)
 
             let firstDecrypted = try await bobManager.ratchetDecrypt(firstEncrypted)
-            #expect(firstDecrypted == firstPlaintext, "Decrypted first message must match Alice's original.")
+            #expect(
+                firstDecrypted == firstPlaintext,
+                "Decrypted first message must match Alice's original.")
 
             // Alice sends messages 2 through 80 to Bob
-            for i in 2 ... 80 {
+            for i in 2...80 {
                 let plaintext = "Message \(i) from Alice".data(using: .utf8)!
                 let encrypted = try await aliceManager.ratchetEncrypt(plainText: plaintext)
                 let decrypted = try await bobManager.ratchetDecrypt(encrypted)
-                #expect(decrypted == plaintext, "Decrypted message \(i) must match Alice's original.")
+                #expect(
+                    decrypted == plaintext, "Decrypted message \(i) must match Alice's original.")
             }
 
             // Bob becomes sender to Alice
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await bobManager.senderInitialization(
                 sessionIdentity: aliceIdentityLatest2,
@@ -412,7 +438,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
 
             // Alice initializes as recipient from Bob
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await aliceManager.recipientInitialization(
                 sessionIdentity: bobIdentityLatest2,
@@ -421,12 +447,15 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 localKeys: bundle.alicePrivate)
 
             let firstBackPlaintext = "Message 1 from Bob".data(using: .utf8)!
-            let firstBackEncrypted = try await bobManager.ratchetEncrypt(plainText: firstBackPlaintext)
+            let firstBackEncrypted = try await bobManager.ratchetEncrypt(
+                plainText: firstBackPlaintext)
             let firstBackDecrypted = try await aliceManager.ratchetDecrypt(firstBackEncrypted)
-            #expect(firstBackDecrypted == firstBackPlaintext, "Decrypted first Bob→Alice message must match.")
+            #expect(
+                firstBackDecrypted == firstBackPlaintext,
+                "Decrypted first Bob→Alice message must match.")
 
             // Bob sends messages 2 through 80 to Alice
-            for i in 2 ... 80 {
+            for i in 2...80 {
                 let plaintext = "Message \(i) from Bob".data(using: .utf8)!
                 let encrypted = try await bobManager.ratchetEncrypt(plainText: plaintext)
                 let decrypted = try await aliceManager.ratchetDecrypt(encrypted)
@@ -448,198 +477,221 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
 
             let plaintext = "Message from Alice".data(using: .utf8)!
 
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.senderInitialization(
-                    sessionIdentity: bobIdentityLatest,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.senderInitialization(
+                        sessionIdentity: bobIdentityLatest,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: bundle.bobPublic,
+                        localKeys: bundle.alicePrivate)
+                })
 
             let encrypted = try await aliceManager.ratchetEncrypt(plainText: plaintext)
 
             // Initialize recipient before decrypting the message
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.recipientInitialization(
-                    sessionIdentity: aliceIdentityLatest,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.recipientInitialization(
+                        sessionIdentity: aliceIdentityLatest,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate)
+                })
             let decrypted = try await bobManager.ratchetDecrypt(encrypted)
-            #expect(decrypted == plaintext, "Decrypted message must match Alice’s original.")
+            #expect(decrypted == plaintext, "Decrypted message must match Alice's original.")
 
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.senderInitialization(
-                    sessionIdentity: aliceIdentityLatest2,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: bundle.alicePublic,
-                    localKeys: bundle.bobPrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.senderInitialization(
+                        sessionIdentity: aliceIdentityLatest2,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: bundle.alicePublic,
+                        localKeys: bundle.bobPrivate)
+                })
 
             let encrypted2 = try await bobManager.ratchetEncrypt(plainText: plaintext)
 
             // Initialize recipient before decrypting the message
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.recipientInitialization(
-                    sessionIdentity: bobIdentityLatest2,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted2.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted2.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.recipientInitialization(
+                        sessionIdentity: bobIdentityLatest2,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted2.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted2.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate)
+                })
             let decrypted2 = try await aliceManager.ratchetDecrypt(encrypted2)
-            #expect(decrypted2 == plaintext, "Decrypted message must match Alice’s original.")
+            #expect(decrypted2 == plaintext, "Decrypted message must match Alice's original.")
 
             guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.senderInitialization(
-                    sessionIdentity: bobIdentityLatest3,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.senderInitialization(
+                        sessionIdentity: bobIdentityLatest3,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: bundle.alicePublic,
+                        localKeys: bundle.alicePrivate)
+                })
 
             let encrypted3 = try await aliceManager.ratchetEncrypt(plainText: plaintext)
 
             // Initialize recipient before decrypting the message
             guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.recipientInitialization(
-                    sessionIdentity: aliceIdentityLatest3,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted3.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted3.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.recipientInitialization(
+                        sessionIdentity: aliceIdentityLatest3,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted3.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted3.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate)
+                })
 
             let decrypted3 = try await bobManager.ratchetDecrypt(encrypted3)
-            #expect(decrypted3 == plaintext, "Decrypted message must match Alice’s original.")
+            #expect(decrypted3 == plaintext, "Decrypted message must match Alice's original.")
 
             guard let bobIdentityLatest4 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.senderInitialization(
-                    sessionIdentity: bobIdentityLatest4,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.senderInitialization(
+                        sessionIdentity: bobIdentityLatest4,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: bundle.alicePublic,
+                        localKeys: bundle.alicePrivate)
+                })
 
             let encrypted4 = try await aliceManager.ratchetEncrypt(plainText: plaintext)
 
             // Initialize recipient before decrypting the message
             guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.recipientInitialization(
-                    sessionIdentity: aliceIdentityLatest4,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted4.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted4.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.recipientInitialization(
+                        sessionIdentity: aliceIdentityLatest4,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted4.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted4.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate)
+                })
             let decrypted4 = try await bobManager.ratchetDecrypt(encrypted4)
-            #expect(decrypted4 == plaintext, "Decrypted message must match Alice’s original.")
+            #expect(decrypted4 == plaintext, "Decrypted message must match Alice's original.")
 
             guard let aliceIdentityLatest5 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.senderInitialization(
-                    sessionIdentity: aliceIdentityLatest5,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: bundle.alicePublic,
-                    localKeys: bundle.bobPrivate,
-                )
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.senderInitialization(
+                        sessionIdentity: aliceIdentityLatest5,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: bundle.alicePublic,
+                        localKeys: bundle.bobPrivate,
+                    )
+                })
 
             let encrypted5 = try await aliceManager.ratchetEncrypt(plainText: plaintext)
 
             // Initialize recipient before decrypting the message
             guard let bobIdentityLatest5 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.recipientInitialization(
-                    sessionIdentity: bobIdentityLatest5,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: .init(
-                        longTerm: bundle.bobPublic.longTerm,
-                        oneTime: encrypted5.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted5.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.alicePrivate,
-                )
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.recipientInitialization(
+                        sessionIdentity: bobIdentityLatest5,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: .init(
+                            longTerm: bundle.bobPublic.longTerm,
+                            oneTime: encrypted5.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted5.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.alicePrivate,
+                    )
+                })
             let decrypted5 = try await bobManager.ratchetDecrypt(encrypted5)
-            #expect(decrypted5 == plaintext, "Decrypted message must match Alice’s original.")
-
+            #expect(decrypted5 == plaintext, "Decrypted message must match Alice's original.")
 
             guard let aliceIdentityLatest6 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.senderInitialization(
-                    sessionIdentity: aliceIdentityLatest6,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: bundle.alicePublic,
-                    localKeys: bundle.bobPrivate,
-                )
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.senderInitialization(
+                        sessionIdentity: aliceIdentityLatest6,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: bundle.alicePublic,
+                        localKeys: bundle.bobPrivate,
+                    )
+                })
 
             let encrypted6 = try await aliceManager.ratchetEncrypt(plainText: plaintext)
 
             // Initialize recipient before decrypting the message
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.recipientInitialization(
-                    sessionIdentity: aliceIdentityLatest6,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted6.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted6.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate,
-                )
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.recipientInitialization(
+                        sessionIdentity: aliceIdentityLatest6,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted6.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted6.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate,
+                    )
+                })
             let decrypted6 = try await bobManager.ratchetDecrypt(encrypted6)
             #expect(decrypted6 == plaintext, "Decrypted message must match Alice's original.")
             try await aliceManager.shutdown()
@@ -666,46 +718,52 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let plaintext3 = "Message 3 from Alice".data(using: .utf8)!
 
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.senderInitialization(
-                    sessionIdentity: bobIdentityLatest,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate,
-                )
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.senderInitialization(
+                        sessionIdentity: bobIdentityLatest,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: bundle.bobPublic,
+                        localKeys: bundle.alicePrivate,
+                    )
+                })
 
             let encrypted1 = try await aliceManager.ratchetEncrypt(plainText: plaintext1)
 
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.senderInitialization(
-                    sessionIdentity: bobIdentityLatest2,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate,
-                )
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.senderInitialization(
+                        sessionIdentity: bobIdentityLatest2,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: bundle.bobPublic,
+                        localKeys: bundle.alicePrivate,
+                    )
+                })
 
             let encrypted2 = try await aliceManager.ratchetEncrypt(plainText: plaintext2)
 
             guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await aliceManager.senderInitialization(
-                    sessionIdentity: bobIdentityLatest3,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate)
-            })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await aliceManager.senderInitialization(
+                        sessionIdentity: bobIdentityLatest3,
+                        sessionSymmetricKey: aliceDbsk,
+                        remoteKeys: bundle.bobPublic,
+                        localKeys: bundle.alicePrivate)
+                })
 
             let encrypted3 = try await aliceManager.ratchetEncrypt(plainText: plaintext3)
 
@@ -713,86 +771,105 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
 
             // Initialize recipient before decrypting the message
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.recipientInitialization(
-                    sessionIdentity: aliceIdentityLatest,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted3.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted3.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate,
-                )
-            })
-            await #expect(throws: Never.self, performing: {
-                do {
-                    let decrypted3 = try await bobManager.ratchetDecrypt(encrypted3)
-                    #expect(decrypted3 == plaintext3, "Decrypted message must match Alice’s original.")
-                } catch let error as RatchetError {
-                    if error == .initialMessageNotReceived {
-                        stashedMessages.insert(encrypted3)
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.recipientInitialization(
+                        sessionIdentity: aliceIdentityLatest,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted3.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted3.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate,
+                    )
+                })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    do {
+                        let decrypted3 = try await bobManager.ratchetDecrypt(encrypted3)
+                        #expect(
+                            decrypted3 == plaintext3,
+                            "Decrypted message must match Alice's original.")
+                    } catch let error as RatchetError {
+                        if error == .initialMessageNotReceived {
+                            stashedMessages.insert(encrypted3)
+                        }
                     }
-                }
-            })
+                })
 
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.recipientInitialization(
-                    sessionIdentity: aliceIdentityLatest2,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted1.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted1.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate,
-                )
-            })
-            await #expect(throws: Never.self, performing: {
-                do {
-                    let decrypted1 = try await bobManager.ratchetDecrypt(encrypted1)
-                    #expect(decrypted1 == plaintext1, "Decrypted message must match Alice’s original.")
-                } catch let error as RatchetError {
-                    if error == .initialMessageNotReceived {
-                        stashedMessages.insert(encrypted1)
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.recipientInitialization(
+                        sessionIdentity: aliceIdentityLatest2,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted1.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted1.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate,
+                    )
+                })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    do {
+                        let decrypted1 = try await bobManager.ratchetDecrypt(encrypted1)
+                        #expect(
+                            decrypted1 == plaintext1,
+                            "Decrypted message must match Alice's original.")
+                    } catch let error as RatchetError {
+                        if error == .initialMessageNotReceived {
+                            stashedMessages.insert(encrypted1)
+                        }
                     }
-                }
-            })
+                })
 
             guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
-            await #expect(throws: Never.self, performing: {
-                try await bobManager.recipientInitialization(
-                    sessionIdentity: aliceIdentityLatest3,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: .init(
-                        longTerm: bundle.alicePublic.longTerm,
-                        oneTime: encrypted2.header.remoteOneTimePublicKey!,
-                        pqKem: encrypted2.header.remotePQKemPublicKey,
-                    ),
-                    localKeys: bundle.bobPrivate,
-                )
-            })
-            await #expect(throws: Never.self, performing: {
-                do {
-                    let decrypted2 = try await bobManager.ratchetDecrypt(encrypted2)
-                    #expect(decrypted2 == plaintext2, "Decrypted message must match Alice’s original.")
-                } catch let error as RatchetError {
-                    if error == .initialMessageNotReceived {
-                        stashedMessages.insert(encrypted2)
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    try await bobManager.recipientInitialization(
+                        sessionIdentity: aliceIdentityLatest3,
+                        sessionSymmetricKey: bobDBSK,
+                        remoteKeys: .init(
+                            longTerm: bundle.alicePublic.longTerm,
+                            oneTime: encrypted2.header.remoteOneTimePublicKey!,
+                            pqKem: encrypted2.header.remotePQKemPublicKey,
+                        ),
+                        localKeys: bundle.bobPrivate,
+                    )
+                })
+            await #expect(
+                throws: Never.self,
+                performing: {
+                    do {
+                        let decrypted2 = try await bobManager.ratchetDecrypt(encrypted2)
+                        #expect(
+                            decrypted2 == plaintext2,
+                            "Decrypted message must match Alice's original.")
+                    } catch let error as RatchetError {
+                        if error == .initialMessageNotReceived {
+                            stashedMessages.insert(encrypted2)
+                        }
                     }
-                }
-            })
+                })
 
             for stashedMessage in stashedMessages {
                 do {
-                    guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else {
+                    guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id)
+                    else {
                         continue
                     }
                     try await bobManager.recipientInitialization(
@@ -829,48 +906,48 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
 
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             // Initialize Sender
             try await aliceManager.senderInitialization(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
-                localKeys: bundle.alicePrivate,
-            )
+                localKeys: bundle.alicePrivate)
 
-            let payload = Data(repeating: 0x41, count: 128) // 128 bytes of "A"
+            let payload = Data(repeating: 0x41, count: 128)  // 128 bytes of "A"
             let messageCount = 10000
 
             var messages: [RatchetMessage] = []
 
             let clock = ContinuousClock()
             let duration = try await clock.measure {
-                for _ in 0 ..< messageCount {
+                for _ in 0..<messageCount {
                     let encrypted = try await aliceManager.ratchetEncrypt(plainText: payload)
                     messages.append(encrypted)
                 }
             }
 
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             _ = try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
-                localKeys: bundle.bobPrivate,
-            )
+                localKeys: bundle.bobPrivate)
 
             for message in messages {
                 _ = try await bobManager.ratchetDecrypt(message)
             }
-            print("🔵 Encrypted/Decrypted \(messageCount) messages in \(duration.components.seconds) seconds")
+            print(
+                "🔵 Encrypted/Decrypted \(messageCount) messages in \(duration.components.seconds) seconds"
+            )
             #expect(messages.count == messageCount)
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
@@ -892,28 +969,26 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
 
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             try await aliceManager.senderInitialization(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
-                localKeys: bundle.alicePrivate,
-            )
+                localKeys: bundle.alicePrivate)
 
-            var messages = try await (0 ... 80).asyncMap { i in
+            var messages = try await (0...80).asyncMap { i in
                 try await aliceManager.ratchetEncrypt(plainText: "Message \(i)".data(using: .utf8)!)
             }
 
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             _ = try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
-                localKeys: bundle.bobPrivate,
-            )
+                localKeys: bundle.bobPrivate)
 
             let firstMessage = messages.removeFirst()
             _ = try await bobManager.ratchetDecrypt(firstMessage)
@@ -922,11 +997,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let rest = messages.shuffled()
 
             for await message in rest.async {
-                await #expect(throws: Never.self, performing: {
-                    _ = try await bobManager.ratchetDecrypt(message)
-                })
+                await #expect(
+                    throws: Never.self,
+                    performing: {
+                        _ = try await bobManager.ratchetDecrypt(message)
+                    })
             }
-            
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -947,7 +1024,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
 
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             // Initialize Sender
             try await aliceManager.senderInitialization(
@@ -958,14 +1035,14 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
 
             // Pre-encrypt all messages first
             var messages: [RatchetMessage] = []
-            for i in 0 ..< 80 {
+            for i in 0..<80 {
                 let payload = "Message \(i)".data(using: .utf8)!
                 let encrypted = try await aliceManager.ratchetEncrypt(plainText: payload)
                 messages.append(encrypted)
             }
 
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             _ = try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
@@ -994,12 +1071,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
 
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             // Initialize Sender
             try await aliceManager.senderInitialization(
@@ -1014,7 +1091,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             try await Task.sleep(until: .now + .seconds(10))
 
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
-               throw TestErrors.identityNotFound
+                throw TestErrors.identityNotFound
             }
             _ = try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
@@ -1038,12 +1115,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
 
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id),
-                  let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id)
+            else {
                 throw TestErrors.identityNotFound
             }
 
@@ -1052,8 +1130,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
-                localKeys: bundle.alicePrivate,
-            )
+                localKeys: bundle.alicePrivate)
 
             let originalPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
 
@@ -1065,24 +1142,26 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
-                localKeys: bundle.bobPrivate,
-            )
+                localKeys: bundle.bobPrivate)
 
             let decryptedPlaintext = try await bobManager.ratchetDecrypt(encrypted)
-            #expect(decryptedPlaintext == originalPlaintext, "Decrypted plaintext must match the original plaintext.")
+            #expect(
+                decryptedPlaintext == originalPlaintext,
+                "Decrypted plaintext must match the original plaintext.")
             // 🚀 NOW Send a Second Message to verify ratchet advancement!
             let secondPlaintext = "Second ratcheted message!".data(using: .utf8)!
             let secondEncrypted = try await aliceManager.ratchetEncrypt(plainText: secondPlaintext)
             let secondDecryptedPlaintext = try await bobManager.ratchetDecrypt(secondEncrypted)
 
-            #expect(secondDecryptedPlaintext == secondPlaintext, "Decrypted second plaintext must match.")
+            #expect(
+                secondDecryptedPlaintext == secondPlaintext,
+                "Decrypted second plaintext must match.")
 
             try await bobManager.senderInitialization(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
-                localKeys: bundle.bobPrivate,
-            )
+                localKeys: bundle.bobPrivate)
 
             let encrypted2 = try await bobManager.ratchetEncrypt(plainText: originalPlaintext)
 
@@ -1090,8 +1169,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
-                localKeys: bundle.alicePrivate,
-            )
+                localKeys: bundle.alicePrivate)
 
             // Decrypt message from Bob -> Alice (2nd message)
             let decryptedSecond = try await aliceManager.ratchetDecrypt(encrypted2)
@@ -1126,12 +1204,16 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let rotatedRecipientltpk = crypto.generateCurve25519PrivateKey()
 
             let aliceRotatedLongTermId = UUID()
-            let aliceRotatedPrivateLongTerm = try CurvePrivateKey(id: aliceRotatedLongTermId, rotatedaliceLtpk.rawRepresentation)
-            let aliceRotatedPublicLongTerm = try CurvePublicKey(id: aliceRotatedLongTermId, rotatedaliceLtpk.publicKey.rawRepresentation)
+            let aliceRotatedPrivateLongTerm = try CurvePrivateKey(
+                id: aliceRotatedLongTermId, rotatedaliceLtpk.rawRepresentation)
+            let aliceRotatedPublicLongTerm = try CurvePublicKey(
+                id: aliceRotatedLongTermId, rotatedaliceLtpk.publicKey.rawRepresentation)
 
             let bobRotatedLongTermId = UUID()
-            let bobRotatedPrivateLongTerm = try CurvePrivateKey(id: bobRotatedLongTermId, rotatedRecipientltpk.rawRepresentation)
-            let bobRotatedPublicLongTerm = try CurvePublicKey(id: bobRotatedLongTermId, rotatedRecipientltpk.publicKey.rawRepresentation)
+            let bobRotatedPrivateLongTerm = try CurvePrivateKey(
+                id: bobRotatedLongTermId, rotatedRecipientltpk.rawRepresentation)
+            let bobRotatedPublicLongTerm = try CurvePublicKey(
+                id: bobRotatedLongTermId, rotatedRecipientltpk.publicKey.rawRepresentation)
 
             try await aliceManager.senderInitialization(
                 sessionIdentity: bobIdentityLatest,
@@ -1141,13 +1223,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     longTerm: aliceRotatedPrivateLongTerm,
                     oneTime: bundle.alicePrivate.oneTime,
                     pqKem: bundle.alicePrivate.pqKem,
-                ),
-            )
+                ))
 
             let rotatedPlaintext = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
 
             // Sender encrypts a message
-            let encryptedRotated = try await aliceManager.ratchetEncrypt(plainText: rotatedPlaintext)
+            let encryptedRotated = try await aliceManager.ratchetEncrypt(
+                plainText: rotatedPlaintext)
 
             try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
@@ -1157,11 +1239,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     oneTime: bundle.alicePublic.oneTime,
                     pqKem: bundle.alicePublic.pqKem,
                 ),
-                localKeys: bundle.bobPrivate,
-            )
+                localKeys: bundle.bobPrivate)
 
             let decryptedPlaintextRotated = try await bobManager.ratchetDecrypt(encryptedRotated)
-            #expect(decryptedPlaintextRotated == rotatedPlaintext, "Decrypted plaintext must match the original plaintext.")
+            #expect(
+                decryptedPlaintextRotated == rotatedPlaintext,
+                "Decrypted plaintext must match the original plaintext.")
 
             // Update Sender's Identity
             try await bobManager.senderInitialization(
@@ -1176,11 +1259,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     longTerm: bobRotatedPrivateLongTerm,
                     oneTime: bundle.bobPrivate.oneTime,
                     pqKem: bundle.bobPrivate.pqKem,
-                ),
-            )
+                ))
 
             let rotatedPlaintext2 = "Test message for ratchet encrypt/decrypt".data(using: .utf8)!
-            let encryptedRotated2 = try await bobManager.ratchetEncrypt(plainText: rotatedPlaintext2)
+            let encryptedRotated2 = try await bobManager.ratchetEncrypt(
+                plainText: rotatedPlaintext2)
 
             try await aliceManager.recipientInitialization(
                 sessionIdentity: bobIdentityLatest,
@@ -1190,14 +1273,15 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     oneTime: bundle.bobPublic.oneTime,
                     pqKem: bundle.bobPublic.pqKem,
                 ),
-                localKeys: bundle.alicePrivate,
-            )
+                localKeys: bundle.alicePrivate)
 
             // Decrypt message from Bob -> Alice (2nd message)
             let decryptedRotatedSecond = try await aliceManager.ratchetDecrypt(encryptedRotated2)
-            #expect(decryptedRotatedSecond == rotatedPlaintext2, "Decrypted second plaintext must match.")
+            #expect(
+                decryptedRotatedSecond == rotatedPlaintext2,
+                "Decrypted second plaintext must match.")
 
-            let messages = try await (0 ... 80).asyncMap { i in
+            let messages = try await (0...80).asyncMap { i in
                 try await aliceManager.senderInitialization(
                     sessionIdentity: bobIdentityLatest,
                     sessionSymmetricKey: aliceDbsk,
@@ -1212,7 +1296,8 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                         pqKem: bundle.alicePrivate.pqKem,
                     ),
                 )
-                return try await aliceManager.ratchetEncrypt(plainText: "Message \(i)".data(using: .utf8)!)
+                return try await aliceManager.ratchetEncrypt(
+                    plainText: "Message \(i)".data(using: .utf8)!)
             }
 
             for message in messages {
@@ -1254,25 +1339,29 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             // Test stateUninitialized error
-            await #expect(throws: RatchetError.stateUninitialized.self, performing: {
-                _ = try await aliceManager.ratchetEncrypt(plainText: "test".data(using: .utf8)!)
-            })
-            
+            await #expect(
+                throws: RatchetError.stateUninitialized.self,
+                performing: {
+                    _ = try await aliceManager.ratchetEncrypt(plainText: "test".data(using: .utf8)!)
+                })
+
             // Test missingProps error with invalid symmetric key
             let invalidKey = SymmetricKey(size: .bits256)
-            await #expect(throws: RatchetError.missingProps.self, performing: {
-                try await aliceManager.senderInitialization(
-                    sessionIdentity: aliceIdentity,
-                    sessionSymmetricKey: invalidKey,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate)
-            })
-            
+            await #expect(
+                throws: RatchetError.missingProps.self,
+                performing: {
+                    try await aliceManager.senderInitialization(
+                        sessionIdentity: aliceIdentity,
+                        sessionSymmetricKey: invalidKey,
+                        remoteKeys: bundle.bobPublic,
+                        localKeys: bundle.alicePrivate)
+                })
+
             // Test decryption with invalid message
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
@@ -1282,15 +1371,16 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
-            let validMessage = try await aliceManager.ratchetEncrypt(plainText: "test".data(using: .utf8)!)
-            
+
+            let validMessage = try await aliceManager.ratchetEncrypt(
+                plainText: "test".data(using: .utf8)!)
+
             // Create invalid message by corrupting encrypted data
             let invalidMessage = RatchetMessage(
                 header: validMessage.header,
-                encryptedData: Data(repeating: 0, count: 32) // Corrupted encrypted data
+                encryptedData: Data(repeating: 0, count: 32)  // Corrupted encrypted data
             )
-            
+
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1303,11 +1393,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: validMessage.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
-            await #expect(throws: CryptoKitError.self, performing: {
-                _ = try await bobManager.ratchetDecrypt(invalidMessage)
-            })
-            
+
+            await #expect(
+                throws: CryptoKitError.self,
+                performing: {
+                    _ = try await bobManager.ratchetDecrypt(invalidMessage)
+                })
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -1327,38 +1419,40 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await bobManager1.setDelegate(self)
         let bobManager2 = RatchetStateManager<SHA256>(executor: executor)
         await bobManager2.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             // Initialize separate sessions for concurrent access
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            
+
             try await aliceManager1.senderInitialization(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
+
             try await aliceManager2.senderInitialization(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
+
             // Send messages concurrently from both managers
-            async let message1 = aliceManager1.ratchetEncrypt(plainText: "Message from Alice1".data(using: .utf8)!)
-            async let message2 = aliceManager2.ratchetEncrypt(plainText: "Message from Alice2".data(using: .utf8)!)
-            
+            async let message1 = aliceManager1.ratchetEncrypt(
+                plainText: "Message from Alice1".data(using: .utf8)!)
+            async let message2 = aliceManager2.ratchetEncrypt(
+                plainText: "Message from Alice2".data(using: .utf8)!)
+
             let (encrypted1, encrypted2) = try await (message1, message2)
-            
+
             // Bob managers should be able to decrypt messages from respective Alice managers
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            
+
             try await bobManager1.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
@@ -1368,7 +1462,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: encrypted1.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
+
             try await bobManager2.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
@@ -1378,13 +1472,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: encrypted2.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
+
             let decrypted1 = try await bobManager1.ratchetDecrypt(encrypted1)
             let decrypted2 = try await bobManager2.ratchetDecrypt(encrypted2)
-            
+
             #expect(decrypted1 == "Message from Alice1".data(using: .utf8)!)
             #expect(decrypted2 == "Message from Alice2".data(using: .utf8)!)
-            
+
             try await aliceManager1.shutdown()
             try await aliceManager2.shutdown()
             try await bobManager1.shutdown()
@@ -1404,10 +1498,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             // Establish initial session
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
@@ -1417,9 +1511,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
-            let message1 = try await aliceManager.ratchetEncrypt(plainText: "Initial message".data(using: .utf8)!)
-            
+
+            let message1 = try await aliceManager.ratchetEncrypt(
+                plainText: "Initial message".data(using: .utf8)!)
+
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1432,16 +1527,16 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: message1.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
+
             let decrypted1 = try await bobManager.ratchetDecrypt(message1)
             #expect(decrypted1 == "Initial message".data(using: .utf8)!)
-            
+
             // Simulate session corruption by creating new managers
             let aliceManagerRecovery = RatchetStateManager<SHA256>(executor: executor)
             await aliceManagerRecovery.setDelegate(self)
             let bobManagerRecovery = RatchetStateManager<SHA256>(executor: executor)
             await bobManagerRecovery.setDelegate(self)
-            
+
             // Re-establish session with same identities
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
@@ -1451,9 +1546,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
-            let message2 = try await aliceManagerRecovery.ratchetEncrypt(plainText: "Recovery message".data(using: .utf8)!)
-            
+
+            let message2 = try await aliceManagerRecovery.ratchetEncrypt(
+                plainText: "Recovery message".data(using: .utf8)!)
+
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1466,10 +1562,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: message2.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
+
             let decrypted2 = try await bobManagerRecovery.ratchetDecrypt(message2)
             #expect(decrypted2 == "Recovery message".data(using: .utf8)!)
-            
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
             try await aliceManagerRecovery.shutdown()
@@ -1487,10 +1583,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             // Initialize session
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
@@ -1500,7 +1596,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
+
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1509,20 +1605,21 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
                 localKeys: bundle.bobPrivate)
-            
+
             // Send many messages to test key rotation and potential exhaustion
             var messages: [RatchetMessage] = []
             for i in 0..<1000 {
-                let message = try await aliceManager.ratchetEncrypt(plainText: "Message \(i)".data(using: .utf8)!)
+                let message = try await aliceManager.ratchetEncrypt(
+                    plainText: "Message \(i)".data(using: .utf8)!)
                 messages.append(message)
             }
-            
+
             // Verify all messages can be decrypted
             for (i, message) in messages.enumerated() {
                 let decrypted = try await bobManager.ratchetDecrypt(message)
                 #expect(decrypted == "Message \(i)".data(using: .utf8)!)
             }
-            
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -1540,11 +1637,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await bobManager.setDelegate(self)
         let charlieManager = RatchetStateManager<SHA256>(executor: executor)
         await charlieManager.setDelegate(self)
-        
+
         do {
             // Create three separate sessions: Alice-Bob, Bob-Charlie, Alice-Charlie
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             // Test Alice -> Bob communication
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
@@ -1554,9 +1651,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
-            let aliceToBobMessage = try await aliceManager.ratchetEncrypt(plainText: "Alice to Bob".data(using: .utf8)!)
-            
+
+            let aliceToBobMessage = try await aliceManager.ratchetEncrypt(
+                plainText: "Alice to Bob".data(using: .utf8)!)
+
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1569,10 +1667,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: aliceToBobMessage.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
+
             let decryptedAliceToBob = try await bobManager.ratchetDecrypt(aliceToBobMessage)
             #expect(decryptedAliceToBob == "Alice to Bob".data(using: .utf8)!)
-            
+
             // Test Bob -> Alice communication (simplified multi-party test)
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
@@ -1582,9 +1680,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
                 localKeys: bundle.bobPrivate)
-            
-            let bobToAliceMessage = try await bobManager.ratchetEncrypt(plainText: "Bob to Alice".data(using: .utf8)!)
-            
+
+            let bobToAliceMessage = try await bobManager.ratchetEncrypt(
+                plainText: "Bob to Alice".data(using: .utf8)!)
+
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1597,10 +1696,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: bobToAliceMessage.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.alicePrivate)
-            
+
             let decryptedBobToAlice = try await aliceManager.ratchetDecrypt(bobToAliceMessage)
             #expect(decryptedBobToAlice == "Bob to Alice".data(using: .utf8)!)
-            
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
             try await charlieManager.shutdown()
@@ -1619,10 +1718,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA512>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1631,9 +1730,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
-            let message = try await aliceManager.ratchetEncrypt(plainText: "SHA512 test".data(using: .utf8)!)
-            
+
+            let message = try await aliceManager.ratchetEncrypt(
+                plainText: "SHA512 test".data(using: .utf8)!)
+
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1646,10 +1746,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: message.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
+
             let decrypted = try await bobManager.ratchetDecrypt(message)
             #expect(decrypted == "SHA512 test".data(using: .utf8)!)
-            
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -1665,13 +1765,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             // Track initial session identities count
             let initialCount = sessionIdentities.count
-            
+
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1680,9 +1780,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
-            let message = try await aliceManager.ratchetEncrypt(plainText: "Delegate test".data(using: .utf8)!)
-            
+
+            let message = try await aliceManager.ratchetEncrypt(
+                plainText: "Delegate test".data(using: .utf8)!)
+
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1695,14 +1796,15 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                     pqKem: message.header.remotePQKemPublicKey,
                 ),
                 localKeys: bundle.bobPrivate)
-            
+
             let decrypted = try await bobManager.ratchetDecrypt(message)
             #expect(decrypted == "Delegate test".data(using: .utf8)!)
-            
+
             // Verify that session identities were updated through delegate
             let finalCount = sessionIdentities.count
-            #expect(finalCount >= initialCount, "Session identities should be updated through delegate")
-            
+            #expect(
+                finalCount >= initialCount, "Session identities should be updated through delegate")
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -1718,10 +1820,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
-        
+
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-            
+
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1730,7 +1832,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
-            
+
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1739,22 +1841,22 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
                 localKeys: bundle.bobPrivate)
-            
+
             // Send many large messages to simulate memory pressure
-            let largePayload = Data(repeating: 0x41, count: 1024 * 1024) // 1MB payload
+            let largePayload = Data(repeating: 0x41, count: 1024 * 1024)  // 1MB payload
             var messages: [RatchetMessage] = []
-            
+
             for _ in 0..<10 {
                 let message = try await aliceManager.ratchetEncrypt(plainText: largePayload)
                 messages.append(message)
             }
-            
+
             // Verify all messages can still be decrypted under memory pressure
             for message in messages {
                 let decrypted = try await bobManager.ratchetDecrypt(message)
                 #expect(decrypted == largePayload)
             }
-            
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -1770,10 +1872,63 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         await aliceManager.setDelegate(self)
         let bobManager = RatchetStateManager<SHA256>(executor: executor)
         await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate)
+
+            // Send initial message
+            let initialMessage = try await aliceManager.ratchetEncrypt(
+                plainText: "Initial".data(using: .utf8)!)
+            let decryptedInitial = try await bobManager.ratchetDecrypt(initialMessage)
+            #expect(decryptedInitial == "Initial".data(using: .utf8)!)
+
+            // Simulate long delay (in real scenario, keys might expire)
+            try await Task.sleep(until: .now + .seconds(1))
+
+            // Send message after delay
+            let delayedMessage = try await aliceManager.ratchetEncrypt(
+                plainText: "Delayed".data(using: .utf8)!)
+            let decryptedDelayed = try await bobManager.ratchetDecrypt(delayedMessage)
+            #expect(decryptedDelayed == "Delayed".data(using: .utf8)!)
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testStateSynchronizationFailureDetection() async throws {
+        let aliceManager = RatchetStateManager<SHA256>(executor: executor)
+        await aliceManager.setDelegate(self)
+        let bobManager = RatchetStateManager<SHA256>(executor: executor)
+        await bobManager.setDelegate(self)
         
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
             
+            // Initialize Alice as sender
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
@@ -1783,27 +1938,64 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
             
+            // Alice sends messages 1-10
+            var messages: [RatchetMessage] = []
+            for i in 1...10 {
+                let message = try await aliceManager.ratchetEncrypt(plainText: "Message \(i)".data(using: .utf8)!)
+                messages.append(message)
+            }
+            
+            // Initialize Bob as recipient
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
             try await bobManager.recipientInitialization(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
-                remoteKeys: bundle.alicePublic,
+                remoteKeys: .init(
+                    longTerm: bundle.alicePublic.longTerm,
+                    oneTime: messages[0].header.remoteOneTimePublicKey!,
+                    pqKem: messages[0].header.remotePQKemPublicKey,
+                ),
                 localKeys: bundle.bobPrivate)
             
-            // Send initial message
-            let initialMessage = try await aliceManager.ratchetEncrypt(plainText: "Initial".data(using: .utf8)!)
-            let decryptedInitial = try await bobManager.ratchetDecrypt(initialMessage)
-            #expect(decryptedInitial == "Initial".data(using: .utf8)!)
+            // Bob successfully decrypts message 1 (establish handshake)
+            let message1 = messages[0] // Index 0 = message 1
+            let decrypted1 = try await bobManager.ratchetDecrypt(message1)
+            #expect(decrypted1 == "Message 1".data(using: .utf8)!)
             
-            // Simulate long delay (in real scenario, keys might expire)
-            try await Task.sleep(until: .now + .seconds(1))
+            // Bob successfully decrypts message 5
+            let message5 = messages[4] // Index 4 = message 5
+            let decrypted5 = try await bobManager.ratchetDecrypt(message5)
+            #expect(decrypted5 == "Message 5".data(using: .utf8)!)
             
-            // Send message after delay
-            let delayedMessage = try await aliceManager.ratchetEncrypt(plainText: "Delayed".data(using: .utf8)!)
-            let decryptedDelayed = try await bobManager.ratchetDecrypt(delayedMessage)
-            #expect(decryptedDelayed == "Delayed".data(using: .utf8)!)
+            // Now simulate the out-of-order scenario: message 7 arrives before message 6
+            // This should trigger the skipped key generation process
+            let message7 = messages[6] // Index 6 = message 7
+            
+            // This should work normally - the system should stash message 6's chain key
+            // and generate message 7's chain key to decrypt it
+            let decrypted7 = try await bobManager.ratchetDecrypt(message7)
+            #expect(decrypted7 == "Message 7".data(using: .utf8)!)
+            
+            // Now when message 6 arrives, it should use the stashed chain key
+            let message6 = messages[5] // Index 5 = message 6
+            let decrypted6 = try await bobManager.ratchetDecrypt(message6)
+            #expect(decrypted6 == "Message 6".data(using: .utf8)!)
+            
+            // Now let's test the state synchronization failure scenario
+            // Create a corrupted message that will cause decryption to fail
+            // This simulates what would happen if the state was wrong and derived wrong keys
+            let corruptedMessage = RatchetMessage(
+                header: message7.header,
+                encryptedData: Data(repeating: 0x42, count: message7.encryptedData.count) // Corrupted data
+            )
+            
+            // This should fail with CryptoKitError because the encrypted data is corrupted
+            // In a real scenario, this would happen when the state is wrong and wrong keys are derived
+            await #expect(throws: CryptoKitError.self, performing: {
+                _ = try await bobManager.ratchetDecrypt(corruptedMessage)
+            })
             
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
