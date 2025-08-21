@@ -13,7 +13,11 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
+#if os(Android)
+@preconcurrency import Crypto
+#else
 import Crypto
+#endif
 import Foundation
 
 public typealias RemoteLongTermPublicKey = Data
@@ -63,15 +67,15 @@ public struct SkippedMessageKey: Codable, Sendable {
     /// The index of the skipped message.
     let messageIndex: Int
 
-    /// The symmetric key used to encrypt the skipped message.
-    let chainKey: SymmetricKey
+    /// Pre-derived message key for the skipped message (Signal-style storage).
+    let messageKey: SymmetricKey
 
     private enum CodingKeys: String, CodingKey, Sendable {
         case remoteLongTermPublicKey = "a"
         case remoteOneTimePublicKey = "b"
         case remotePQKemPublicKey = "c"
         case messageIndex = "d"
-        case chainKey = "e"
+        case messageKey = "e"
     }
 }
 

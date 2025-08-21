@@ -15,12 +15,16 @@
 //
 
 import BSON
-import Crypto
 import Foundation
 import NeedleTailCrypto
 import NeedleTailLogger
 import Logging
 import SwiftKyber
+#if os(Android)
+@preconcurrency import Crypto
+#else
+import Crypto
+#endif
 
 /*
  # Double Ratchet API Overview
@@ -866,19 +870,17 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 self.state = state
                 try await updateSessionIdentity(state: state)
 
-                return try await processFoundMessage(
-                    decodedMessage: .init(ratchetMessage: message, chainKey: key.chainKey),
+                // Decrypt using stored message key
+                let plaintext = try await processFoundMessage(
+                    ratchetMessage: message,
+                    usingMessageKey: key.messageKey,
                     state: state,
-                    messageNumber: decrypted.messageNumber,
+                    messageNumber: decrypted.messageNumber
                 )
+                return plaintext
             }
             
-            state = try await generateSkippedMessageKeys(
-                header: header,
-                configuration: defaultRatchetConfiguration,
-                state: state)
-            self.state = state
-            try await updateSessionIdentity(state: state)
+            // Message gap-fill is handled later via deriveMessageKey for the current chain
 
             // On key change, advance receiving header key to next and perform DH ratchet step.
             guard let nextReceivingHeaderKey = state.nextReceivingHeaderKey else {
@@ -933,19 +935,23 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             state = await state.removeSkippedMessages(at: key.messageIndex)
             self.state = state
             try await updateSessionIdentity(state: state)
+            // Decrypt using stored message key
             return try await processFoundMessage(
-                decodedMessage: .init(ratchetMessage: message, chainKey: key.chainKey),
+                ratchetMessage: message,
+                usingMessageKey: key.messageKey,
                 state: state,
-                messageNumber: decrypted.messageNumber)
+                messageNumber: decrypted.messageNumber
+            )
         }
-        if decrypted.messageNumber >= state.receivedMessagesCount, state.receivedMessagesCount != 0 {
-            // If we call again and only key 1 and 2 were derived, 3 was the target, yet we want to find key 5, we need to have a starting point of 4(Next Receiving Key) iterate once, return and the derive 5.
-            state = try await generateSkippedMessageKeys(
+        // Gap-fill and prepare MK for current message using a working copy, commit after decrypt
+        var preparedState = state
+        var preparedMessageKey: SymmetricKey? = nil
+        if state.receivingHandshakeFinished {
+            (preparedState, preparedMessageKey) = try await deriveMessageKey(
                 header: header,
                 configuration: defaultRatchetConfiguration,
-                state: state)
-            self.state = state
-            try await updateSessionIdentity(state: state)
+                state: state
+            )
         }
 
         // We then handle decryption logic.. at this point the key order must be in resolved
@@ -1002,105 +1008,66 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 state: state,
                 messageNumber: decrypted.messageNumber)
         } else {
-            // Subsequent messages after handshake:
-            guard let currentChainKey = state.receivingKey else {
-                throw RatchetError.receivingKeyIsNil
-            }
-
-            // After successful decryption, advance the receiving chain key for the next message.
-            let nextChainKey = try await deriveChainKey(from: currentChainKey, configuration: defaultRatchetConfiguration)
-            state = await state.updateReceivingKey(nextChainKey)
-            self.state = state
-            try await updateSessionIdentity(state: state)
-            // Process and return decrypted message.
-            return try await processFoundMessage(
-                decodedMessage: DecodedMessage(ratchetMessage: message, chainKey: currentChainKey),
+            // Subsequent messages after handshake, decrypt using prepared MK, then commit prepared state exactly once
+            guard let messageKey = preparedMessageKey else { throw RatchetError.decryptionFailed }
+            // Try decrypt without committing state
+            let plaintext = try await processFoundMessage(
+                ratchetMessage: message,
+                usingMessageKey: messageKey,
                 state: state,
-                messageNumber: decrypted.messageNumber)
+                messageNumber: decrypted.messageNumber
+            )
+            // Commit prepared state and finalize message bookkeeping
+            var commitState = preparedState
+            // Ensure we set lastDecrypted and counts based on message number n -> Ns = n+1
+            commitState = await commitState.updateLastDecryptedMessageNumber(decrypted.messageNumber)
+            commitState = await commitState.updateReceivedMessagesCount(decrypted.messageNumber + 1)
+            alreadyDecryptedMessageNumbers.insert(decrypted.messageNumber)
+            self.state = commitState
+            try await updateSessionIdentity(state: commitState)
+            return plaintext
         }
     }
 
-    /// Generates and stores skipped message keys for any missing messages up to the current header's message number.
-    ///
-    /// - Parameters:
-    ///   - header: The incoming encrypted message header containing metadata and the decrypted payload.
-    ///   - configuration: The ratchet configuration parameters (e.g., recursion depth, maximum skipped keys).
-    ///   - state: The current ratchet state which holds chain keys, message counts, and skipped-key history.
-    /// - Returns: An updated `RatchetState` with newly generated skipped message keys and an updated receiving chain key.
-    /// - Throws: `RatchetError` if required keys are missing or if skipped-key storage is exhausted.
-    private func generateSkippedMessageKeys(
+    // Derive and stash skipped message keys and prepare the current message key; do not mutate live state
+    private func deriveMessageKey(
         header: EncryptedHeader,
         configuration: RatchetConfiguration,
-        state initialState: RatchetState,
-    ) async throws -> RatchetState {
-        var state = initialState
-        logger.log(level: .trace, message: "Generate skipped keys invoked")
+        state: RatchetState
+    ) async throws -> (RatchetState, SymmetricKey) {
+        var state: RatchetState = state
+        guard let decrypted = header.decrypted else { throw RatchetError.headerDecryptFailed }
+        let messageNumber = decrypted.messageNumber //n
+        let receivedMessagesCount = state.receivedMessagesCount //Ns
+        guard var receivingKey = state.receivingKey else { throw RatchetError.receivingKeyIsNil } //ck
 
-        // Ensure we have a starting chain key and decrypted header data
-        guard var chainKey = state.receivingKey else {
-            throw RatchetError.receivingKeyIsNil
-        }
-        guard let decrypted = header.decrypted else {
-            throw RatchetError.decryptionFailed
-        }
+        if receivedMessagesCount < messageNumber {
+            for i in receivedMessagesCount ..< messageNumber {
+                let messageKey = try await symmetricKeyRatchet(from: receivingKey) //mk_i
+                let nextReceivingKey = try await deriveChainKey(from: receivingKey, configuration: configuration) //nextCK
+                let skipped = SkippedMessageKey(
+                    remoteLongTermPublicKey: header.remoteLongTermPublicKey,
+                    remoteOneTimePublicKey: header.remoteOneTimePublicKey?.rawRepresentation,
+                    remotePQKemPublicKey: header.remotePQKemPublicKey.rawRepresentation,
+                    messageIndex: i,
+                    messageKey: messageKey)
 
-        // If a skipped-key at the last skipped index exists, derive its next chain key
-        if let matched = state.skippedMessageKeys
-            .first(where: { $0.messageIndex == state.lastSkippedIndex })
-        {
-            chainKey = try await deriveChainKey(from: matched.chainKey,
-                                                configuration: configuration)
-        }
-
-        // Determine the starting index for gap-filling
-        let startIndex: Int
-        if state.skippedMessageKeys.isEmpty {
-            startIndex = state.receivedMessagesCount
-        } else if state.lastDecryptedMessageNumber > state.lastSkippedIndex {
-            // Fill gaps between last skipped and last decrypted
-            startIndex = state.lastDecryptedMessageNumber
-        } else {
-            // All previous messages have been decrypted; resume from last skipped
-            guard let last = state.skippedMessageKeys.last else {
-                throw RatchetError.skippedKeysDrained
+                if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i }) && !alreadyDecryptedMessageNumbers.contains(i) {
+                    state = await state.updateSkippedMessage(skippedMessageKey: skipped)
+                }
+                state = await state.updateSkippedMessageIndex(i)
+                receivingKey = nextReceivingKey
             }
-            // Reset chainKey to the last skipped key
-            chainKey = last.chainKey
-            startIndex = last.messageIndex
         }
 
-        // Generate and store each skipped message key up to the incoming messageNumber
-        for index in startIndex ..< decrypted.messageNumber {
-            let skipped = SkippedMessageKey(
-                remoteLongTermPublicKey: header.remoteLongTermPublicKey,
-                remoteOneTimePublicKey: header.remoteOneTimePublicKey?.rawRepresentation,
-                remotePQKemPublicKey: header.remotePQKemPublicKey.rawRepresentation,
-                messageIndex: index,
-                chainKey: chainKey)
-
-            if !state.skippedMessageKeys.contains(where: { $0.messageIndex == index }), !alreadyDecryptedMessageNumbers.contains(index) {
-                state = await state.updateSkippedMessage(skippedMessageKey: skipped)
-                logger.log(level: .trace, message: "Generated skipped message for index \(index)")
-            } else {
-                logger.log(level: .trace, message: "Ratcheting message for index \(index)")
-            }
-
-            // Advance the chain key for the next skipped index
-            chainKey = try await deriveChainKey(from: chainKey,
-                                                configuration: configuration)
-            state = await state.incrementSkippedMessageIndex()
-            state = await state.updateReceivingKey(chainKey)
-        }
-
-        // Trim oldest skipped keys if exceeding the configured maximum
-        let excess = state.skippedMessageKeys.count - configuration.maxSkippedMessageKeys
-        if excess > 0 {
-            state = await state.removeFirstSkippedMessages(count: excess)
-            logger.log(level: .trace, message: "Removed skipped excess messages \(excess)")
-        }
-        logger.log(level: .trace, message: "Finished generating skipped message keys")
-        return state
+        // Prepare current MK_n and next CK
+        let messageKey = try await symmetricKeyRatchet(from: receivingKey) //mk_n
+        let nextReceivingChain = try await deriveChainKey(from: receivingKey, configuration: configuration) //ck_after_n
+        state = await state.updateReceivingKey(nextReceivingChain)
+        return (state, messageKey)
     }
+
+    // legacy generateSkippedMessageKeys removed; consolidated into deriveMessageKey
 
     /// Processes a received message by decrypting its contents using the associated message key.
     ///
@@ -1152,6 +1119,28 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             logger.log(level: .trace, message: "Decryption Succeeded")
             return decryptedMessage
         }
+    }
+
+    // Decrypt using a pre-derived message key. This function does NOT mutate state.
+    private func processFoundMessage(
+        ratchetMessage: RatchetMessage,
+        usingMessageKey messageKey: SymmetricKey,
+        state: RatchetState,
+        messageNumber: Int
+    ) async throws -> Data {
+        let nonce = try await concatenate(
+            associatedData: defaultRatchetConfiguration.associatedData,
+            header: ratchetMessage.header)
+        guard nonce.count == 32 else {
+            throw RatchetError.invalidNonceLength
+        }
+
+        guard let decryptedMessage = try crypto.decrypt(
+            data: ratchetMessage.encryptedData,
+            symmetricKey: messageKey) else {
+            throw RatchetError.decryptionFailed
+        }
+        return decryptedMessage
     }
 
     /// A container for a decrypted ratchet message and its corresponding symmetric key.

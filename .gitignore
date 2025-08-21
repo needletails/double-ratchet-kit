@@ -1,18 +1,43 @@
+# macOS
 .DS_Store
-/.build
-/Packages
-xcuserdata/
-DerivedData/
-.swiftpm/configuration/registries.json
-.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 
-# Ignore build artifacts
+# Xcode
+*.xcworkspace
+*.xcodeproj
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.xcdebugger
+*.moved-aside
+
+# Swift Package Manager
 .build/
-*.xcodeproj/
-*.xcworkspace/
+Packages/
+.swiftpm/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+Package.resolved
+
+# Xcode workspace/project temporary files
 *.swp
 *.lock
-*.DS_Store
-.swiftpm
-Package.resolved
+
+# Logs, indexes, and archives
+*.xcactivitylog
+*.xcarchive
+
+# Carthage/Pods (if used)
+Carthage/Build/
+Pods/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/*.png
+fastlane/test_output
+
+# Derived/Binary files
+*.dSYM
+*.framework
+*.app
