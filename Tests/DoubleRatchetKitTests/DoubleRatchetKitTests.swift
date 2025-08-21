@@ -31,6 +31,449 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         let privateKey: CurvePrivateKey
     }
 
+    @Test
+    func testBidirectionalOutOfOrderMessages() async throws {
+        let aliceManager = RatchetStateManager<SHA256>(executor: executor)
+        await aliceManager.setDelegate(self)
+        let bobManager = RatchetStateManager<SHA256>(executor: executor)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            // Alice → Bob: establish initial direction and decrypt first message in-order
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await aliceManager.senderInitialization(
+                    sessionIdentity: bobIdentityLatest,
+                    sessionSymmetricKey: aliceDbsk,
+                    remoteKeys: bundle.bobPublic,
+                    localKeys: bundle.alicePrivate
+                )
+            }
+
+            let a1 = try await aliceManager.ratchetEncrypt(plainText: Data("A1".utf8))
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await bobManager.recipientInitialization(
+                    sessionIdentity: aliceIdentityLatest,
+                    sessionSymmetricKey: bobDBSK,
+                    remoteKeys: .init(
+                        longTerm: bundle.alicePublic.longTerm,
+                        oneTime: a1.header.remoteOneTimePublicKey!,
+                        pqKem: a1.header.remotePQKemPublicKey
+                    ),
+                    localKeys: bundle.bobPrivate
+                )
+            }
+            let da1 = try await bobManager.ratchetDecrypt(a1)
+            #expect(da1 == Data("A1".utf8))
+
+            // Bob → Alice: change direction and decrypt first response in-order
+            guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await bobManager.senderInitialization(
+                    sessionIdentity: aliceIdentityLatest2,
+                    sessionSymmetricKey: bobDBSK,
+                    remoteKeys: bundle.alicePublic,
+                    localKeys: bundle.bobPrivate
+                )
+            }
+
+            let b1 = try await bobManager.ratchetEncrypt(plainText: Data("B1".utf8))
+
+            guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await aliceManager.recipientInitialization(
+                    sessionIdentity: bobIdentityLatest2,
+                    sessionSymmetricKey: aliceDbsk,
+                    remoteKeys: .init(
+                        longTerm: bundle.bobPublic.longTerm,
+                        oneTime: b1.header.remoteOneTimePublicKey!,
+                        pqKem: b1.header.remotePQKemPublicKey
+                    ),
+                    localKeys: bundle.alicePrivate
+                )
+            }
+            let db1 = try await aliceManager.ratchetDecrypt(b1)
+            #expect(db1 == Data("B1".utf8))
+
+            // Alice → Bob: send A2, A3; deliver out of order (A3 first, then A2)
+            guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await aliceManager.senderInitialization(
+                    sessionIdentity: bobIdentityLatest3,
+                    sessionSymmetricKey: aliceDbsk,
+                    remoteKeys: bundle.bobPublic,
+                    localKeys: bundle.alicePrivate
+                )
+            }
+            let a2 = try await aliceManager.ratchetEncrypt(plainText: Data("A2".utf8))
+            let a3 = try await aliceManager.ratchetEncrypt(plainText: Data("A3".utf8))
+
+            guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await bobManager.recipientInitialization(
+                    sessionIdentity: aliceIdentityLatest3,
+                    sessionSymmetricKey: bobDBSK,
+                    remoteKeys: .init(
+                        longTerm: bundle.alicePublic.longTerm,
+                        oneTime: a3.header.remoteOneTimePublicKey!,
+                        pqKem: a3.header.remotePQKemPublicKey
+                    ),
+                    localKeys: bundle.bobPrivate
+                )
+            }
+            let da3 = try await bobManager.ratchetDecrypt(a3)
+            #expect(da3 == Data("A3".utf8))
+
+            // Now decrypt the earlier A2
+            guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await bobManager.recipientInitialization(
+                    sessionIdentity: aliceIdentityLatest4,
+                    sessionSymmetricKey: bobDBSK,
+                    remoteKeys: .init(
+                        longTerm: bundle.alicePublic.longTerm,
+                        oneTime: a2.header.remoteOneTimePublicKey!,
+                        pqKem: a2.header.remotePQKemPublicKey
+                    ),
+                    localKeys: bundle.bobPrivate
+                )
+            }
+            let da2 = try await bobManager.ratchetDecrypt(a2)
+            #expect(da2 == Data("A2".utf8))
+
+            // Bob → Alice: send B2, B3; deliver out of order (B3 first, then B2)
+            guard let aliceIdentityLatest5 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await bobManager.senderInitialization(
+                    sessionIdentity: aliceIdentityLatest5,
+                    sessionSymmetricKey: bobDBSK,
+                    remoteKeys: bundle.alicePublic,
+                    localKeys: bundle.bobPrivate
+                )
+            }
+            let b2 = try await bobManager.ratchetEncrypt(plainText: Data("B2".utf8))
+            let b3 = try await bobManager.ratchetEncrypt(plainText: Data("B3".utf8))
+
+            guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await aliceManager.recipientInitialization(
+                    sessionIdentity: bobIdentityLatest3,
+                    sessionSymmetricKey: aliceDbsk,
+                    remoteKeys: .init(
+                        longTerm: bundle.bobPublic.longTerm,
+                        oneTime: b3.header.remoteOneTimePublicKey!,
+                        pqKem: b3.header.remotePQKemPublicKey
+                    ),
+                    localKeys: bundle.alicePrivate
+                )
+            }
+            let db3 = try await aliceManager.ratchetDecrypt(b3)
+            #expect(db3 == Data("B3".utf8))
+
+            // Now decrypt the earlier B2
+            guard let bobIdentityLatest4 = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            await #expect(throws: Never.self) {
+                try await aliceManager.recipientInitialization(
+                    sessionIdentity: bobIdentityLatest4,
+                    sessionSymmetricKey: aliceDbsk,
+                    remoteKeys: .init(
+                        longTerm: bundle.bobPublic.longTerm,
+                        oneTime: b2.header.remoteOneTimePublicKey!,
+                        pqKem: b2.header.remotePQKemPublicKey
+                    ),
+                    localKeys: bundle.alicePrivate
+                )
+            }
+            let db2 = try await aliceManager.ratchetDecrypt(b2)
+            #expect(db2 == Data("B2".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testBidirectionalInterleavedOutOfOrder() async throws {
+        let aliceManager = RatchetStateManager<SHA256>(executor: executor)
+        await aliceManager.setDelegate(self)
+        let bobManager = RatchetStateManager<SHA256>(executor: executor)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            // A->B: A1 establishes direction
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate
+            )
+            let A1 = try await aliceManager.ratchetEncrypt(plainText: Data("A1".utf8))
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: .init(longTerm: bundle.alicePublic.longTerm, oneTime: A1.header.remoteOneTimePublicKey!, pqKem: A1.header.remotePQKemPublicKey),
+                localKeys: bundle.bobPrivate
+            )
+            #expect(try await bobManager.ratchetDecrypt(A1) == Data("A1".utf8))
+
+            // B->A: B1
+            guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityLatest2,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate
+            )
+            let B1 = try await bobManager.ratchetEncrypt(plainText: Data("B1".utf8))
+            guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityLatest2,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: .init(longTerm: bundle.bobPublic.longTerm, oneTime: B1.header.remoteOneTimePublicKey!, pqKem: B1.header.remotePQKemPublicKey),
+                localKeys: bundle.alicePrivate
+            )
+            #expect(try await aliceManager.ratchetDecrypt(B1) == Data("B1".utf8))
+
+            // A->B: A2, A3
+            guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest3,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate
+            )
+            let A2 = try await aliceManager.ratchetEncrypt(plainText: Data("A2".utf8))
+            let A3 = try await aliceManager.ratchetEncrypt(plainText: Data("A3".utf8))
+
+            // B->A: B2, B3
+            guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityLatest3,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate
+            )
+            let B2 = try await bobManager.ratchetEncrypt(plainText: Data("B2".utf8))
+            let B3 = try await bobManager.ratchetEncrypt(plainText: Data("B3".utf8))
+
+            // Deliver interleaved and out of order: A3, B3, A2, B2
+            guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest4,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: .init(longTerm: bundle.alicePublic.longTerm, oneTime: A3.header.remoteOneTimePublicKey!, pqKem: A3.header.remotePQKemPublicKey),
+                localKeys: bundle.bobPrivate
+            )
+            #expect(try await bobManager.ratchetDecrypt(A3) == Data("A3".utf8))
+
+            guard let bobIdentityLatest3b = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityLatest3b,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: .init(longTerm: bundle.bobPublic.longTerm, oneTime: B3.header.remoteOneTimePublicKey!, pqKem: B3.header.remotePQKemPublicKey),
+                localKeys: bundle.alicePrivate
+            )
+            #expect(try await aliceManager.ratchetDecrypt(B3) == Data("B3".utf8))
+
+            guard let aliceIdentityLatest5 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest5,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: .init(longTerm: bundle.alicePublic.longTerm, oneTime: A2.header.remoteOneTimePublicKey!, pqKem: A2.header.remotePQKemPublicKey),
+                localKeys: bundle.bobPrivate
+            )
+            #expect(try await bobManager.ratchetDecrypt(A2) == Data("A2".utf8))
+
+            guard let bobIdentityLatest4 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityLatest4,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: .init(longTerm: bundle.bobPublic.longTerm, oneTime: B2.header.remoteOneTimePublicKey!, pqKem: B2.header.remotePQKemPublicKey),
+                localKeys: bundle.alicePrivate
+            )
+            #expect(try await aliceManager.ratchetDecrypt(B2) == Data("B2".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testCallFlowLogsBidirectionalOutOfOrder() async throws {
+        let aliceManager = RatchetStateManager<SHA256>(executor: executor)
+        await aliceManager.setDelegate(self)
+        let bobManager = RatchetStateManager<SHA256>(executor: executor)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            // Alice → Bob: start_call (A1)
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate
+            )
+            let startCall = try await aliceManager.ratchetEncrypt(plainText: Data("start_call".utf8))
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: .init(
+                    longTerm: bundle.alicePublic.longTerm,
+                    oneTime: startCall.header.remoteOneTimePublicKey!,
+                    pqKem: startCall.header.remotePQKemPublicKey
+                ),
+                localKeys: bundle.bobPrivate
+            )
+            #expect(try await bobManager.ratchetDecrypt(startCall) == Data("start_call".utf8))
+
+            // Bob → Alice: call_answered (B1)
+            guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityLatest2,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate
+            )
+            let callAnswered = try await bobManager.ratchetEncrypt(plainText: Data("call_answered".utf8))
+
+            guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityLatest2,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: .init(
+                    longTerm: bundle.bobPublic.longTerm,
+                    oneTime: callAnswered.header.remoteOneTimePublicKey!,
+                    pqKem: callAnswered.header.remotePQKemPublicKey
+                ),
+                localKeys: bundle.alicePrivate
+            )
+            #expect(try await aliceManager.ratchetDecrypt(callAnswered) == Data("call_answered".utf8))
+
+            // Alice → Bob: sdp_offer (A2) and ice_candidate_a (A3)
+            guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest3,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate
+            )
+            let sdpOffer = try await aliceManager.ratchetEncrypt(plainText: Data("sdp_offer".utf8))
+            let iceCandidateA = try await aliceManager.ratchetEncrypt(plainText: Data("ice_candidate_a".utf8))
+
+            // Bob → Alice: sdp_answer (B2) and ice_candidate_b (B3)
+            guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityLatest3,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate
+            )
+            let sdpAnswer = try await bobManager.ratchetEncrypt(plainText: Data("sdp_answer".utf8))
+            let iceCandidateB = try await bobManager.ratchetEncrypt(plainText: Data("ice_candidate_b".utf8))
+
+            // Deliver out-of-order per receiver: Bob gets A3 then A2; Alice gets B3 then B2
+            guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest4,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: .init(
+                    longTerm: bundle.alicePublic.longTerm,
+                    oneTime: iceCandidateA.header.remoteOneTimePublicKey!,
+                    pqKem: iceCandidateA.header.remotePQKemPublicKey
+                ),
+                localKeys: bundle.bobPrivate
+            )
+            #expect(try await bobManager.ratchetDecrypt(iceCandidateA) == Data("ice_candidate_a".utf8))
+
+            guard let aliceIdentityLatest5 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest5,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: .init(
+                    longTerm: bundle.alicePublic.longTerm,
+                    oneTime: sdpOffer.header.remoteOneTimePublicKey!,
+                    pqKem: sdpOffer.header.remotePQKemPublicKey
+                ),
+                localKeys: bundle.bobPrivate
+            )
+            #expect(try await bobManager.ratchetDecrypt(sdpOffer) == Data("sdp_offer".utf8))
+
+            guard let bobIdentityLatest3b = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityLatest3b,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: .init(
+                    longTerm: bundle.bobPublic.longTerm,
+                    oneTime: iceCandidateB.header.remoteOneTimePublicKey!,
+                    pqKem: iceCandidateB.header.remotePQKemPublicKey
+                ),
+                localKeys: bundle.alicePrivate
+            )
+            #expect(try await aliceManager.ratchetDecrypt(iceCandidateB) == Data("ice_candidate_b".utf8))
+
+            guard let bobIdentityLatest4 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityLatest4,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: .init(
+                    longTerm: bundle.bobPublic.longTerm,
+                    oneTime: sdpAnswer.header.remoteOneTimePublicKey!,
+                    pqKem: sdpAnswer.header.remotePQKemPublicKey
+                ),
+                localKeys: bundle.alicePrivate
+            )
+            #expect(try await aliceManager.ratchetDecrypt(sdpAnswer) == Data("sdp_answer".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
     private var aliceCachedKeyPairs: [KeyPair]?
     private var bobCachedKeyPairs: [KeyPair]?
 
@@ -272,7 +715,8 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         case identityNotFound
     }
 
-    @Test
+    
+
     func ratchetEncryptDecryptEncrypt() async throws {
         let aliceManager = RatchetStateManager<SHA256>(executor: executor)
         await aliceManager.setDelegate(self)
@@ -752,7 +1196,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else {
+            guard getSessionIdentity(for: aliceIdentity.id) != nil else {
                 throw TestErrors.identityNotFound
             }
             await #expect(
@@ -1997,6 +2441,77 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 _ = try await bobManager.ratchetDecrypt(corruptedMessage)
             })
             
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    
+
+    @Test
+    func testGapFillMisalignmentOnCorruptedOutOfOrder() async throws {
+        let aliceManager = RatchetStateManager<SHA256>(executor: executor)
+        await aliceManager.setDelegate(self)
+        let bobManager = RatchetStateManager<SHA256>(executor: executor)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            // Alice initializes as sender to Bob
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate
+            )
+
+            // Pre-encrypt messages m1, m2, m3 in order
+            let m1 = try await aliceManager.ratchetEncrypt(plainText: Data("m1".utf8))
+            let m2 = try await aliceManager.ratchetEncrypt(plainText: Data("m2".utf8))
+            let m3 = try await aliceManager.ratchetEncrypt(plainText: Data("m3".utf8))
+
+            // Bob initializes as recipient using m1 header
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: .init(
+                    longTerm: bundle.alicePublic.longTerm,
+                    oneTime: m1.header.remoteOneTimePublicKey!,
+                    pqKem: m1.header.remotePQKemPublicKey
+                ),
+                localKeys: bundle.bobPrivate
+            )
+
+            // Decrypt m1 to finish handshake
+            let dm1 = try await bobManager.ratchetDecrypt(m1)
+            #expect(dm1 == Data("m1".utf8))
+
+            // Corrupt m3 so payload decrypt fails, but gap-fill runs
+            let corruptedM3 = RatchetMessage(
+                header: m3.header,
+                encryptedData: Data(repeating: 0xFF, count: m3.encryptedData.count)
+            )
+
+            // Expect failure on corrupted m3 (auth tag), gap-fill will still stash MKs
+            await #expect(throws: CryptoKitError.self) {
+                _ = try await bobManager.ratchetDecrypt(corruptedM3)
+            }
+
+            // Now decrypt valid m2: with Signal-style MK storage, this should succeed
+            let dm2 = try await bobManager.ratchetDecrypt(m2)
+            #expect(dm2 == Data("m2".utf8))
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {

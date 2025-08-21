@@ -244,6 +244,16 @@ class SecureKeyManager: SessionIdentityDelegate {
 }
 ```
 
+### Skipped Message Keys
+
+DoubleRatchetKit follows the Signal protocol’s recommendation to store per-message keys (messageKey) for out-of-order messages. When a message with number n arrives and the receiver’s next expected counter is Ns < n, the receiver will:
+
+- Derive and store messageKey for each missing index i in [Ns, n).
+- Derive messageKey for the current message n and prepare the next receiving chain key CK(n+1) transactionally.
+- Attempt decryption using the prepared messageKey for n. If decryption fails, no state is committed; if it succeeds, the prepared state is committed.
+
+This ensures correct decryption of out-of-order messages without advancing the live chain head prematurely.
+
 ### Key Rotation
 
 #### One-Time Key Rotation

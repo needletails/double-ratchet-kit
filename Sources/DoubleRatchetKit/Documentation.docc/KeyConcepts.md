@@ -185,19 +185,19 @@ struct RatchetState {
 
 The protocol handles messages that arrive out of order:
 
-1. **Key Storage**: Skipped message keys are cached
-2. **Decryption**: Messages can be decrypted when keys are available
+1. **Key Storage**: Per-message keys (messageKey) for skipped messages are cached
+2. **Decryption**: Messages are decrypted directly using the stored messageKey
 3. **Cleanup**: Old keys are purged to prevent DoS attacks
 
 ### Implementation
 
 ```swift
-// Store keys for skipped messages
+// Store per-message keys for skipped messages
 var skippedMessageKeys: [Int: SymmetricKey] = [:]
 
 // Retrieve key for specific message number
-if let key = skippedMessageKeys[messageNumber] {
-    // Decrypt message with stored key
+if let messageKey = skippedMessageKeys[messageNumber] {
+    // Decrypt message with stored messageKey
 }
 ```
 
