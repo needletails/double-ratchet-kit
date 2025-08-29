@@ -21,7 +21,6 @@ import NeedleTailCrypto
 import NeedleTailLogger
 import SwiftKyber
 import Testing
-
 @testable import DoubleRatchetKit
 
 @Suite(.serialized)
