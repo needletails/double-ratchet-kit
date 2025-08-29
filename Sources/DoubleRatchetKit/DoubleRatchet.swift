@@ -18,7 +18,6 @@ import BSON
 import Foundation
 import NeedleTailCrypto
 import NeedleTailLogger
-import Logging
 import SwiftKyber
 #if os(Android)
 @preconcurrency import Crypto
@@ -177,7 +176,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         precondition(didShutdown, "⛔️ RatchetStateManager was deinitialized without calling shutdown(). ")
     }
     
-    public func setLogLevel(_ level: Logging.Logger.Level) async {
+    public func setLogLevel(_ level: Level) async {
         logger.setLogLevel(level)
     }
 
