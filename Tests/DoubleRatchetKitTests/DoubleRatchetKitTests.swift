@@ -13,8 +13,9 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
+#if !os(Android)
 import AsyncAlgorithms
-import Crypto
+@preconcurrency import Crypto
 import Foundation
 import NeedleTailCrypto
 import NeedleTailLogger
@@ -48,7 +49,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await aliceManager.senderInitialization(
                     sessionIdentity: bobIdentityLatest,
-                    sessionSymmetricKey: aliceDbsk,
+                    sessionSymmetricKey: self.aliceDbsk,
                     remoteKeys: bundle.bobPublic,
                     localKeys: bundle.alicePrivate
                 )
@@ -62,7 +63,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await bobManager.recipientInitialization(
                     sessionIdentity: aliceIdentityLatest,
-                    sessionSymmetricKey: bobDBSK,
+                    sessionSymmetricKey: self.bobDBSK,
                     remoteKeys: .init(
                         longTerm: bundle.alicePublic.longTerm,
                         oneTime: a1.header.remoteOneTimePublicKey!,
@@ -81,7 +82,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await bobManager.senderInitialization(
                     sessionIdentity: aliceIdentityLatest2,
-                    sessionSymmetricKey: bobDBSK,
+                    sessionSymmetricKey: self.bobDBSK,
                     remoteKeys: bundle.alicePublic,
                     localKeys: bundle.bobPrivate
                 )
@@ -95,7 +96,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await aliceManager.recipientInitialization(
                     sessionIdentity: bobIdentityLatest2,
-                    sessionSymmetricKey: aliceDbsk,
+                    sessionSymmetricKey: self.aliceDbsk,
                     remoteKeys: .init(
                         longTerm: bundle.bobPublic.longTerm,
                         oneTime: b1.header.remoteOneTimePublicKey!,
@@ -114,7 +115,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await aliceManager.senderInitialization(
                     sessionIdentity: bobIdentityLatest3,
-                    sessionSymmetricKey: aliceDbsk,
+                    sessionSymmetricKey: self.aliceDbsk,
                     remoteKeys: bundle.bobPublic,
                     localKeys: bundle.alicePrivate
                 )
@@ -128,7 +129,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await bobManager.recipientInitialization(
                     sessionIdentity: aliceIdentityLatest3,
-                    sessionSymmetricKey: bobDBSK,
+                    sessionSymmetricKey: self.bobDBSK,
                     remoteKeys: .init(
                         longTerm: bundle.alicePublic.longTerm,
                         oneTime: a3.header.remoteOneTimePublicKey!,
@@ -147,7 +148,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await bobManager.recipientInitialization(
                     sessionIdentity: aliceIdentityLatest4,
-                    sessionSymmetricKey: bobDBSK,
+                    sessionSymmetricKey: self.bobDBSK,
                     remoteKeys: .init(
                         longTerm: bundle.alicePublic.longTerm,
                         oneTime: a2.header.remoteOneTimePublicKey!,
@@ -166,7 +167,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await bobManager.senderInitialization(
                     sessionIdentity: aliceIdentityLatest5,
-                    sessionSymmetricKey: bobDBSK,
+                    sessionSymmetricKey: self.bobDBSK,
                     remoteKeys: bundle.alicePublic,
                     localKeys: bundle.bobPrivate
                 )
@@ -180,7 +181,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await aliceManager.recipientInitialization(
                     sessionIdentity: bobIdentityLatest3,
-                    sessionSymmetricKey: aliceDbsk,
+                    sessionSymmetricKey: self.aliceDbsk,
                     remoteKeys: .init(
                         longTerm: bundle.bobPublic.longTerm,
                         oneTime: b3.header.remoteOneTimePublicKey!,
@@ -199,7 +200,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             await #expect(throws: Never.self) {
                 try await aliceManager.recipientInitialization(
                     sessionIdentity: bobIdentityLatest4,
-                    sessionSymmetricKey: aliceDbsk,
+                    sessionSymmetricKey: self.aliceDbsk,
                     remoteKeys: .init(
                         longTerm: bundle.bobPublic.longTerm,
                         oneTime: b2.header.remoteOneTimePublicKey!,
@@ -935,7 +936,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.senderInitialization(
                         sessionIdentity: bobIdentityLatest,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
                         localKeys: bundle.alicePrivate)
                 })
@@ -951,7 +952,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.recipientInitialization(
                         sessionIdentity: aliceIdentityLatest,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted.header.remoteOneTimePublicKey!,
@@ -970,7 +971,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.senderInitialization(
                         sessionIdentity: aliceIdentityLatest2,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: bundle.alicePublic,
                         localKeys: bundle.bobPrivate)
                 })
@@ -986,7 +987,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.recipientInitialization(
                         sessionIdentity: bobIdentityLatest2,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted2.header.remoteOneTimePublicKey!,
@@ -1005,7 +1006,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.senderInitialization(
                         sessionIdentity: bobIdentityLatest3,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.alicePublic,
                         localKeys: bundle.alicePrivate)
                 })
@@ -1021,7 +1022,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.recipientInitialization(
                         sessionIdentity: aliceIdentityLatest3,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted3.header.remoteOneTimePublicKey!,
@@ -1041,7 +1042,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.senderInitialization(
                         sessionIdentity: bobIdentityLatest4,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.alicePublic,
                         localKeys: bundle.alicePrivate)
                 })
@@ -1057,7 +1058,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.recipientInitialization(
                         sessionIdentity: aliceIdentityLatest4,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted4.header.remoteOneTimePublicKey!,
@@ -1076,7 +1077,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.senderInitialization(
                         sessionIdentity: aliceIdentityLatest5,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: bundle.alicePublic,
                         localKeys: bundle.bobPrivate,
                     )
@@ -1093,7 +1094,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.recipientInitialization(
                         sessionIdentity: bobIdentityLatest5,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: .init(
                             longTerm: bundle.bobPublic.longTerm,
                             oneTime: encrypted5.header.remoteOneTimePublicKey!,
@@ -1113,7 +1114,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.senderInitialization(
                         sessionIdentity: aliceIdentityLatest6,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: bundle.alicePublic,
                         localKeys: bundle.bobPrivate,
                     )
@@ -1127,7 +1128,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.recipientInitialization(
                         sessionIdentity: aliceIdentityLatest6,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted6.header.remoteOneTimePublicKey!,
@@ -1169,7 +1170,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.senderInitialization(
                         sessionIdentity: bobIdentityLatest,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
                         localKeys: bundle.alicePrivate,
                     )
@@ -1185,7 +1186,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.senderInitialization(
                         sessionIdentity: bobIdentityLatest2,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
                         localKeys: bundle.alicePrivate,
                     )
@@ -1204,7 +1205,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await aliceManager.senderInitialization(
                         sessionIdentity: bobIdentityLatest3,
-                        sessionSymmetricKey: aliceDbsk,
+                        sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
                         localKeys: bundle.alicePrivate)
                 })
@@ -1222,7 +1223,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.recipientInitialization(
                         sessionIdentity: aliceIdentityLatest,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted3.header.remoteOneTimePublicKey!,
@@ -1254,7 +1255,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.recipientInitialization(
                         sessionIdentity: aliceIdentityLatest2,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted1.header.remoteOneTimePublicKey!,
@@ -1286,7 +1287,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 performing: {
                     try await bobManager.recipientInitialization(
                         sessionIdentity: aliceIdentityLatest3,
-                        sessionSymmetricKey: bobDBSK,
+                        sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: .init(
                             longTerm: bundle.alicePublic.longTerm,
                             oneTime: encrypted2.header.remoteOneTimePublicKey!,
@@ -2521,3 +2522,4 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
         }
     }
 }
+#endif
