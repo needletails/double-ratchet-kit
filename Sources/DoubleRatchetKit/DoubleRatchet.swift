@@ -19,7 +19,7 @@ import Foundation
 import NeedleTailCrypto
 import NeedleTailLogger
 import SwiftKyber
-#if os(Android)
+#if os(Android) || os(Linux)
 @preconcurrency import Crypto
 #else
 import Crypto
