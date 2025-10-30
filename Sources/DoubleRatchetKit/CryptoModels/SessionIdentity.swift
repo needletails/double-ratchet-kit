@@ -14,11 +14,7 @@
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
 import BSON
-#if os(Android) || os(Linux)
-@preconcurrency import Crypto
-#else
 import Crypto
-#endif
 import Foundation
 import NeedleTailCrypto
 import SwiftKyber

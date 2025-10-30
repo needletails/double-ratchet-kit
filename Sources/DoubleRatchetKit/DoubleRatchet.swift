@@ -19,11 +19,7 @@ import Foundation
 import NeedleTailCrypto
 import NeedleTailLogger
 import SwiftKyber
-#if os(Android) || os(Linux)
-@preconcurrency import Crypto
-#else
 import Crypto
-#endif
 
 /*
  # Double Ratchet API Overview
@@ -691,8 +687,8 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             let localOneTimePublicKey = try Curve25519PrivateKey(rawRepresentation: localOneTimePrivateKey.rawRepresentation).publicKey.rawRepresentation
             remoteOneTimePublicKey = try RemoteOneTimePublicKey(id: localOneTimePrivateKey.id, localOneTimePublicKey)
         }
-        let localPQKemPublicKey = state.localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
-            .publicKey.rawRepresentation
+        let localPQKemPublicKey = state.localPQKemPrivateKey.rawRepresentation.decodeMLKem1024()
+            .publicKeyRawRepresentation
         let remotePQKemPublicKey = try RemotePQKemPublicKey(id: state.localPQKemPrivateKey.id, localPQKemPublicKey)
         self.state = state
 
@@ -986,9 +982,12 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                 if let receivingKey = state.receivingKey {
                     chainKey = receivingKey
                 } else {
+                    guard let rootKey = state.rootKey else {
+                        throw RatchetError.rootKeyIsNil
+                    }
                     // if we have a root key but not a receiving key create a receiving key from the root key
                     chainKey = try await deriveChainKey(
-                        from: state.rootKey!,
+                        from: rootKey,
                         configuration: defaultRatchetConfiguration,
                     )
                 }
@@ -1334,9 +1333,30 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
 
         let K_A_data = K_A.bytes
 
-        let remotePQKemPK = Kyber1024.KeyAgreement.PublicKey(rawRepresentation: remotePQKemPublicKey.rawRepresentation)
-        let (ciphertext, sharedSecret) = try remotePQKemPK.encapsulate()
-        let concatenatedSecrets = K_A_data + K_A_ot_data + sharedSecret.bytes
+        let ciphertext: Data
+        let sharedSecretBytes: Data
+        
+#if os(iOS) || os(macOS) || os(watchOS) || os(tvOS)
+        if #available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *) {
+            //TODO: This Probably doesn't work
+            let remotePQKemPK = try MLKEM1024.PublicKey(rawRepresentation: remotePQKemPublicKey.rawRepresentation)
+            let result = try remotePQKemPK.encapsulate()
+            ciphertext = result.encapsulated
+            sharedSecretBytes = result.sharedSecret.bytes
+        } else {
+            let remotePQKemPK = Kyber1024.KeyAgreement.PublicKey(rawRepresentation: remotePQKemPublicKey.rawRepresentation)
+            let result = try remotePQKemPK.encapsulate()
+            ciphertext = result.ciphertext
+            sharedSecretBytes = result.sharedSecret.bytes
+        }
+#else
+        let remotePQKemPK = try MLKEM1024.PublicKey(rawRepresentation: remotePQKemPublicKey.rawRepresentation)
+        let result = try remotePQKemPK.encapsulate()
+        ciphertext = result.encapsulated
+        sharedSecretBytes = result.sharedSecret.bytes
+#endif
+       
+        let concatenatedSecrets = K_A_data + K_A_ot_data + sharedSecretBytes
 
         let salt: Data = if let remoteOTKey = remoteOneTimePublicKey {
             remoteOTKey.rawRepresentation + remotePQKemPublicKey.rawRepresentation
@@ -1374,24 +1394,38 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             K_B_ot_data = K_B_ot.bytes
         }
 
+        let decapsulatedBytes: Data
+        
+#if os(iOS) || os(macOS) || os(watchOS) || os(tvOS)
         // Derive PQKem shared secret from ciphertext
-        let localPQKemPK = localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
-        let sharedSecret = try localPQKemPK.sharedSecret(from: receivedCiphertext)
+        if #available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *) {
+            //TODO: This may not work
+            let localPQKemPK = localPQKemPrivateKey.rawRepresentation.decodeMLKem1024() as! MLKEM1024.PrivateKey
+            decapsulatedBytes = try localPQKemPK.decapsulate(receivedCiphertext).bytes
+        } else {
+            let localPQKemPK = localPQKemPrivateKey.rawRepresentation.decodeMLKem1024() as! Kyber1024.KeyAgreement.PrivateKey
+            decapsulatedBytes = try localPQKemPK.sharedSecret(from: receivedCiphertext).bytes
+        }
+#else
+        let localPQKemPK = localPQKemPrivateKey.rawRepresentation.decodeMLKem1024() as! MLKEM1024.PrivateKey
+        decapsulatedBytes = try localPQKemPK.decapsulate(receivedCiphertext).bytes
+#endif
+      
         
         // Use local private one-time public key as salt if available, else fallback to long-term public key
         let salt: Data
         if let localOTKey = localOneTimePrivateKey {
             let curveKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localOTKey.rawRepresentation)
-            let pqKemKey = localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
-            salt = curveKey.publicKey.rawRepresentation + pqKemKey.publicKey.rawRepresentation
+            let pqKemKey = localPQKemPrivateKey.rawRepresentation.decodeMLKem1024()
+            salt = curveKey.publicKey.rawRepresentation + pqKemKey.publicKeyRawRepresentation
         } else {
             let curveKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localLongTermPrivateKey)
-            let pqKemKey = localPQKemPrivateKey.rawRepresentation.decodeKyber1024()
-            salt = curveKey.publicKey.rawRepresentation + pqKemKey.publicKey.rawRepresentation
+            let pqKemKey = localPQKemPrivateKey.rawRepresentation.decodeMLKem1024()
+            salt = curveKey.publicKey.rawRepresentation + pqKemKey.publicKeyRawRepresentation
         }
 
         // Concatenate secrets
-        let concatenatedSecrets = K_B_data + K_B_ot_data + sharedSecret.bytes
+        let concatenatedSecrets = K_B_data + K_B_ot_data + decapsulatedBytes
 
         // Derive final symmetric key using HKDF with SHA512
         return HKDF<SHA512>.deriveKey(

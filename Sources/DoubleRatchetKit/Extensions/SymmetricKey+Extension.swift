@@ -13,11 +13,7 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
-#if os(Android) || os(Linux)
-@preconcurrency import Crypto
-#else
 import Crypto
-#endif
 import Foundation
 
 /// Extension to make SymmetricKey conform to Codable for easy encoding and decoding.

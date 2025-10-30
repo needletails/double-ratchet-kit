@@ -22,10 +22,10 @@ import SwiftKyber
 public struct PQKemPrivateKey: Codable, Sendable, Equatable {
     /// A unique identifier for the key (e.g. device or session key).
     public let id: UUID
-
+    
     /// The raw key data.
     public let rawRepresentation: Data
-
+    
     /// Initializes a new PQKem private key wrapper.
     ///
     /// - Parameters
@@ -33,11 +33,20 @@ public struct PQKemPrivateKey: Codable, Sendable, Equatable {
     ///  rawRepresentation: The raw PQKem private key bytes.
     /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
-        let key = rawRepresentation.decodeKyber1024()
-
-        guard key.rawRepresentation.count == Int(kyber1024PrivateKeyLength) else {
+        let key = rawRepresentation.decodeMLKem1024()
+        
+#if os(iOS) || os(macOS) || os(watchOS) || os(tvOS)
+        if #available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *) {
+        } else {
+            guard key.privateKeyRawRepresentation.count == Int(kyber1024PrivateKeyLength) else {
+                throw KyberError.invalidKeySize
+            }
+        }
+#else
+        guard key.privateKeyRawRepresentation.count == Int(kyber1024PrivateKeyLength) else {
             throw KyberError.invalidKeySize
         }
+#endif
         self.id = id
         self.rawRepresentation = rawRepresentation
     }
@@ -60,9 +69,18 @@ public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable {
     ///  rawRepresentation: The raw PQKem public key bytes.
     /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
+#if os(iOS) || os(macOS) || os(watchOS) || os(tvOS)
+        if #available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *) {
+        } else {
+            guard rawRepresentation.count == Int(kyber1024PublicKeyLength) else {
+                throw KyberError.invalidKeySize
+            }
+        }
+#else
         guard rawRepresentation.count == Int(kyber1024PublicKeyLength) else {
             throw KyberError.invalidKeySize
         }
+#endif
         self.id = id
         self.rawRepresentation = rawRepresentation
     }

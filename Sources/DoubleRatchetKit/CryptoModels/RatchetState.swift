@@ -13,11 +13,7 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
-#if os(Android) || os(Linux)
-@preconcurrency import Crypto
-#else
 import Crypto
-#endif
 import Foundation
 
 public typealias RemoteLongTermPublicKey = Data
@@ -302,7 +298,7 @@ let defaultRatchetConfiguration = RatchetConfiguration(
     chainKeyData: Data([0x01]), // Data for chain key derivation.
     rootKeyData: Data([0x02, 0x03]), // Data for root key derivation.
     associatedData: "DoubleRatchetKit".data(using: .ascii)!, // Associated data for messages.
-    maxSkippedMessageKeys: 80)
+    maxSkippedMessageKeys: 1500)
 
 /// Represents the state of the Double Ratchet protocol.
 public struct RatchetState: Sendable, Codable {

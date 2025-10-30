@@ -15,9 +15,12 @@
 //
 import BSON
 import Foundation
+import NeedleTailCrypto
 import SwiftKyber
+import Crypto
 
-public extension Kyber1024.KeyAgreement.PrivateKey {
+public extension MLKem1024PrivateKey {
+    
     func encode() -> Data {
         do {
             return try BSONEncoder().encodeData(self)
@@ -28,11 +31,22 @@ public extension Kyber1024.KeyAgreement.PrivateKey {
 }
 
 public extension Data {
-    func decodeKyber1024() -> Kyber1024.KeyAgreement.PrivateKey {
+    func decodeMLKem1024() -> MLKem1024PrivateKey {
         do {
-            return try BSONDecoder().decodeData(Kyber1024.KeyAgreement.PrivateKey.self, from: self)
+            let decoder = BSONDecoder()
+#if os(iOS) || os(macOS) || os(watchOS) || os(tvOS)
+            if #available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *) {
+                return try decoder.decodeData(MLKEM1024.PrivateKey.self, from: self)
+            } else {
+                return try decoder.decodeData(Kyber1024.KeyAgreement.PrivateKey.self, from: self)
+            }
+#else
+            return try decoder.decodeData(MLKEM1024.PrivateKey.self, from: self)
+#endif
         } catch {
             fatalError("Kyber1024.KeyAgreement.PrivateKey encoding failed: \(error)")
         }
     }
 }
+
+
