@@ -8,7 +8,7 @@ DoubleRatchetKit implements the Signal protocol's Double Ratchet algorithm with 
 
 - **Forward Secrecy**: Message keys change with every message
 - **Post-Compromise Security**: Recovery from key compromise
-- **Post-Quantum Security**: Hybrid PQXDH with Kyber1024 and Curve25519
+- **Post-Quantum Security**: Hybrid PQXDH with MLKEM1024 and Curve25519
 - **Header Encryption**: Protects metadata against traffic analysis
 - **Out-of-Order Support**: Handles skipped messages with key caching
 - **Concurrency Safety**: Built with Swift actors for thread safety

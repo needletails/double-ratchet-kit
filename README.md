@@ -9,7 +9,7 @@ A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X
 ## 🌟 Features
 
 - **🔐 Double Ratchet Protocol**: Implements the Signal protocol specification for secure messaging
-- **⚡ Post-Quantum Security**: Hybrid PQXDH with Kyber1024 and Curve25519
+- **⚡ Post-Quantum Security**: Hybrid PQXDH with MLKEM1024 and Curve25519
 - **🔄 Forward Secrecy**: Message keys change with every message
 - **🛡️ Post-Compromise Security**: Recovery from key compromise
 - **📦 Header Encryption**: Protects metadata against traffic analysis
@@ -35,7 +35,7 @@ Add DoubleRatchetKit to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "1.0.0")
+    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "2.0.0")
 ]
 ```
 
@@ -74,7 +74,7 @@ let aliceProps = SessionIdentity.UnwrappedProps(
     sessionContextId: 1,
     longTermPublicKey: aliceLongTermPublicKey,
     signingPublicKey: aliceSigningPublicKey,
-    pqKemPublicKey: alicePQKemPublicKey,
+    mlKEMPublicKey: aliceMLKEMPublicKey,
     oneTimePublicKey: aliceOneTimePublicKey,
     deviceName: "Alice's iPhone",
     isMasterDevice: true
@@ -104,45 +104,43 @@ try await ratchetManager.senderInitialization(
     remoteKeys: RemoteKeys(
         longTerm: bobLongTermPublicKey,
         oneTime: bobOneTimePublicKey,
-        pqKem: bobPQKemPublicKey
+        mlKEM: bobMLKEMPublicKey
     ),
     localKeys: LocalKeys(
         longTerm: aliceLongTermPrivateKey,
         oneTime: aliceOneTimePrivateKey,
-        pqKem: alicePQKemPrivateKey
+        mlKEM: aliceMLKEMPrivateKey
     )
 )
 ```
 
-### 4. Initialize Receiving Session (Bob)
+### 4. Send First Message (Alice) and Initialize Receiver (Bob)
 
 ```swift
-// Bob prepares to receive messages from Alice
+// Alice encrypts the first message to Bob. The header bootstraps Bob's receiving ratchet.
+let plaintext = "Hello, Bob!".data(using: .utf8)!
+let firstMessage = try await ratchetManager.ratchetEncrypt(
+    plainText: plaintext,
+    sessionId: bobSessionIdentity.id
+)
+
+// Bob initializes his receiving state using the first header from Alice
 try await ratchetManager.recipientInitialization(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
-    remoteKeys: RemoteKeys(
-        longTerm: aliceLongTermPublicKey,
-        oneTime: aliceOneTimePublicKey,
-        pqKem: alicePQKemPublicKey
-    ),
+    header: firstMessage.header,
     localKeys: LocalKeys(
         longTerm: bobLongTermPrivateKey,
         oneTime: bobOneTimePrivateKey,
-        pqKem: bobPQKemPrivateKey
+        mlKEM: bobMLKEMPrivateKey
     )
 )
-```
 
-### 5. Send and Receive Messages
-
-```swift
-// Alice encrypts a message
-let plaintext = "Hello, Bob!".data(using: .utf8)!
-let encryptedMessage = try await ratchetManager.ratchetEncrypt(plainText: plaintext)
-
-// Bob decrypts the message
-let decryptedMessage = try await ratchetManager.ratchetDecrypt(encryptedMessage)
+// Bob decrypts the first message
+let decryptedMessage = try await ratchetManager.ratchetDecrypt(
+    firstMessage,
+    sessionId: aliceSessionIdentity.id
+)
 let message = String(data: decryptedMessage, encoding: .utf8)!
 print("Received: \(message)") // "Hello, Bob!"
 ```
@@ -190,9 +188,9 @@ Key Wrappers are used to Identify keys that the recipient needs to reference fro
 let curvePrivateKey = try CurvePrivateKey(id: UUID(), curve25519PrivateKey.rawRepresentation)
 let curvePublicKey = try CurvePublicKey(id: UUID(), curve25519PublicKey.rawRepresentation)
 
-// Wrapper for Kyber1024 keys
-let kyberPrivateKey = try PQKemPrivateKey(id: UUID(), kyber1024PrivateKey.rawRepresentation)
-let kyberPublicKey = try PQKemPublicKey(id: UUID(), kyber1024PublicKey.rawRepresentation)
+// Wrapper for MLKEM1024 keys
+let kyberPrivateKey = try MLKEMPrivateKey(id: UUID(), MLKEM1024PrivateKey.rawRepresentation)
+let kyberPublicKey = try MLKEMPublicKey(id: UUID(), MLKEM1024PublicKey.rawRepresentation)
 ```
 
 ## 🏗️ Architecture
@@ -208,7 +206,7 @@ let kyberPublicKey = try PQKemPublicKey(id: UUID(), kyber1024PublicKey.rawRepres
 ### Protocol Flow
 
 1. **Initial Handshake (PQXDH)**:
-   - Hybrid key exchange using Curve25519 + Kyber1024
+   - Hybrid key exchange using Curve25519 + MLKEM1024
    - Derives root key and initial chain keys
    - Establishes header encryption keys
 
@@ -225,8 +223,8 @@ let kyberPublicKey = try PQKemPublicKey(id: UUID(), kyber1024PublicKey.rawRepres
 ## 🔒 Security Features
 
 ### Post-Quantum Security
-- **Hybrid PQXDH**: Combines classical (Curve25519) and post-quantum (Kyber1024) key exchange
-- **Kyber1024**: OQS Kyber 1024 key encapsulation
+- **Hybrid PQXDH**: Combines classical (Curve25519) and post-quantum (MLKEM1024) key exchange
+- **MLKEM1024**: NIST ML-KEM (Kyber-1024) key encapsulation
 - **Forward Secrecy**: Each message uses unique keys
 
 ### Metadata Protection
@@ -262,6 +260,68 @@ To view the documentation:
 
 For detailed API documentation, see the [API Reference](https://github.com/needletails/double-ratchet-kit/blob/main/Sources/DoubleRatchetKit/Documentation.docc/APIReference.md) or build the DocC documentation in Xcode.
 
+## 🧭 2.0.0 Migration Guide
+
+Version 2.0.0 introduces session‑explicit APIs and a header‑driven receive initialization. These are source‑breaking changes.
+
+### What changed
+
+- Receiving init is header‑based:
+  - 1.x: `recipientInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
+  - 2.0: `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)`
+- Encrypt/Decrypt require a `sessionId`:
+  - 1.x: `ratchetEncrypt(plainText:)`, `ratchetDecrypt(_:)`
+  - 2.0: `ratchetEncrypt(plainText:sessionId:)`, `ratchetDecrypt(_:sessionId:)`
+
+### Why
+
+- The receiver must bind state to the actual first header it sees (supports out‑of‑order and key rotation correctly).
+- Explicit `sessionId` avoids ambiguity when multiple sessions are active.
+
+### How to migrate
+
+1) Replace receiving initialization to use the first message header:
+
+```swift
+// Before (1.x)
+try await bobManager.recipientInitialization(
+    sessionIdentity: bobSessionIdentity,
+    sessionSymmetricKey: sessionKey,
+    remoteKeys: bobRemoteKeysFromAlice,
+    localKeys: bobLocalKeys
+)
+
+// After (2.0)
+try await bobManager.recipientInitialization(
+    sessionIdentity: bobSessionIdentity,
+    sessionSymmetricKey: sessionKey,
+    header: firstMessageFromAlice.header,
+    localKeys: bobLocalKeys
+)
+```
+
+2) Pass `sessionId` to encrypt/decrypt:
+
+```swift
+// Before (1.x)
+let msg = try await aliceManager.ratchetEncrypt(plainText: data)
+let pt  = try await bobManager.ratchetDecrypt(msg)
+
+// After (2.0)
+let msg = try await aliceManager.ratchetEncrypt(plainText: data, sessionId: bobSessionIdentity.id)
+let pt  = try await bobManager.ratchetDecrypt(msg, sessionId: aliceSessionIdentity.id)
+```
+
+3) Review error handling
+
+- You may now encounter `RatchetError.missingConfiguration` if a `sessionId` is unknown.
+- Decryption failures for corrupted payloads can surface as `CryptoKitError`.
+
+### Notes
+
+- No changes are required to `senderInitialization` signatures.
+- If you manage multiple sessions, ensure you route the correct `sessionId` consistently.
+
 ## 🧪 Testing
 
 ```bash
@@ -278,9 +338,9 @@ swift test --verbose
 
 #### `RatchetStateManager<Hash>`
 - `senderInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
-- `recipientInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
-- `ratchetEncrypt(plainText:)`
-- `ratchetDecrypt(_:)`
+- `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)`
+- `ratchetEncrypt(plainText:sessionId:)`
+- `ratchetDecrypt(_:sessionId:)`
 - `shutdown()`
 
 #### `SessionIdentity`
@@ -321,7 +381,7 @@ This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE)
 ## 🙏 Acknowledgments
 
 - **Signal Protocol**: Based on the Signal specification
-- **OQS Kyber**: Post-quantum cryptography standards
+- **ML‑KEM (Kyber)**: Post-quantum cryptography standard
 - **Swift Crypto**: Apple's cryptographic primitives
 - **NeedleTail Organization**: Supporting libraries and tools
 

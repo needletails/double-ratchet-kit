@@ -14,10 +14,8 @@
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
 import BSON
-import Crypto
 import Foundation
 import NeedleTailCrypto
-import SwiftKyber
 
 /// Protocol defining the base model functionality.
 public protocol SecureModelProtocol: Codable, Sendable {
@@ -59,8 +57,8 @@ public struct _SessionIdentity: Codable, Sendable {
     /// Ephemeral one-time pre-key (Curve25519 public key) → **OPKBₙ**
     public let oneTimePublicKey: CurvePublicKey?
 
-    /// PQ post‑quantum signed pre-key (Kyber1024) → **PQSPKB**
-    public let pqKemPublicKey: PQKemPublicKey
+    /// PQ post‑quantum signed pre-key (MLKEM1024) → **PQSPKB**
+    public let mlKEMPublicKey: MLKEMPublicKey
 
     public var state: RatchetState?
     public var deviceName: String
@@ -113,7 +111,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public var oneTimePublicKey: CurvePublicKey?
 
         /// Post-Quantum KEM Public Key (e.g., Kyber) → PQSPKB
-        public var pqKemPublicKey: PQKemPublicKey
+        public var mlKEMPublicKey: MLKEMPublicKey
 
         /// Ratchet state for forward secrecy
         public var state: RatchetState?
@@ -133,8 +131,26 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.oneTimePublicKey = key
         }
         
-        public mutating func setPQKemPublicKey(_ key: PQKemPublicKey) {
-            self.pqKemPublicKey = key
+        public mutating func setMLKEMPublicKey(_ key: MLKEMPublicKey) {
+            self.mlKEMPublicKey = key
+        }
+        
+        
+        enum CodingKeys: String, CodingKey, Codable, Sendable {
+            case secretName = "a",
+                 deviceId = "b",
+                 sessionContextId = "c",
+                 longTermPublicKey = "d",
+                 signingPublicKey = "e",
+                 oneTimePublicKey = "f",
+                 mlKEMPublicKey = "g",
+                 state = "h",
+                 deviceName = "i",
+                 serverTrusted = "j",
+                 previousRekey = "k",
+                 isMasterDevice = "l",
+                 verifiedIdentity = "m",
+                 verificationCode = "n"
         }
 
         public init(
@@ -143,7 +159,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             sessionContextId: Int,
             longTermPublicKey: Data,
             signingPublicKey: Data,
-            pqKemPublicKey: PQKemPublicKey,
+            mlKEMPublicKey: MLKEMPublicKey,
             oneTimePublicKey: CurvePublicKey?,
             state: RatchetState? = nil,
             deviceName: String,
@@ -159,7 +175,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.longTermPublicKey = longTermPublicKey
             self.signingPublicKey = signingPublicKey
             self.oneTimePublicKey = oneTimePublicKey
-            self.pqKemPublicKey = pqKemPublicKey
+            self.mlKEMPublicKey = mlKEMPublicKey
             self.state = state
             self.deviceName = deviceName
             self.serverTrusted = serverTrusted
@@ -239,7 +255,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             longTermPublicKey: props.longTermPublicKey,
             signingPublicKey: props.signingPublicKey,
             oneTimePublicKey: props.oneTimePublicKey,
-            pqKemPublicKey: props.pqKemPublicKey,
+            mlKEMPublicKey: props.mlKEMPublicKey,
             deviceName: props.deviceName,
             isMasterDevice: props.isMasterDevice,
             verifiedIdentity: props.verifiedIdentity,

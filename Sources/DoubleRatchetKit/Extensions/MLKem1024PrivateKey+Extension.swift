@@ -1,5 +1,5 @@
 //
-//  Kyber1024+Extension.swift
+//  MLKem1024PrivateKey+Extension.swift
 //  double-ratchet-kit
 //
 //  Created by Cole M on 4/29/25.
@@ -16,37 +16,25 @@
 import BSON
 import Foundation
 import NeedleTailCrypto
-import SwiftKyber
-import Crypto
 
-public extension MLKem1024PrivateKey {
+public extension MLKEM1024.PrivateKey {
     
     func encode() -> Data {
         do {
             return try BSONEncoder().encodeData(self)
         } catch {
-            fatalError("Kyber1024.KeyAgreement.PrivateKey encoding failed: \(error)")
+            fatalError("MLKem1024PrivateKey encoding failed: \(error)")
         }
     }
 }
 
 public extension Data {
-    func decodeMLKem1024() -> MLKem1024PrivateKey {
+    func decodeMLKem1024() -> MLKEM1024.PrivateKey {
+        let decoder = BSONDecoder()
         do {
-            let decoder = BSONDecoder()
-#if os(iOS) || os(macOS) || os(watchOS) || os(tvOS)
-            if #available(iOS 26.0, macOS 26.0, watchOS 26.0, tvOS 26.0, *) {
-                return try decoder.decodeData(MLKEM1024.PrivateKey.self, from: self)
-            } else {
-                return try decoder.decodeData(Kyber1024.KeyAgreement.PrivateKey.self, from: self)
-            }
-#else
             return try decoder.decodeData(MLKEM1024.PrivateKey.self, from: self)
-#endif
         } catch {
-            fatalError("Kyber1024.KeyAgreement.PrivateKey encoding failed: \(error)")
+            fatalError("MLKem1024PrivateKey decoding failed for both MLKEM1024")
         }
     }
 }
-
-

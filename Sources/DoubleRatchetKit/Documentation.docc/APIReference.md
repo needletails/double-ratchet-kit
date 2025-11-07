@@ -196,12 +196,12 @@ public init(id: UUID = UUID(), _ rawRepresentation: Data) throws
 
 **Throws:** `KyberError.invalidKeySize` if the key size is not 32 bytes
 
-### PQKemPrivateKey
+### MLKEMPrivateKey
 
-Wraps Kyber1024 private keys with identification.
+Wraps MLKEM1024 private keys with identification.
 
 ```swift
-public struct PQKemPrivateKey: Codable, Sendable, Equatable
+public struct MLKEMPrivateKey: Codable, Sendable, Equatable
 ```
 
 #### Properties
@@ -219,16 +219,16 @@ public init(id: UUID = UUID(), _ rawRepresentation: Data) throws
 
 **Parameters:**
 - `id`: An optional UUID to tag this key
-- `rawRepresentation`: The raw PQKem private key bytes
+- `rawRepresentation`: The raw MLKEM private key bytes
 
 **Throws:** `KyberError.invalidKeySize` if the key size is incorrect
 
-### PQKemPublicKey
+### MLKEMPublicKey
 
-Wraps Kyber1024 public keys with identification.
+Wraps MLKEM1024 public keys with identification.
 
 ```swift
-public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable
+public struct MLKEMPublicKey: Codable, Sendable, Equatable, Hashable
 ```
 
 #### Properties
@@ -246,7 +246,7 @@ public init(id: UUID = UUID(), _ rawRepresentation: Data) throws
 
 **Parameters:**
 - `id`: An optional UUID to tag this key
-- `rawRepresentation`: The raw PQKem public key bytes
+- `rawRepresentation`: The raw MLKEM public key bytes
 
 **Throws:** `KyberError.invalidKeySize` if the key size is incorrect
 
@@ -265,7 +265,7 @@ public struct RemoteKeys
 ```swift
 let longTerm: CurvePublicKey
 let oneTime: CurvePublicKey?
-let pqKem: PQKemPublicKey
+let mlKEM: MLKEMPublicKey
 ```
 
 #### Initialization
@@ -274,7 +274,7 @@ let pqKem: PQKemPublicKey
 public init(
     longTerm: CurvePublicKey,
     oneTime: CurvePublicKey?,
-    pqKem: PQKemPublicKey
+    mlKEM: MLKEMPublicKey
 )
 ```
 
@@ -291,7 +291,7 @@ public struct LocalKeys
 ```swift
 let longTerm: CurvePrivateKey
 let oneTime: CurvePrivateKey?
-let pqKem: PQKemPrivateKey
+let mlKEM: MLKEMPrivateKey
 ```
 
 #### Initialization
@@ -300,7 +300,7 @@ let pqKem: PQKemPrivateKey
 public init(
     longTerm: CurvePrivateKey,
     oneTime: CurvePrivateKey?,
-    pqKem: PQKemPrivateKey
+    mlKEM: MLKEMPrivateKey
 )
 ```
 
@@ -382,7 +382,7 @@ public let sessionContextId: Int
 public var longTermPublicKey: Data
 public let signingPublicKey: Data
 public let oneTimePublicKey: CurvePublicKey?
-public var pqKemPublicKey: PQKemPublicKey
+public var mlKEMPublicKey: MLKEMPublicKey
 public var state: RatchetState?
 public let deviceName: String
 public var serverTrusted: Bool?
@@ -428,11 +428,11 @@ public struct EncryptedHeader: Sendable, Codable, Hashable
 ```swift
 public let remoteLongTermPublicKey: RemoteLongTermPublicKey
 public let remoteOneTimePublicKey: RemoteOneTimePublicKey?
-public let remotePQKemPublicKey: RemotePQKemPublicKey
+public let remoteMLKEMPublicKey: RemoteMLKEMPublicKey
 public let headerCiphertext: Data
 public let messageCiphertext: Data
 public let oneTimeKeyId: UUID?
-public let pqKemOneTimeKeyId: UUID?
+public let mlKEMOneTimeKeyId: UUID?
 public let encrypted: Data
 public private(set) var decrypted: MessageHeader?
 ```
@@ -525,10 +525,10 @@ public struct RatchetState: Sendable, Codable
 ```swift
 private(set) public var localLongTermPrivateKey: LocalLongTermPrivateKey
 private(set) public var localOneTimePrivateKey: LocalOneTimePrivateKey?
-private(set) public var localPQKemPrivateKey: LocalPQKemPrivateKey
+private(set) public var localMLKEMPrivateKey: LocalMLKEMPrivateKey
 private(set) public var remoteLongTermPublicKey: RemoteLongTermPublicKey
 private(set) public var remoteOneTimePublicKey: RemoteOneTimePublicKey?
-private(set) public var remotePQKemPublicKey: RemotePQKemPublicKey
+private(set) public var remoteMLKEMPublicKey: RemoteMLKEMPublicKey
 private(set) var rootKey: SymmetricKey?
 private(set) var sendingKey: SymmetricKey?
 private(set) var receivingKey: SymmetricKey?
@@ -609,10 +609,10 @@ case messageOutOfOrder
 ```swift
 public typealias RemoteLongTermPublicKey = Data
 public typealias RemoteOneTimePublicKey = CurvePublicKey
-public typealias RemotePQKemPublicKey = PQKemPublicKey
+public typealias RemoteMLKEMPublicKey = MLKEMPublicKey
 public typealias LocalLongTermPrivateKey = Data
 public typealias LocalOneTimePrivateKey = CurvePrivateKey
-public typealias LocalPQKemPrivateKey = PQKemPrivateKey
+public typealias LocalMLKEMPrivateKey = MLKEMPrivateKey
 ```
 
 ## Extensions

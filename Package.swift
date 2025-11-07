@@ -17,7 +17,6 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.0.0"),
         .package(path: "../needletail-crypto"),
 //        .package(url: "https://github.com/needletails/needletail-crypto.git", from: "1.1.2"),
         .package(url: "https://github.com/needletails/needletail-algorithms.git", from: "2.0.4"),
@@ -29,7 +28,6 @@ let package = Package(
         .target(
             name: "DoubleRatchetKit",
             dependencies: [
-                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "NeedleTailCrypto", package: "needletail-crypto"),
                 .product(name: "NeedleTailAlgorithms", package: "needletail-algorithms"),
                 .product(name: "NeedleTailLogger", package: "needletail-logger"),

@@ -35,7 +35,7 @@ The Double Ratchet algorithm ensures that:
 DoubleRatchetKit uses **PQXDH (Post-Quantum X3DH)** for initial key agreement, which combines:
 
 - **Curve25519**: Classical elliptic curve cryptography
-- **Kyber1024**: Post-quantum key encapsulation mechanism
+- **MLKEM1024**: Post-quantum key encapsulation mechanism
 
 This hybrid approach ensures security against both classical and quantum attacks.
 
@@ -55,8 +55,8 @@ This hybrid approach ensures security against both classical and quantum attacks
 - **One-time Keys**: Ephemeral keys for enhanced security
 - **Signed Prekeys**: Pre-computed keys for faster handshakes
 
-#### Kyber1024 Keys
-- **PQKEM Keys**: Post-quantum key encapsulation keys
+#### MLKEM1024 Keys
+- **MLKEM Keys**: Post-quantum key encapsulation keys
 - **Hybrid Security**: Combined with Curve25519 for quantum resistance
 
 ### Key Containers
@@ -66,14 +66,14 @@ This hybrid approach ensures security against both classical and quantum attacks
 struct RemoteKeys {
     let longTerm: RemoteLongTermPublicKey
     let oneTime: RemoteOneTimePublicKey?
-    let pqKem: RemotePQKemPublicKey
+    let mlKEM: RemoteMLKEMPublicKey
 }
 
 // Local keys (private keys for this party)
 struct LocalKeys {
     let longTerm: LocalLongTermPrivateKey
     let oneTime: LocalOneTimePrivateKey?
-    let pqKem: LocalPQKemPrivateKey
+    let mlKEM: LocalMLKEMPrivateKey
 }
 ```
 
@@ -135,7 +135,7 @@ let encryptedHeader = encrypt(header, with: headerKey)
 ### Post-Quantum Security
 
 - **Hybrid Approach**: Combines classical and quantum-resistant cryptography
-- **Kyber1024**: Provides quantum resistance for key exchange
+- **MLKEM1024**: Provides quantum resistance for key exchange
 - **Future-Proof**: Secure against both current and future quantum attacks
 
 ## Concurrency Model

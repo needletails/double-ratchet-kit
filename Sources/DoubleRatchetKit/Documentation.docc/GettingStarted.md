@@ -67,7 +67,7 @@ let aliceProps = SessionIdentity.UnwrappedProps(
     sessionContextId: 1,
     longTermPublicKey: aliceLongTermPublicKey,
     signingPublicKey: aliceSigningPublicKey,
-    pqKemPublicKey: alicePQKemPublicKey,
+    mlKEMPublicKey: aliceMLKEMPublicKey,
     oneTimePublicKey: aliceOneTimePublicKey,
     deviceName: "Alice's iPhone",
     isMasterDevice: true
@@ -99,12 +99,12 @@ try await ratchetManager.senderInitialization(
     remoteKeys: RemoteKeys(
         longTerm: bobLongTermPublicKey,
         oneTime: bobOneTimePublicKey,
-        pqKem: bobPQKemPublicKey
+        mlKEM: bobMLKEMPublicKey
     ),
     localKeys: LocalKeys(
         longTerm: aliceLongTermPrivateKey,
         oneTime: aliceOneTimePrivateKey,
-        pqKem: alicePQKemPrivateKey
+        mlKEM: aliceMLKEMPrivateKey
     )
 )
 ```
@@ -119,12 +119,12 @@ try await ratchetManager.recipientInitialization(
     remoteKeys: RemoteKeys(
         longTerm: aliceLongTermPublicKey,
         oneTime: aliceOneTimePublicKey,
-        pqKem: alicePQKemPublicKey
+        mlKEM: aliceMLKEMPublicKey
     ),
     localKeys: LocalKeys(
         longTerm: bobLongTermPrivateKey,
         oneTime: bobOneTimePrivateKey,
-        pqKem: bobPQKemPrivateKey
+        mlKEM: bobMLKEMPrivateKey
     )
 )
 ```
@@ -159,9 +159,9 @@ Key wrappers are used to identify keys that the recipient needs to reference fro
 let curvePrivateKey = try CurvePrivateKey(id: UUID(), curve25519PrivateKey.rawRepresentation)
 let curvePublicKey = try CurvePublicKey(id: UUID(), curve25519PublicKey.rawRepresentation)
 
-// Wrapper for Kyber1024 keys
-let kyberPrivateKey = try PQKemPrivateKey(id: UUID(), kyber1024PrivateKey.rawRepresentation)
-let kyberPublicKey = try PQKemPublicKey(id: UUID(), kyber1024PublicKey.rawRepresentation)
+// Wrapper for MLKEM1024 keys
+let kyberPrivateKey = try MLKEMPrivateKey(id: UUID(), MLKEM1024PrivateKey.rawRepresentation)
+let kyberPublicKey = try MLKEMPublicKey(id: UUID(), MLKEM1024PublicKey.rawRepresentation)
 ```
 
 ## Session Identity Delegate
