@@ -18,6 +18,7 @@ import AsyncAlgorithms
 import Foundation
 import NeedleTailCrypto
 import NeedleTailLogger
+import BinaryCodable
 import Testing
 @testable import DoubleRatchetKit
 
@@ -193,6 +194,85 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             }
             let db2 = try! await aliceManager.ratchetDecrypt(b2, sessionId: bobIdentityLatest4.id)
             #expect(db2 == Data("B2".utf8))
+            
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+    
+    @Test
+    func testExternalKeyDerivationWithoutRatchetAPIs() async throws {
+        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+        
+        do {
+            // 1) Generate identities and key bundles
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+            
+            // 2) Alice initializes sending session to Bob
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: self.aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate
+            )
+            
+            // 3) Extract the initial MLKEM ciphertext directly from Alice's persisted state (no ratchetEncrypt)
+            guard let updatedBobIdentity = getSessionIdentity(for: bobIdentity.id),
+                  let bobProps = await updatedBobIdentity.props(symmetricKey: aliceDbsk),
+                  let handshakeCiphertext = bobProps.state?.messageCiphertext else {
+                #expect(Bool(false))
+                return
+            }
+            
+            // 4) Synthesize a minimal header containing Alice's public keys and the MLKEM ciphertext
+            //    This avoids calling ratchetEncrypt entirely while still bootstrapping Bob's receiver state.
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+        
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: self.bobDBSK,
+                localKeys: bundle.bobPrivate,
+                remoteKeys: bundle.alicePublic,
+                ciphertext: handshakeCiphertext)
+            
+            // 5) Derive message 1 keys externally on both sides
+            // Sender: derive next message key
+            let mk1Sender = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            // Receiver: derive next message key (receiving side). After initialization, rootKey is set
+            // and the method advances receivingKey accordingly.
+            let mk1Receiver = try await bobManager.deriveReceivedMessageKey(
+                sessionId: aliceIdentityLatest.id,
+                cipherText: handshakeCiphertext // not used in this branch but required by signature
+            )
+            
+            // 6) External encryption/decryption roundtrip using derived keys (message 1)
+            let p1 = Data("EXTERNAL_MESSAGE_1".utf8)
+            let c1 = try #require(try crypto.encrypt(data: p1, symmetricKey: mk1Sender))
+            let d1 = try #require(try crypto.decrypt(data: c1, symmetricKey: mk1Receiver))
+            #expect(d1 == p1)
+            
+            // 7) Derive message 2 keys and repeat to confirm ratchet progression
+            let mk2Sender = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            let mk2Receiver = try await bobManager.deriveReceivedMessageKey(
+                sessionId: aliceIdentityLatest.id,
+                cipherText: handshakeCiphertext
+            )
+            let p2 = Data("EXTERNAL_MESSAGE_2".utf8)
+            let c2 = try #require(try crypto.encrypt(data: p2, symmetricKey: mk2Sender))
+            let d2 = try #require(try crypto.decrypt(data: c2, symmetricKey: mk2Receiver))
+            #expect(d2 == p2)
             
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
@@ -2398,10 +2478,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             )
             do {
                 _ = try await bobManagerLoose.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id)
-                #expect(false, "Loose mode should not decrypt when OTK is missing")
+                #expect(Bool(false), "Loose mode should not decrypt when OTK is missing")
             } catch {
                 if case RatchetError.missingOneTimeKey = error {
-                    #expect(false, "Loose mode must not preflight with missingOneTimeKey")
+                    #expect(Bool(false), "Loose mode must not preflight with missingOneTimeKey")
                 } else {
                     #expect(true) // any other failure mode is acceptable here
                 }
@@ -2427,5 +2507,25 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             try? await bobManagerStrict.shutdown()
             throw error
         }
+    }
+    
+    
+    @Test("Binary Encoder/Decoder Object Test")
+    func testBinaryObjectEncodingDecoding() async throws {
+        let curve = Curve25519.KeyAgreement.PrivateKey()
+        let mlkem = try MLKEM1024.PrivateKey()
+        let someData = try EncryptedHeader(
+            remoteLongTermPublicKey: .init(),
+            remoteOneTimePublicKey: .init(curve.publicKey.rawRepresentation),
+            remoteMLKEMPublicKey: .init(mlkem.publicKey.rawRepresentation),
+            headerCiphertext: .init(),
+            messageCiphertext: .init(),
+            oneTimeKeyId: .init(),
+            mlKEMOneTimeKeyId: .init(),
+            encrypted: .init())
+        
+        let encoded = try BinaryEncoder().encode(someData)
+        let decoded = try BinaryDecoder().decode(EncryptedHeader.self, from: encoded)
+        #expect(decoded == someData)
     }
 }

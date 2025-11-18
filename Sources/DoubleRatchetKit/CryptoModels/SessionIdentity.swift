@@ -13,8 +13,9 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
-import BSON
+
 import Foundation
+import BinaryCodable
 import NeedleTailCrypto
 
 /// Protocol defining the base model functionality.
@@ -192,7 +193,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         symmetricKey: SymmetricKey
     ) throws {
         let crypto = NeedleTailCrypto()
-        let data = try BSONEncoder().encodeData(props)
+        let data = try BinaryEncoder().encode(props)
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.encryptionFailed
         }
@@ -214,7 +215,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         guard let decrypted = try crypto.decrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.decryptionFailed
         }
-        return try BSONDecoder().decodeData(UnwrappedProps.self, from: decrypted)
+        return try BinaryDecoder().decode(UnwrappedProps.self, from: decrypted)
     }
 
     /// Asynchronously updates the properties of the model.
@@ -226,7 +227,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     /// - Throws: An error if encryption fails.
     public func updateProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws -> UnwrappedProps? {
         let crypto = NeedleTailCrypto()
-        let data = try BSONEncoder().encodeData(props)
+        let data = try BinaryEncoder().encode(props)
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.encryptionFailed
         }
@@ -236,7 +237,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
 
     public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws {
         let crypto = NeedleTailCrypto()
-        let data = try BSONEncoder().encodeData(props)
+        let data = try BinaryEncoder().encode(props)
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.encryptionFailed
         }

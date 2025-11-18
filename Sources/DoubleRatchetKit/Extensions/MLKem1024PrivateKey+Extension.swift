@@ -13,15 +13,16 @@
 //  This file is part of the Double Ratchet Kit SDK, which provides
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
-import BSON
+
 import Foundation
 import NeedleTailCrypto
+import BinaryCodable
 
 public extension MLKEM1024.PrivateKey {
     
     func encode() -> Data {
         do {
-            return try BSONEncoder().encodeData(self)
+            return try BinaryEncoder().encode(self)
         } catch {
             fatalError("MLKem1024PrivateKey encoding failed: \(error)")
         }
@@ -30,9 +31,9 @@ public extension MLKEM1024.PrivateKey {
 
 public extension Data {
     func decodeMLKem1024() -> MLKEM1024.PrivateKey {
-        let decoder = BSONDecoder()
+        let decoder = BinaryDecoder()
         do {
-            return try decoder.decodeData(MLKEM1024.PrivateKey.self, from: self)
+            return try decoder.decode(MLKEM1024.PrivateKey.self, from: self)
         } catch {
             fatalError("MLKem1024PrivateKey decoding failed for both MLKEM1024")
         }

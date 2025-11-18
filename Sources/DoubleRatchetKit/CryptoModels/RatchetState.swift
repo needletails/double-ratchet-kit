@@ -101,13 +101,13 @@ public struct RatchetMessage: Codable, Sendable, Hashable {
 /// Represents the header of an encrypted message in the Double Ratchet protocol.
 public struct EncryptedHeader: Sendable, Codable, Hashable {
     /// Sender's long-term public key.
-    public let remoteLongTermPublicKey: RemoteLongTermPublicKey
+    public let remoteLongTermPublicKey: RemoteLongTermPublicKey // is Foundation Data
 
     /// Sender's one-time public key.
-    public let remoteOneTimePublicKey: RemoteOneTimePublicKey?
+    public let remoteOneTimePublicKey: RemoteOneTimePublicKey? // is COdable object with UUID and FOundation data as props
 
     /// Sender's MLKEM public key used for key agreement.
-    public let remoteMLKEMPublicKey: RemoteMLKEMPublicKey
+    public let remoteMLKEMPublicKey: RemoteMLKEMPublicKey // is COdable object with UUID and FOundation data as props
 
     /// Header encapsulated ciphertext.
     public let headerCiphertext: Data

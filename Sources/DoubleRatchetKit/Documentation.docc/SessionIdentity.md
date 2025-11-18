@@ -228,7 +228,7 @@ All session data is encrypted using the provided symmetric key:
 
 ```swift
 // Data is encrypted before storage
-let data = try BSONEncoder().encodeData(props)
+let data = try BinaryEncoder().encode(props)
 guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
     throw CryptoError.encryptionFailed
 }
