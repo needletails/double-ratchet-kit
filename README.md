@@ -3,8 +3,24 @@
 A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X3DH (PQXDH)** integration, providing asynchronous forward secrecy and post-compromise security for secure messaging applications.
 
 [![Swift](https://img.shields.io/badge/Swift-6.1+-orange.svg)](https://swift.org)
-[![Platform](https://img.shields.io/badge/Platform-macOS%2015%2B%20%7C%20iOS%2018%2B-blue.svg)](https://developer.apple.com)
+[![Platform](https://img.shields.io/badge/Platform-iOS%2018%2B%20%7C%20macOS%2015%2B%20%7C%20Linux%20%7C%20Android-blue.svg)](https://developer.apple.com)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/needletails/double-ratchet-kit/releases)
+
+## 🎉 Version 2.0.0
+
+DoubleRatchetKit 2.0.0 is a major release with significant API improvements, enhanced documentation, and better error handling.
+
+### What's New
+
+- **✨ Enhanced API Design**: Session-explicit APIs with `sessionId` parameters for multi-session support
+- **🔧 Improved Error Handling**: Comprehensive error types with detailed documentation
+- **📚 Complete Documentation**: Full DocC documentation with examples and best practices
+- **🔐 Advanced Key Derivation**: New `deriveMessageKey` and `deriveReceivedMessageKey` methods for external encryption workflows
+- **⚙️ Configuration Access**: `RatchetConfiguration` fields are now public for inspection
+- **🛡️ OTK Consistency**: Optional strict one-time key validation with `enforceOTKConsistency`
+- **🔄 Alternative Initialization**: New `recipientInitialization` overload for external key derivation workflows
+- **📖 Lifecycle Documentation**: Clear documentation on initialization semantics and state management
 
 ## 🌟 Features
 
@@ -15,12 +31,16 @@ A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X
 - **📦 Header Encryption**: Protects metadata against traffic analysis
 - **⏱️ Out-of-Order Support**: Handles skipped messages with key caching
 - **🎯 Concurrency Safe**: Built with Swift actors for thread safety
-- **📱 Modern Swift**: Requires Swift 6.1+ and supports macOS 15+ and iOS 18+
+- **📱 Cross-Platform**: Supports macOS 15+, iOS 18+, Android, and Linux
 
 ## 📋 Requirements
 
 - **Swift**: 6.1 or later
-- **Platforms**: macOS 15.0+, iOS 18.0+
+- **Platforms**: 
+  - macOS 15.0+
+  - iOS 18.0+
+  - Android (via Swift for Android)
+  - Linux (Ubuntu 20.04+, or other distributions with Swift 6.1+)
 - **Dependencies**: 
   - `swift-crypto` (3.12.3+)
   - `needletail-crypto` (1.1.1+)
@@ -154,6 +174,73 @@ try await ratchetManager.shutdown()
 
 ## 🔧 Advanced Usage
 
+### Custom Configuration
+
+```swift
+// Create custom ratchet configuration
+let customConfig = RatchetConfiguration(
+    messageKeyData: Data([0x00]),
+    chainKeyData: Data([0x01]),
+    rootKeyData: Data([0x02, 0x03]),
+    associatedData: "MyApp".data(using: .ascii)!,
+    maxSkippedMessageKeys: 1000  // Reduce for memory-constrained environments
+)
+
+let ratchetManager = RatchetStateManager<SHA256>(
+    executor: executor,
+    logger: logger,
+    ratchetConfiguration: customConfig
+)
+
+// Inspect configuration
+print("Max skipped keys: \(customConfig.maxSkippedMessageKeys)")
+print("Associated data: \(customConfig.associatedData)")
+```
+
+### External Key Derivation
+
+For advanced use cases where you need to handle encryption/decryption externally:
+
+```swift
+// Derive message key for external encryption (sending)
+let messageKey = try await ratchetManager.deriveMessageKey(sessionId: sessionId)
+let encryptedData = try customEncrypt(plaintext, key: messageKey)
+
+// Derive message key for external decryption (receiving)
+let messageKey = try await ratchetManager.deriveReceivedMessageKey(
+    sessionId: sessionId,
+    cipherText: ciphertext
+)
+let plaintext = try customDecrypt(encryptedData, key: messageKey)
+```
+
+### Alternative Recipient Initialization
+
+For external key derivation workflows:
+
+```swift
+// Initialize receiver with keys and ciphertext (without full message)
+try await ratchetManager.recipientInitialization(
+    sessionIdentity: sessionIdentity,
+    sessionSymmetricKey: sessionKey,
+    localKeys: localKeys,
+    remoteKeys: remoteKeys,
+    ciphertext: mlKEMCiphertext
+)
+```
+
+### OTK Consistency Enforcement
+
+Enable strict one-time key validation:
+
+```swift
+// Enable strict validation in production
+await ratchetManager.setEnforceOTKConsistency(true)
+
+// This will fail fast if OTK is missing when header signals it
+try await ratchetManager.ratchetDecrypt(message, sessionId: sessionId)
+```
+
 ### Session Identity Delegate
 
 ```swift
@@ -262,28 +349,34 @@ For detailed API documentation, see the [API Reference](https://github.com/needl
 
 ## 🧭 2.0.0 Migration Guide
 
-Version 2.0.0 introduces session‑explicit APIs and a header‑driven receive initialization. These are source‑breaking changes.
+Version 2.0.0 introduces session‑explicit APIs and a header‑driven receive initialization. These are **source‑breaking changes** that require code updates.
 
-### What changed
+### ⚠️ Breaking Changes
 
-- Receiving init is header‑based:
-  - 1.x: `recipientInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
-  - 2.0: `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)`
-- Encrypt/Decrypt require a `sessionId`:
-  - 1.x: `ratchetEncrypt(plainText:)`, `ratchetDecrypt(_:)`
-  - 2.0: `ratchetEncrypt(plainText:sessionId:)`, `ratchetDecrypt(_:sessionId:)`
+1. **Receiving initialization is now header-based:**
+   - **1.x**: `recipientInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
+   - **2.0**: `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)`
 
-### Why
+2. **Encrypt/Decrypt require explicit `sessionId`:**
+   - **1.x**: `ratchetEncrypt(plainText:)`, `ratchetDecrypt(_:)`
+   - **2.0**: `ratchetEncrypt(plainText:sessionId:)`, `ratchetDecrypt(_:sessionId:)`
 
-- The receiver must bind state to the actual first header it sees (supports out‑of‑order and key rotation correctly).
-- Explicit `sessionId` avoids ambiguity when multiple sessions are active.
+3. **Error handling updates:**
+   - New error: `RatchetError.missingConfiguration` when `sessionId` is unknown
+   - Enhanced error documentation and types
 
-### How to migrate
+### 🎯 Why These Changes?
 
-1) Replace receiving initialization to use the first message header:
+- **Header-based initialization**: The receiver must bind state to the actual first header it sees, supporting out‑of‑order delivery and key rotation correctly
+- **Explicit `sessionId`**: Avoids ambiguity when multiple sessions are active and enables proper session management
+- **Better error handling**: More specific errors help diagnose issues faster
+
+### 📝 Migration Steps
+
+#### Step 1: Update Receiving Initialization
 
 ```swift
-// Before (1.x)
+// ❌ Before (1.x)
 try await bobManager.recipientInitialization(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
@@ -291,36 +384,82 @@ try await bobManager.recipientInitialization(
     localKeys: bobLocalKeys
 )
 
-// After (2.0)
+// ✅ After (2.0) - Standard approach
+// First, receive the initial message from Alice
+let firstMessage = // ... receive from network
+
 try await bobManager.recipientInitialization(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
-    header: firstMessageFromAlice.header,
+    header: firstMessage.header,  // Use the actual header
     localKeys: bobLocalKeys
+)
+
+// ✅ Alternative (2.0) - For external key derivation
+try await bobManager.recipientInitialization(
+    sessionIdentity: bobSessionIdentity,
+    sessionSymmetricKey: sessionKey,
+    localKeys: bobLocalKeys,
+    remoteKeys: bobRemoteKeysFromAlice,
+    ciphertext: mlKEMCiphertext
 )
 ```
 
-2) Pass `sessionId` to encrypt/decrypt:
+#### Step 2: Add `sessionId` to Encrypt/Decrypt
 
 ```swift
-// Before (1.x)
+// ❌ Before (1.x)
 let msg = try await aliceManager.ratchetEncrypt(plainText: data)
 let pt  = try await bobManager.ratchetDecrypt(msg)
 
-// After (2.0)
-let msg = try await aliceManager.ratchetEncrypt(plainText: data, sessionId: bobSessionIdentity.id)
-let pt  = try await bobManager.ratchetDecrypt(msg, sessionId: aliceSessionIdentity.id)
+// ✅ After (2.0)
+let msg = try await aliceManager.ratchetEncrypt(
+    plainText: data,
+    sessionId: bobSessionIdentity.id  // Explicit session ID
+)
+let pt  = try await bobManager.ratchetDecrypt(
+    msg,
+    sessionId: aliceSessionIdentity.id  // Explicit session ID
+)
 ```
 
-3) Review error handling
+#### Step 3: Update Error Handling
 
-- You may now encounter `RatchetError.missingConfiguration` if a `sessionId` is unknown.
-- Decryption failures for corrupted payloads can surface as `CryptoKitError`.
+```swift
+// ✅ Enhanced error handling in 2.0
+do {
+    let message = try await ratchetManager.ratchetEncrypt(
+        plainText: data,
+        sessionId: sessionId
+    )
+} catch RatchetError.missingConfiguration {
+    // New error: Session not found
+    // Ensure session is initialized first
+} catch RatchetError.stateUninitialized {
+    // Session exists but not initialized
+} catch RatchetError.encryptionFailed {
+    // Encryption operation failed
+} catch {
+    // Other errors
+}
+```
 
-### Notes
+### ✨ New Features in 2.0.0
 
-- No changes are required to `senderInitialization` signatures.
-- If you manage multiple sessions, ensure you route the correct `sessionId` consistently.
+- **Advanced Key Derivation**: `deriveMessageKey` and `deriveReceivedMessageKey` for external encryption workflows
+- **Alternative Initialization**: New `recipientInitialization` overload for external key derivation
+- **OTK Consistency**: `setEnforceOTKConsistency(_:)` for strict one-time key validation
+- **Configuration Access**: `RatchetConfiguration` fields are now public for inspection
+- **Enhanced Logging**: `setLogLevel(_:)` for adjustable verbosity
+- **Better Documentation**: Complete DocC documentation with examples
+
+### 📌 Migration Notes
+
+- ✅ No changes required to `senderInitialization` signatures
+- ✅ If managing multiple sessions, ensure correct `sessionId` routing
+- ✅ Review error handling to catch new `missingConfiguration` error
+- ✅ Consider using new advanced APIs for custom encryption workflows
+- ✅ Update delegate implementations if using one-time key management
 
 ## 🧪 Testing
 
@@ -337,33 +476,90 @@ swift test --verbose
 ### Main Classes
 
 #### `RatchetStateManager<Hash>`
-- `senderInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
-- `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)`
-- `ratchetEncrypt(plainText:sessionId:)`
-- `ratchetDecrypt(_:sessionId:)`
-- `shutdown()`
+
+**Initialization:**
+- `init(executor:logger:ratchetConfiguration:)` - Create manager with optional custom configuration
+
+**Session Management:**
+- `senderInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)` - Initialize sending session
+- `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)` - Initialize receiving session (standard)
+- `recipientInitialization(sessionIdentity:sessionSymmetricKey:localKeys:remoteKeys:ciphertext:)` - Initialize receiving session (advanced)
+
+**Message Operations:**
+- `ratchetEncrypt(plainText:sessionId:)` - Encrypt message
+- `ratchetDecrypt(_:sessionId:)` - Decrypt message
+
+**Advanced Key Derivation:**
+- `deriveMessageKey(sessionId:)` - Derive key for external encryption
+- `deriveReceivedMessageKey(sessionId:cipherText:)` - Derive key for external decryption
+
+**Configuration:**
+- `setDelegate(_:)` - Set session identity delegate
+- `setEnforceOTKConsistency(_:)` - Enable/disable strict OTK validation
+- `setLogLevel(_:)` - Set logging verbosity
+- `shutdown()` - Clean up and persist state
+
+**Properties:**
+- `sessionConfigurations: [UUID: SessionConfiguration]` - Read-only access to active sessions
+- `unownedExecutor: UnownedSerialExecutor` - Access to actor's executor
 
 #### `SessionIdentity`
-- `init(id:props:symmetricKey:)`
-- `props(symmetricKey:)`
-- `updateIdentityProps(symmetricKey:props:)`
+- `init(id:props:symmetricKey:)` - Create with properties
+- `init(id:data:)` - Create from encrypted data
+- `props(symmetricKey:)` - Get decrypted properties
+- `decryptProps(symmetricKey:)` - Decrypt properties (throws)
+- `updateIdentityProps(symmetricKey:props:)` - Update properties
 
 #### `RatchetMessage`
-- `header`: Encrypted metadata
-- `encryptedData`: Encrypted message content
+- `header: EncryptedHeader` - Encrypted metadata
+- `encryptedData: Data` - Encrypted message content
+
+#### `RatchetConfiguration`
+- `messageKeyData: Data` - Data for message key derivation
+- `chainKeyData: Data` - Data for chain key derivation
+- `rootKeyData: Data` - Data for root key derivation
+- `associatedData: Data` - Associated data for messages
+- `maxSkippedMessageKeys: Int` - Maximum skipped keys to retain
 
 ### Error Handling
 
 ```swift
 do {
-    let message = try await ratchetManager.ratchetEncrypt(plainText: data)
+    let message = try await ratchetManager.ratchetEncrypt(
+        plainText: data,
+        sessionId: sessionId
+    )
+} catch RatchetError.missingConfiguration {
+    // Session not found - check session ID
 } catch RatchetError.stateUninitialized {
-    // Handle uninitialized state
+    // Session not initialized - call initialization methods
 } catch RatchetError.encryptionFailed {
-    // Handle encryption failure
+    // Encryption operation failed
+} catch RatchetError.missingOneTimeKey {
+    // One-time key missing (if OTK consistency is enforced)
+} catch RatchetError.decryptionFailed {
+    // Decryption operation failed
+} catch RatchetError.headerDecryptFailed {
+    // Header decryption failed
+} catch RatchetError.expiredKey {
+    // Message uses an expired key
+} catch RatchetError.maxSkippedHeadersExceeded {
+    // Too many messages were skipped
+} catch RatchetError.skippedKeysDrained {
+    // Skipped message keys have been exhausted
 } catch {
     // Handle other errors
 }
+```
+
+### Logging
+
+```swift
+// Set log level for debugging
+await ratchetManager.setLogLevel(.debug)
+
+// Available levels: .trace, .debug, .info, .warning, .error
+// Default is .trace for maximum verbosity
 ```
 
 ## 🤝 Contributing

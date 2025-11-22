@@ -256,11 +256,16 @@ public struct MessageHeader: Sendable, Codable {
 
 /// Configuration for the Double Ratchet protocol, defining parameters for key management.
 public struct RatchetConfiguration: Sendable, Codable {
-    let messageKeyData: Data // Data used to derive message keys.
-    let chainKeyData: Data // Data used to derive chain keys.
-    let rootKeyData: Data // Data used to derive the root key.
-    let associatedData: Data // Additional data associated with the messages.
-    let maxSkippedMessageKeys: Int // Maximum number of skipped message keys to retain.
+    /// Data used to derive message keys.
+    public let messageKeyData: Data
+    /// Data used to derive chain keys.
+    public let chainKeyData: Data
+    /// Data used to derive the root key.
+    public let rootKeyData: Data
+    /// Additional data associated with the messages.
+    public let associatedData: Data
+    /// Maximum number of skipped message keys to retain.
+    public let maxSkippedMessageKeys: Int
 
     private enum CodingKeys: String, CodingKey, Sendable {
         case messageKeyData = "a"
@@ -762,8 +767,8 @@ public enum RatchetError: Error {
     case headerEncryptionFailed // Header encryption failed.
     case headerDecryptFailed // Header decryption failed.
     case missingNextHeaderKey
-    case missingOneTimeKey // Next header key is missing.
-    case delegateNotSet // Next header key is missing.
+    case missingOneTimeKey // One-time prekey is missing or unavailable.
+    case delegateNotSet // Session identity delegate is not set.
     case receivingHeaderKeyIsNil
     case maxSkippedHeadersExceeded
     case rootKeyIsNil

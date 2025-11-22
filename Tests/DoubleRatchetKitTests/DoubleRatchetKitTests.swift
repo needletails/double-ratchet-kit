@@ -14,7 +14,6 @@
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
 import Crypto
-import AsyncAlgorithms
 import Foundation
 import NeedleTailCrypto
 import NeedleTailLogger

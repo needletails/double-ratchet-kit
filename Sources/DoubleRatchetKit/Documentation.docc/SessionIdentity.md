@@ -193,12 +193,12 @@ Key wrappers automatically validate key sizes:
 ```swift
 // Curve25519 keys must be 32 bytes
 guard rawRepresentation.count == 32 else {
-    throw KyberError.invalidKeySize
+    throw KeyErrors.invalidKeySize
 }
 
 // MLKEM1024 public keys must be the correct size
 guard rawRepresentation.count == Int(MLKEM1024PublicKeyLength) else {
-    throw KyberError.invalidKeySize
+    throw KeyErrors.invalidKeySize
 }
 ```
 

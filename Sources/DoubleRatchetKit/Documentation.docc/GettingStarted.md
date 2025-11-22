@@ -111,21 +111,41 @@ try await ratchetManager.senderInitialization(
 
 ### Recipient Initialization (Bob)
 
+**Using Encrypted Header (Standard):**
+
 ```swift
-// Bob prepares to receive messages from Alice
+// Bob receives the first message from Alice with an encrypted header
+let encryptedHeader = // ... received from Alice
 try await ratchetManager.recipientInitialization(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
-    remoteKeys: RemoteKeys(
-        longTerm: aliceLongTermPublicKey,
-        oneTime: aliceOneTimePublicKey,
-        mlKEM: aliceMLKEMPublicKey
-    ),
+    header: encryptedHeader,
     localKeys: LocalKeys(
         longTerm: bobLongTermPrivateKey,
         oneTime: bobOneTimePrivateKey,
         mlKEM: bobMLKEMPrivateKey
     )
+)
+```
+
+**Alternative Initialization (Advanced):**
+
+```swift
+// For external key derivation workflows
+try await ratchetManager.recipientInitialization(
+    sessionIdentity: bobSessionIdentity,
+    sessionSymmetricKey: sessionKey,
+    localKeys: LocalKeys(
+        longTerm: bobLongTermPrivateKey,
+        oneTime: bobOneTimePrivateKey,
+        mlKEM: bobMLKEMPrivateKey
+    ),
+    remoteKeys: RemoteKeys(
+        longTerm: aliceLongTermPublicKey,
+        oneTime: aliceOneTimePublicKey,
+        mlKEM: aliceMLKEMPublicKey
+    ),
+    ciphertext: mlKEMCiphertext
 )
 ```
 
@@ -136,14 +156,20 @@ try await ratchetManager.recipientInitialization(
 ```swift
 // Alice encrypts a message
 let plaintext = "Hello, Bob!".data(using: .utf8)!
-let encryptedMessage = try await ratchetManager.ratchetEncrypt(plainText: plaintext)
+let encryptedMessage = try await ratchetManager.ratchetEncrypt(
+    plainText: plaintext,
+    sessionId: aliceSessionIdentity.id
+)
 ```
 
 ### Decrypting a Message
 
 ```swift
 // Bob decrypts the message
-let decryptedMessage = try await ratchetManager.ratchetDecrypt(encryptedMessage)
+let decryptedMessage = try await ratchetManager.ratchetDecrypt(
+    encryptedMessage,
+    sessionId: bobSessionIdentity.id
+)
 let message = String(data: decryptedMessage, encoding: .utf8)!
 print("Received: \(message)") // "Hello, Bob!"
 ```
@@ -224,13 +250,22 @@ try await ratchetManager.shutdown()
 
 ```swift
 do {
-    let message = try await ratchetManager.ratchetEncrypt(plainText: data)
+    let message = try await ratchetManager.ratchetEncrypt(
+        plainText: data,
+        sessionId: sessionId
+    )
+} catch RatchetError.missingConfiguration {
+    // Handle missing session
+    print("Session not found")
 } catch RatchetError.stateUninitialized {
     // Handle uninitialized state
     print("Session not initialized")
 } catch RatchetError.encryptionFailed {
     // Handle encryption failure
     print("Encryption failed")
+} catch RatchetError.missingOneTimeKey {
+    // Handle missing one-time key (if OTK consistency is enforced)
+    print("One-time key missing")
 } catch {
     // Handle other errors
     print("Unexpected error: \(error)")

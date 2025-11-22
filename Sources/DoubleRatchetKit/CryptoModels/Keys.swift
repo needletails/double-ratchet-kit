@@ -15,7 +15,9 @@
 //
 import Foundation
 
-enum KeyErrors: Error {
+/// Errors that can occur during key validation and initialization.
+public enum KeyErrors: Error {
+    /// The key size is invalid for the expected key type.
     case invalidKeySize
 }
 
@@ -34,9 +36,9 @@ public struct MLKEMPrivateKey: Codable, Sendable, Equatable {
     /// - Parameters
     ///  id: An Identifier for the object
     ///  rawRepresentation: The raw MLKEM private key bytes.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
-        let key = rawRepresentation.decodeMLKem1024()
+        let key = try rawRepresentation.decodeMLKem1024()
         guard key.seedRepresentation.count == Int(64) else {
             throw KeyErrors.invalidKeySize
         }
@@ -63,7 +65,7 @@ public struct MLKEMPublicKey: Codable, Sendable, Equatable, Hashable {
     /// - Parameters
     ///  id: An Identifier for the object
     ///  rawRepresentation: The raw MLKEM public key bytes.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == Int(1568) else {
             throw KeyErrors.invalidKeySize
@@ -88,7 +90,7 @@ public struct CurvePrivateKey: Codable, Sendable, Equatable {
     /// - Parameters:
     ///   - id: An optional UUID to tag this key. A new UUID is generated if not provided.
     ///   - rawRepresentation: The raw 32-byte Curve private key data.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is not 32 bytes.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is not 32 bytes.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == 32 else {
             throw KeyErrors.invalidKeySize
@@ -111,7 +113,7 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
     /// - Parameters:
     ///   - id: An optional UUID to tag this key. A new UUID is generated if not provided.
     ///   - rawRepresentation: The raw 32-byte Curve public key data.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is not 32 bytes.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is not 32 bytes.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == 32 else {
             throw KeyErrors.invalidKeySize

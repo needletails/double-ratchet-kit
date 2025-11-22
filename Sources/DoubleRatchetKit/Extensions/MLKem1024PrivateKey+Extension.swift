@@ -20,22 +20,14 @@ import BinaryCodable
 
 public extension MLKEM1024.PrivateKey {
     
-    func encode() -> Data {
-        do {
-            return try BinaryEncoder().encode(self)
-        } catch {
-            fatalError("MLKem1024PrivateKey encoding failed: \(error)")
-        }
+    func encode() throws -> Data {
+        return try BinaryEncoder().encode(self)
     }
 }
 
 public extension Data {
-    func decodeMLKem1024() -> MLKEM1024.PrivateKey {
+    func decodeMLKem1024() throws -> MLKEM1024.PrivateKey {
         let decoder = BinaryDecoder()
-        do {
-            return try decoder.decode(MLKEM1024.PrivateKey.self, from: self)
-        } catch {
-            fatalError("MLKem1024PrivateKey decoding failed for both MLKEM1024")
-        }
+        return try decoder.decode(MLKEM1024.PrivateKey.self, from: self)
     }
 }

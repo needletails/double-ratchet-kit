@@ -35,7 +35,7 @@ import NeedleTailLogger
  
  2. **Skipped Message Key Management**
  To support out-of-order message receipt, skipped message keys are temporarily stored. To mitigate denial-of-service (DoS) and compromise risks:
- - A cap is placed on the number of stored skipped keys per session (e.g., 1000).
+ - A cap is placed on the number of stored skipped keys per session (e.g., 100).
  - Keys are purged after timeouts or event-based thresholds (e.g., number of received messages).
  
  3. **Deferred DH Ratchet Key Generation**
@@ -157,14 +157,30 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         chainKeyData: Data([0x01]), // Data for chain key derivation.
         rootKeyData: Data([0x02, 0x03]), // Data for root key derivation.
         associatedData: "DoubleRatchetKit".data(using: .ascii)!, // Associated data for messages.
-        maxSkippedMessageKeys: 1500)
+        maxSkippedMessageKeys: 100)
     
     // MARK: - Private Properties
     
     /// The executor responsible for serialized task execution within the actor.
     private let executor: any SerialExecutor
     
-    /// Returns the executor used for non-isolated tasks.
+    /// The executor used for non-isolated tasks.
+    ///
+    /// This property provides access to the underlying `SerialExecutor` for use
+    /// in non-isolated contexts where you need to coordinate with the actor's executor.
+    ///
+    /// ## Use Cases
+    /// - Creating tasks that need to execute on the actor's executor
+    /// - Coordinating with other actors that use the same executor
+    /// - Implementing custom concurrency patterns
+    ///
+    /// ## Example
+    /// ```swift
+    /// let executor = manager.unownedExecutor
+    /// Task { @MainActor in
+    ///     // Use executor for coordination
+    /// }
+    /// ```
     public nonisolated var unownedExecutor: UnownedSerialExecutor {
         executor.asUnownedSerialExecutor()
     }
@@ -174,22 +190,99 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     private var logger: NeedleTailLogger
     /// Tracks whether `shutdown()` has been called.
     private nonisolated(unsafe) var didShutdown = false
-    /// Holds all known session configurations keyed by session identity.
+    /// All known session configurations keyed by session identity UUID.
+    ///
+    /// This dictionary contains all active session configurations managed by this
+    /// ratchet state manager. Each configuration includes the session identity,
+    /// symmetric key, and current ratchet state.
+    ///
+    /// ## Access
+    /// This property is read-only. Session configurations are managed internally
+    /// through initialization and message processing methods.
+    ///
+    /// ## Use Cases
+    /// - Inspecting active sessions
+    /// - Debugging session state
+    /// - Monitoring session count
+    ///
+    /// - Note: Modifying this dictionary directly is not supported and may cause
+    ///   undefined behavior. Use the public API methods to manage sessions.
     public private(set) var sessionConfigurations: [UUID: SessionConfiguration] = [:]
     
+    /// The delegate for session identity management.
+    ///
+    /// The delegate handles persistence of session identities and one-time key management.
+    /// Set this property using `setDelegate(_:)` method.
+    ///
+    /// - SeeAlso: `SessionIdentityDelegate` protocol
+    /// - SeeAlso: `setDelegate(_:)` method
     public weak var delegate: SessionIdentityDelegate?
+    
+    /// Sets the delegate for session identity management.
+    ///
+    /// The delegate is responsible for:
+    /// - Persisting session identities to storage via `updateSessionIdentity(_:)`
+    /// - Fetching one-time private keys by ID via `fetchOneTimePrivateKey(_:)`
+    /// - Managing one-time key rotation via `updateOneTimeKey(remove:)`
+    ///
+    /// - Parameter delegate: An object conforming to `SessionIdentityDelegate`.
+    ///   Pass `nil` to remove the current delegate.
+    ///
+    /// - Important: The delegate should be set before calling initialization methods
+    ///   if you want session state to be persisted automatically. Without a delegate,
+    ///   session state will only exist in memory and will be lost when the manager is deinitialized.
+    ///
+    /// ## Example
+    /// ```swift
+    /// let manager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+    /// manager.setDelegate(MySessionDelegate())
+    ///
+    /// // Now session state will be persisted automatically
+    /// try await manager.senderInitialization(...)
+    /// ```
+    ///
+    /// - SeeAlso: `SessionIdentityDelegate` protocol for implementation details.
     public func setDelegate(_ delegate: SessionIdentityDelegate) {
         self.delegate = delegate
     }
     
     /// When enabled, enforce that one-time prekeys (OTK) are used exactly as indicated by the
-    /// incoming header during the initial handshake. If the header signals an OTK but the
-    /// corresponding local private OTK cannot be loaded, the decrypt will fail fast with
-    /// `RatchetError.missingOneTimeKey`. When the header omits an OTK, decryption proceeds
-    /// without using any local OTK.
+    /// incoming header during the initial handshake.
+    ///
+    /// ## Behavior
+    /// - **When enabled**: If the header signals an OTK but the corresponding local private OTK
+    ///   cannot be loaded (either from state or via delegate), decryption will fail fast with
+    ///   `RatchetError.missingOneTimeKey` during initialization or key derivation.
+    /// - **When disabled**: Decryption proceeds even if the OTK is missing, potentially failing
+    ///   later during the actual decryption operation.
+    ///
+    /// ## When to Enable
+    /// Enable this in production environments where strict key validation is required to prevent
+    /// potential key reuse attacks. This adds a small performance overhead due to additional validation.
+    ///
+    /// ## Security Implications
+    /// - **Enabled**: Provides fail-fast validation, preventing wasted computation on invalid messages
+    /// - **Disabled**: More permissive, but may allow processing of messages that will ultimately fail
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Enable strict validation in production
+    /// await manager.setEnforceOTKConsistency(true)
+    ///
+    /// // Disable for testing or when OTK availability is uncertain
+    /// await manager.setEnforceOTKConsistency(false)
+    /// ```
+    ///
+    /// - Note: This should be enabled when using a delegate that manages one-time keys to ensure
+    ///   keys are properly fetched and validated before use. The delegate's `fetchOneTimePrivateKey`
+    ///   method will be called to attempt key retrieval before failing.
     public var enforceOTKConsistency: Bool = false
 
     /// Enable or disable strict one-time-prekey (OTK) consistency enforcement.
+    ///
+    /// - Parameter value: `true` to enable strict validation, `false` to disable.
+    ///
+    /// - SeeAlso: `enforceOTKConsistency` for detailed documentation.
     public func setEnforceOTKConsistency(_ value: Bool) {
         self.enforceOTKConsistency = value
     }
@@ -200,9 +293,58 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     // MARK: - Initialization
     
     /// Initializes the ratchet state manager.
+    ///
+    /// Creates a new instance of the ratchet state manager with the specified executor,
+    /// logger, and optional custom configuration.
+    ///
     /// - Parameters:
-    ///  - executor: A `SerialExecutor` used to coordinate concurrent operations within the actor.
-    ///  - logger: The Logger
+    ///   - executor: A `SerialExecutor` used to coordinate concurrent operations within the actor.
+    ///     This executor serializes all actor-isolated operations to ensure thread safety.
+    ///   - logger: The logger instance for debugging and monitoring. Defaults to a new `NeedleTailLogger`.
+    ///     The initial log level is set to `.trace` for maximum verbosity.
+    ///   - ratchetConfiguration: Optional custom configuration for the Double Ratchet protocol.
+    ///     If `nil`, uses the default configuration with:
+    ///     - `maxSkippedMessageKeys: 100`
+    ///     - Standard key derivation data (`messageKeyData`, `chainKeyData`, `rootKeyData`)
+    ///     - Default associated data: "DoubleRatchetKit"
+    ///
+    /// ## Default Configuration
+    /// The default configuration is suitable for most use cases and provides:
+    /// - Support for up to 100 skipped messages (out-of-order delivery)
+    /// - Standard key derivation parameters
+    /// - Appropriate associated data for message authentication
+    ///
+    /// ## Custom Configuration
+    /// Use a custom `ratchetConfiguration` only if you need to:
+    /// - Modify protocol parameters for compatibility with other implementations
+    /// - Adjust security parameters (e.g., reduce `maxSkippedMessageKeys` for memory constraints)
+    /// - Change key derivation data for specific security requirements
+    ///
+    /// - Note: Changing the configuration may affect compatibility with other Double Ratchet
+    ///   implementations. Use the default configuration unless you have specific requirements.
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Default configuration
+    /// let manager = RatchetStateManager<SHA256>(
+    ///     executor: executor,
+    ///     logger: logger
+    /// )
+    ///
+    /// // Custom configuration
+    /// let customConfig = RatchetConfiguration(
+    ///     messageKeyData: Data([0x00]),
+    ///     chainKeyData: Data([0x01]),
+    ///     rootKeyData: Data([0x02, 0x03]),
+    ///     associatedData: "MyApp".data(using: .ascii)!,
+    ///     maxSkippedMessageKeys: 100
+    /// )
+    /// let manager = RatchetStateManager<SHA256>(
+    ///     executor: executor,
+    ///     logger: logger,
+    ///     ratchetConfiguration: customConfig
+    /// )
+    /// ```
     public init(
         executor: any SerialExecutor,
         logger: NeedleTailLogger = NeedleTailLogger(),
@@ -220,11 +362,71 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         precondition(didShutdown, "⛔️ RatchetStateManager was deinitialized without calling shutdown(). ")
     }
     
+    /// Sets the logging level for the ratchet state manager.
+    ///
+    /// Adjusts the verbosity of logging output from the ratchet state manager.
+    /// The default log level is `.trace` for maximum verbosity during development.
+    ///
+    /// - Parameter level: The desired log level. Available levels (from most to least verbose):
+    ///   - `.trace`: Most verbose, includes all debug information, key derivations, and state transitions
+    ///   - `.debug`: Debug information including initialization, encryption/decryption operations
+    ///   - `.info`: Informational messages about session management and key operations
+    ///   - `.warning`: Warning messages about potential issues (e.g., missing keys, state inconsistencies)
+    ///   - `.error`: Only error messages for failures and exceptions
+    ///
+    /// ## Performance Considerations
+    /// - **Development**: Use `.trace` or `.debug` for detailed debugging
+    /// - **Production**: Use `.info` or `.warning` to reduce logging overhead
+    /// - **Minimal Logging**: Use `.error` for production environments with strict performance requirements
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Development: maximum verbosity
+    /// await manager.setLogLevel(.trace)
+    ///
+    /// // Production: minimal logging
+    /// await manager.setLogLevel(.warning)
+    ///
+    /// // Errors only
+    /// await manager.setLogLevel(.error)
+    /// ```
+    ///
+    /// - Note: The log level affects all logging operations within the ratchet state manager.
+    ///   Changing the log level does not affect logs from other components.
     public func setLogLevel(_ level: Level) async {
-        logger.setLogLevel(.trace)
+        logger.setLogLevel(level)
     }
     
-    /// This must be called when the manager is done being used
+    /// Shuts down the ratchet state manager and persists all session states.
+    ///
+    /// ## Lifecycle
+    /// This method must be called before the manager is deinitialized. It:
+    /// - Persists all session states to storage via the delegate
+    /// - Merges in-memory `alreadyDecryptedMessageNumbers` into each session's state
+    /// - Clears in-memory session configurations
+    /// - Marks the manager as shut down
+    ///
+    /// ## When to Call
+    /// - Before the manager goes out of scope
+    /// - Before application termination
+    /// - When switching to a new manager instance
+    /// - In `defer` blocks to ensure cleanup even if errors occur
+    ///
+    /// ## Important
+    /// - The manager cannot be used after `shutdown()` is called
+    /// - If `shutdown()` is not called, the `deinit` will crash with a precondition failure
+    /// - This method is safe to call multiple times (idempotent after first call)
+    ///
+    /// ## Example
+    /// ```swift
+    /// let manager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+    /// defer {
+    ///     try? await manager.shutdown()
+    /// }
+    /// // ... use manager
+    /// ```
+    ///
+    /// - Throws: An error if session state persistence fails through the delegate.
     public func shutdown() async throws {
         for var (_, configuration) in sessionConfigurations {
             if var state = configuration.state {
@@ -299,9 +501,20 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     /// Represents session identity and associated symmetric key for key derivation.
+    ///
+    /// This is an internal implementation detail exposed for inspection only.
+    /// The fields are intentionally internal to prevent direct mutation, which could
+    /// break the internal state management of the ratchet state manager.
+    ///
+    /// - Note: While this struct is public (to allow type inspection), its fields
+    ///   are internal. Use the public API methods to manage sessions rather than
+    ///   modifying configurations directly.
     public struct SessionConfiguration: Sendable {
+        /// The session identity for this configuration.
         var sessionIdentity: SessionIdentity
+        /// The symmetric key used for session encryption/decryption.
         var sessionSymmetricKey: SymmetricKey
+        /// The current ratchet state, if initialized.
         var state: RatchetState?
     }
     
@@ -422,7 +635,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                     changesDetected = false
                 }
                 guard let header = keys.header else {
-                    fatalError("Receiving end must have a header")
+                    throw RatchetError.missingConfiguration
                 }
                 if let state = currentProps.state {
                     changesDetected = checkReceivingKeyChanges(state: state, header: header)
@@ -508,7 +721,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
                     }
                 case .receiving(let keys):
                     guard let header = keys.header else {
-                        fatalError("Receiving end must have a header")
+                        throw RatchetError.missingConfiguration
                     }
                     changesDetected = checkReceivingKeyChanges(state: state, header: header)
                     
@@ -657,7 +870,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
         switch messageType {
         case let .receiving(keys):
             guard let header = keys.header else {
-                fatalError("Receiving end must have a header")
+                throw RatchetError.missingConfiguration
             }
             return RatchetState(
                 remoteLongTermPublicKey: header.remoteLongTermPublicKey,
@@ -695,6 +908,18 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// It loads and validates all necessary cryptographic keys, binds them to the session identity,
     /// and prepares the ratchet state for outbound communication.
     ///
+    /// ## Initialization Semantics
+    /// - **First call**: Initializes a new session with the provided keys.
+    /// - **Subsequent calls**: If called again for the same session:
+    ///   - Updates state if keys have changed (triggers a Diffie-Hellman ratchet step)
+    ///   - Supports key rotation scenarios where keys may change while session is persisted
+    ///   - Completes handshake setup if it was previously incomplete
+    ///
+    /// ## Key Rotation
+    /// If keys change while a session is persisted but not loaded in memory, calling this method
+    /// again with new keys will detect the change and perform a DH ratchet step to establish new
+    /// shared secrets with the updated keys.
+    ///
     /// - Parameters:
     ///   - sessionIdentity: A unique identity used to bind the session cryptographically (e.g. user or device identity).
     ///   - sessionSymmetricKey: A symmetric key used to encrypt metadata or protect session state.
@@ -717,14 +942,30 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
     /// Initializes a receiving session using the initial incoming message and cryptographic identities.
     ///
     /// This method processes the first received message in a new session, establishing shared secrets
-    /// and preparing the ratchet state for continued secure communication. It must be called exactly once
-    /// when handling a new incoming session initialization message.
+    /// and preparing the ratchet state for continued secure communication.
+    ///
+    /// ## Initialization Semantics
+    /// - **First call**: Initializes a new session with the provided header and keys.
+    /// - **Subsequent calls**: If called again for the same session:
+    ///   - Updates state if keys have changed (triggers a Diffie-Hellman ratchet step)
+    ///   - Handles out-of-order message headers by updating state accordingly
+    ///   - Supports key rotation scenarios where keys may change while session is persisted
+    ///
+    /// ## Out-of-Order Message Handling
+    /// This method can be called multiple times with different headers for the same session to handle
+    /// out-of-order message delivery. Each header may contain different keys, and the method will
+    /// detect changes and update the ratchet state accordingly.
     ///
     /// - Parameters:
     ///   - sessionIdentity: A unique identity used to bind the session cryptographically (e.g. user or device identity).
     ///   - sessionSymmetricKey: A symmetric key used to decrypt or authenticate session metadata.
-    ///   - header: The `EncryptedHeader` received
+    ///   - header: The `EncryptedHeader` received from the sender. This header contains the sender's
+    ///     public keys and encrypted metadata needed to establish the session.
+    ///   - localKeys: The recipient's private keys, including long-term, one-time, and MLKEM keys.
     /// - Throws: An error if the message cannot be decrypted or the session cannot be initialized.
+    ///
+    /// - Note: For handling out-of-order messages, you may call this method multiple times with different
+    ///   headers. The method will detect key changes and update the ratchet state as needed.
     public func recipientInitialization(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
@@ -856,7 +1097,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             let localOneTimePublicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localOneTimePrivateKey.rawRepresentation).publicKey.rawRepresentation
             remoteOneTimePublicKey = try RemoteOneTimePublicKey(id: localOneTimePrivateKey.id, localOneTimePublicKey)
         }
-        let localMLKEMPublicKey = state.localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
+        let localMLKEMPublicKey = try state.localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
             .publicKey.rawRepresentation
         let remoteMLKEMPublicKey = try RemoteMLKEMPublicKey(id: state.localMLKEMPrivateKey.id, localMLKEMPublicKey)
         
@@ -1529,17 +1770,17 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable> {
             K_B_ot_data = K_B_ot.bytes
         }
         
-        let localMLKEMPK = localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
+        let localMLKEMPK = try localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
         let decapsulatedBytes = try localMLKEMPK.decapsulate(receivedCiphertext).bytes
         // Use local private one-time public key as salt if available, else fallback to long-term public key
         let salt: Data
         if let localOTKey = localOneTimePrivateKey {
             let curveKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localOTKey.rawRepresentation)
-            let mlKEMKey = localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
+            let mlKEMKey = try localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
             salt = curveKey.publicKey.rawRepresentation + mlKEMKey.publicKey.rawRepresentation
         } else {
             let curveKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localLongTermPrivateKey)
-            let mlKEMKey = localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
+            let mlKEMKey = try localMLKEMPrivateKey.rawRepresentation.decodeMLKem1024()
             salt = curveKey.publicKey.rawRepresentation + mlKEMKey.publicKey.rawRepresentation
         }
         
@@ -1760,6 +2001,50 @@ extension RatchetStateManager {
 
 extension RatchetStateManager {
     
+    /// Initializes a receiving session using keys and ciphertext for external key derivation workflows.
+    ///
+    /// This alternative initialization method is designed for advanced use cases where you need to
+    /// bootstrap a session without calling `ratchetEncrypt` first. It creates a synthetic header
+    /// from the provided keys and ciphertext, allowing you to initialize the receiver's state directly.
+    ///
+    /// ## Use Cases
+    /// - **External Key Derivation**: When you want to derive keys externally without using the full
+    ///   `ratchetEncrypt`/`ratchetDecrypt` flow
+    /// - **Bootstrap from Persisted State**: When you have the MLKEM ciphertext from the sender's
+    ///   persisted state and want to initialize the receiver without a full message
+    /// - **Custom Encryption Workflows**: When you need to handle encryption/decryption outside
+    ///   the SDK but want the SDK to manage ratchet key derivation
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Extract ciphertext from sender's persisted state
+    /// let ciphertext = senderState.messageCiphertext
+    ///
+    /// // Initialize receiver with keys and ciphertext
+    /// try await receiverManager.recipientInitialization(
+    ///     sessionIdentity: receiverSessionIdentity,
+    ///     sessionSymmetricKey: sessionKey,
+    ///     localKeys: receiverLocalKeys,
+    ///     remoteKeys: senderRemoteKeys,
+    ///     ciphertext: ciphertext
+    /// )
+    ///
+    /// // Now use deriveReceivedMessageKey for external encryption
+    /// let messageKey = try await receiverManager.deriveReceivedMessageKey(
+    ///     sessionId: receiverSessionIdentity.id,
+    ///     cipherText: ciphertext
+    /// )
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - sessionIdentity: A unique identity used to bind the session cryptographically.
+    ///   - sessionSymmetricKey: A symmetric key used to decrypt or authenticate session metadata.
+    ///   - localKeys: The recipient's private keys.
+    ///   - remoteKeys: The sender's public keys. The `oneTime` key is optional.
+    ///   - ciphertext: The MLKEM ciphertext from the sender's initial handshake.
+    /// - Throws: An error if the session cannot be initialized.
+    ///
+    /// - SeeAlso: `deriveReceivedMessageKey(sessionId:cipherText:)` for external key derivation workflows.
     public func recipientInitialization(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
@@ -1767,24 +2052,82 @@ extension RatchetStateManager {
         remoteKeys: RemoteKeys,
         ciphertext: Data
     ) async throws {
-        try await loadConfigurations(
-            sessionIdentity: sessionIdentity,
-            sessionSymmetricKey: sessionSymmetricKey,
-            messageType: .receiving(.init(header: .init(
+        // Create a synthetic header for initialization. The initializer with decrypted requires
+        // a non-optional oneTime key, so we need to handle the optional case.
+        var header: EncryptedHeader
+        if let oneTimeKey = remoteKeys.oneTime {
+            header = EncryptedHeader(
                 remoteLongTermPublicKey: remoteKeys.longTerm.rawRepresentation,
-                remoteOneTimePublicKey: remoteKeys.oneTime!,
+                remoteOneTimePublicKey: oneTimeKey,
                 remoteMLKEMPublicKey: remoteKeys.mlKEM,
                 headerCiphertext: Data(),
                 messageCiphertext: ciphertext,
                 encrypted: Data(),
                 oneTimeKeyId: localKeys.oneTime?.id,
                 mlKEMOneTimeKeyId: localKeys.mlKEM.id,
-                decrypted: MessageHeader(previousChainLength: 0, messageNumber: 0)),
-                                          local: localKeys)))
+                decrypted: MessageHeader(previousChainLength: 0, messageNumber: 0))
+        } else {
+            // If oneTime is nil, use the initializer without decrypted and set it manually
+            header = EncryptedHeader(
+                remoteLongTermPublicKey: remoteKeys.longTerm.rawRepresentation,
+                remoteOneTimePublicKey: nil,
+                remoteMLKEMPublicKey: remoteKeys.mlKEM,
+                headerCiphertext: Data(),
+                messageCiphertext: ciphertext,
+                oneTimeKeyId: localKeys.oneTime?.id,
+                mlKEMOneTimeKeyId: localKeys.mlKEM.id,
+                encrypted: Data())
+            header.setDecrypted(MessageHeader(previousChainLength: 0, messageNumber: 0))
+        }
+        
+        try await loadConfigurations(
+            sessionIdentity: sessionIdentity,
+            sessionSymmetricKey: sessionSymmetricKey,
+            messageType: .receiving(.init(header: header, local: localKeys)))
     }
     
-    
-    
+    /// Derives the next message key for sending without performing full message encryption.
+    ///
+    /// This method is designed for advanced use cases where you want to handle encryption externally
+    /// while the SDK manages ratchet key derivation. It derives the next message key, advances the
+    /// sending chain key, and updates the session state.
+    ///
+    /// ## Use Cases
+    /// - **External Encryption**: When you need to use a custom encryption scheme but want the SDK
+    ///   to manage Double Ratchet key derivation
+    /// - **Key Pre-computation**: When you want to derive keys in advance for batch processing
+    /// - **Custom Message Format**: When your message format differs from the standard `RatchetMessage`
+    ///
+    /// ## Side Effects
+    /// This method mutates the session state:
+    /// - Advances the sending chain key
+    /// - Increments the sent message count
+    /// - Marks handshake as finished if it was the first message
+    /// - Persists state through the delegate
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Derive message key for external encryption
+    /// let messageKey = try await manager.deriveMessageKey(sessionId: sessionId)
+    ///
+    /// // Perform custom encryption
+    /// let encryptedData = try customEncrypt(plaintext, key: messageKey)
+    ///
+    /// // Send encrypted data with your own protocol
+    /// ```
+    ///
+    /// - Parameter sessionId: The UUID of the session to derive the key for.
+    /// - Returns: The derived symmetric key for encrypting the next message.
+    /// - Throws:
+    ///   - `RatchetError.missingConfiguration`: If the session is not found.
+    ///   - `RatchetError.stateUninitialized`: If the session state is not initialized.
+    ///   - `RatchetError.sendingKeyIsNil`: If the sending key is missing.
+    ///   - `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing.
+    ///
+    /// - Important: This method advances the ratchet state. Each call derives a new key and
+    ///   increments the message counter. Do not call this method multiple times for the same message.
+    ///
+    /// - SeeAlso: `deriveReceivedMessageKey(sessionId:cipherText:)` for the receiving side equivalent.
     public func deriveMessageKey(sessionId: UUID) async throws -> SymmetricKey {
         
         var configuration = try getCurrentConfiguration(id: sessionId)
@@ -1829,6 +2172,51 @@ extension RatchetStateManager {
         return messageKey
     }
     
+    /// Derives the next message key for receiving without performing full message decryption.
+    ///
+    /// This method is designed for advanced use cases where you want to handle decryption externally
+    /// while the SDK manages ratchet key derivation. It derives the next message key, advances the
+    /// receiving chain key, and updates the session state.
+    ///
+    /// ## Use Cases
+    /// - **External Decryption**: When you need to use a custom decryption scheme but want the SDK
+    ///   to manage Double Ratchet key derivation
+    /// - **Key Pre-computation**: When you want to derive keys in advance for batch processing
+    /// - **Custom Message Format**: When your message format differs from the standard `RatchetMessage`
+    ///
+    /// ## Side Effects
+    /// This method mutates the session state:
+    /// - Advances the receiving chain key
+    /// - Updates root key if this is the first message after handshake
+    /// - Persists state through the delegate
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Derive message key for external decryption
+    /// let messageKey = try await manager.deriveReceivedMessageKey(
+    ///     sessionId: sessionId,
+    ///     cipherText: ciphertext
+    /// )
+    ///
+    /// // Perform custom decryption
+    /// let plaintext = try customDecrypt(encryptedData, key: messageKey)
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - sessionId: The UUID of the session to derive the key for.
+    ///   - cipherText: The MLKEM ciphertext. Used during handshake to derive root key if needed.
+    ///     After handshake, this parameter is not used but required for signature consistency.
+    /// - Returns: The derived symmetric key for decrypting the next message.
+    /// - Throws:
+    ///   - `RatchetError.missingConfiguration`: If the session is not found.
+    ///   - `RatchetError.stateUninitialized`: If the session state is not initialized.
+    ///   - `RatchetError.receivingKeyIsNil`: If the receiving key is missing.
+    ///   - `RatchetError.rootKeyIsNil`: If the root key is missing when needed.
+    ///
+    /// - Important: This method advances the ratchet state. Each call derives a new key. Do not
+    ///   call this method multiple times for the same message.
+    ///
+    /// - SeeAlso: `deriveMessageKey(sessionId:)` for the sending side equivalent.
     public func deriveReceivedMessageKey(sessionId: UUID, cipherText: Data) async throws -> SymmetricKey {
         
         var configuration = try getCurrentConfiguration(id: sessionId)

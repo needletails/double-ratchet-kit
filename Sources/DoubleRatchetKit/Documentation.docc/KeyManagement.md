@@ -31,7 +31,7 @@ let curvePrivateKey = try CurvePrivateKey(
 
 **Validation:**
 - Must be exactly 32 bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Throws `KeyErrors.invalidKeySize` if invalid
 
 #### CurvePublicKey
 
@@ -54,7 +54,7 @@ let curvePublicKey = try CurvePublicKey(
 
 **Validation:**
 - Must be exactly 32 bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Throws `KeyErrors.invalidKeySize` if invalid
 
 ### Post-Quantum Keys (MLKEM1024)
 
@@ -79,7 +79,7 @@ let kyberPrivateKey = try MLKEMPrivateKey(
 
 **Validation:**
 - Must be exactly `MLKEM1024PrivateKeyLength` bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Throws `KeyErrors.invalidKeySize` if invalid
 
 #### MLKEMPublicKey
 
@@ -102,7 +102,7 @@ let kyberPublicKey = try MLKEMPublicKey(
 
 **Validation:**
 - Must be exactly `MLKEM1024PublicKeyLength` bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Throws `KeyErrors.invalidKeySize` if invalid
 
 ## Key Containers
 
@@ -369,12 +369,12 @@ All keys are automatically validated for correct size:
 ```swift
 // Curve25519 keys must be 32 bytes
 guard rawRepresentation.count == 32 else {
-    throw KyberError.invalidKeySize
+    throw KeyErrors.invalidKeySize
 }
 
 // MLKEM1024 keys must be correct size
 guard rawRepresentation.count == Int(MLKEM1024PublicKeyLength) else {
-    throw KyberError.invalidKeySize
+    throw KeyErrors.invalidKeySize
 }
 ```
 
