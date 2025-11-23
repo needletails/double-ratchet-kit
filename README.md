@@ -202,17 +202,23 @@ print("Associated data: \(customConfig.associatedData)")
 For advanced use cases where you need to handle encryption/decryption externally:
 
 ```swift
+// Use ExternalRatchetStateManager for external key derivation
+let externalManager = ExternalRatchetStateManager<SHA256>(executor: executor, logger: logger)
+await externalManager.setDelegate(sessionDelegate)
+
 // Derive message key for external encryption (sending)
-let messageKey = try await ratchetManager.deriveMessageKey(sessionId: sessionId)
+let (messageKey, messageNumber) = try await externalManager.deriveMessageKey(sessionId: sessionId)
 let encryptedData = try customEncrypt(plaintext, key: messageKey)
 
 // Derive message key for external decryption (receiving)
-let messageKey = try await ratchetManager.deriveReceivedMessageKey(
+let (messageKey, messageNumber) = try await externalManager.deriveReceivedMessageKey(
     sessionId: sessionId,
     cipherText: ciphertext
 )
 let plaintext = try customDecrypt(encryptedData, key: messageKey)
 ```
+
+**⚠️ Warning:** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are available in `ExternalRatchetStateManager`, not `RatchetStateManager`. They should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. They are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
 
 ### Alternative Recipient Initialization
 
@@ -263,7 +269,7 @@ class MySessionDelegate: SessionIdentityDelegate {
 }
 
 // Set the delegate
-ratchetManager.setDelegate(MySessionDelegate())
+await ratchetManager.setDelegate(MySessionDelegate())
 ```
 
 ### Key Management
@@ -492,6 +498,12 @@ swift test --verbose
 **Advanced Key Derivation:**
 - `deriveMessageKey(sessionId:)` - Derive key for external encryption
 - `deriveReceivedMessageKey(sessionId:cipherText:)` - Derive key for external decryption
+- `getSentMessageNumber(sessionId:)` - Get current sent message number
+- `getReceivedMessageNumber(sessionId:)` - Get current received message number
+- `setCipherText(sessionId:cipherText:)` - Set MLKEM ciphertext in session state
+- `getCipherText(sessionId:)` - Get MLKEM ciphertext from session state
+
+**⚠️ Warning:** These advanced methods should only be used when NOT using `ratchetEncrypt`/`ratchetDecrypt`. They are intended for use in a separate `RatchetStateManager` instance.
 
 **Configuration:**
 - `setDelegate(_:)` - Set session identity delegate

@@ -218,7 +218,7 @@ class MySessionDelegate: SessionIdentityDelegate {
 
 ```swift
 // Set the delegate
-ratchetManager.setDelegate(MySessionDelegate())
+await ratchetManager.setDelegate(MySessionDelegate())
 ```
 
 ## Swift Concurrency Best Practices

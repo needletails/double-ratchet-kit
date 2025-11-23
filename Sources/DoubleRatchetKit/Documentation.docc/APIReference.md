@@ -160,7 +160,7 @@ Decrypt a received message.
 ##### Advanced Key Derivation
 
 ```swift
-public func deriveMessageKey(sessionId: UUID) async throws -> SymmetricKey
+public func deriveMessageKey(sessionId: UUID) async throws -> (SymmetricKey, Int)
 ```
 
 Derives the next message key for sending without performing full message encryption. This method is designed for advanced use cases where you want to handle encryption externally while the SDK manages ratchet key derivation.
@@ -168,7 +168,9 @@ Derives the next message key for sending without performing full message encrypt
 **Parameters:**
 - `sessionId`: The UUID of the session to derive the key for
 
-**Returns:** The derived symmetric key for encrypting the next message
+**Returns:** A tuple containing:
+  - The derived symmetric key for encrypting the next message
+  - The message number (0-based index) for this message
 
 **Throws:**
 - `RatchetError.missingConfiguration`: If the session is not found
@@ -178,10 +180,12 @@ Derives the next message key for sending without performing full message encrypt
 
 **Important:** This method advances the ratchet state. Each call derives a new key and increments the message counter. Do not call this method multiple times for the same message.
 
+**Warning:** This method is available in `ExternalRatchetStateManager`, not `RatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
+
 **See Also:** `deriveReceivedMessageKey(sessionId:cipherText:)` for the receiving side equivalent.
 
 ```swift
-public func deriveReceivedMessageKey(sessionId: UUID, cipherText: Data) async throws -> SymmetricKey
+public func deriveReceivedMessageKey(sessionId: UUID, cipherText: Data) async throws -> (SymmetricKey, Int)
 ```
 
 Derives the next message key for receiving without performing full message decryption. This method is designed for advanced use cases where you want to handle decryption externally while the SDK manages ratchet key derivation.
@@ -190,7 +194,9 @@ Derives the next message key for receiving without performing full message decry
 - `sessionId`: The UUID of the session to derive the key for
 - `cipherText`: The MLKEM ciphertext. Used during handshake to derive root key if needed. After handshake, this parameter is not used but required for signature consistency.
 
-**Returns:** The derived symmetric key for decrypting the next message
+**Returns:** A tuple containing:
+  - The derived symmetric key for decrypting the next message
+  - The message number (0-based index) for this message
 
 **Throws:**
 - `RatchetError.missingConfiguration`: If the session is not found
@@ -200,12 +206,14 @@ Derives the next message key for receiving without performing full message decry
 
 **Important:** This method advances the ratchet state. Each call derives a new key. Do not call this method multiple times for the same message.
 
+**Warning:** This method is available in `ExternalRatchetStateManager`, not `RatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
+
 **See Also:** `deriveMessageKey(sessionId:)` for the sending side equivalent.
 
 ##### Session Management
 
 ```swift
-public func setDelegate(_ delegate: SessionIdentityDelegate)
+public func setDelegate(_ delegate: SessionIdentityDelegate) async
 ```
 
 Set a delegate for session identity management.
@@ -262,7 +270,6 @@ Shuts down the ratchet state manager and persists all session states.
 
 **Lifecycle:**
 - Persists all session states to storage via the delegate
-- Merges in-memory `alreadyDecryptedMessageNumbers` into each session's state
 - Clears in-memory session configurations
 - Marks the manager as shut down
 

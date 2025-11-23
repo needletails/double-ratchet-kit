@@ -175,26 +175,9 @@ let decryptedMessage = try await ratchetManager.ratchetDecrypt(
 
 #### Advanced Key Derivation
 
-For advanced use cases where you want to handle encryption/decryption externally:
+For advanced use cases where you want to handle encryption/decryption externally, use `ExternalRatchetStateManager` instead of `RatchetStateManager`. See the `ExternalRatchetStateManager` documentation for details on external key derivation workflows.
 
-**Derive Message Key (Sending):**
-
-```swift
-let messageKey = try await ratchetManager.deriveMessageKey(sessionId: sessionId)
-// Use messageKey for external encryption
-```
-
-**Derive Received Message Key (Receiving):**
-
-```swift
-let messageKey = try await ratchetManager.deriveReceivedMessageKey(
-    sessionId: sessionId,
-    cipherText: ciphertext
-)
-// Use messageKey for external decryption
-```
-
-**Important:** These methods advance the ratchet state. Each call derives a new key. Do not call these methods multiple times for the same message.
+**Important:** Do not mix external key derivation methods with the standard `ratchetEncrypt`/`ratchetDecrypt` API. Use separate manager instances for each workflow to avoid state inconsistencies and security issues.
 
 ### Session Management
 
@@ -203,7 +186,7 @@ let messageKey = try await ratchetManager.deriveReceivedMessageKey(
 Set a delegate for session identity management:
 
 ```swift
-ratchetManager.setDelegate(sessionDelegate)
+await ratchetManager.setDelegate(sessionDelegate)
 ```
 
 **Parameters:**
@@ -262,7 +245,6 @@ try await ratchetManager.shutdown()
 
 **Lifecycle:**
 - Persists all session states to storage via the delegate
-- Merges in-memory `alreadyDecryptedMessageNumbers` into each session's state
 - Clears in-memory session configurations
 - Marks the manager as shut down
 
@@ -392,7 +374,7 @@ let logger = NeedleTailLogger()
 let ratchetManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
 
 // Set delegate
-ratchetManager.setDelegate(MySessionDelegate())
+await ratchetManager.setDelegate(MySessionDelegate())
 
 // Initialize sending session
 try await ratchetManager.senderInitialization(

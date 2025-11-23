@@ -205,9 +205,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testExternalKeyDerivationWithoutRatchetAPIs() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = ExternalRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = ExternalRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -248,10 +248,10 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             
             // 5) Derive message 1 keys externally on both sides
             // Sender: derive next message key
-            let mk1Sender = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            let (mk1Sender, msgNum1Sender) = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
             // Receiver: derive next message key (receiving side). After initialization, rootKey is set
             // and the method advances receivingKey accordingly.
-            let mk1Receiver = try await bobManager.deriveReceivedMessageKey(
+            let (mk1Receiver, msgNum1Receiver) = try await bobManager.deriveReceivedMessageKey(
                 sessionId: aliceIdentityLatest.id,
                 cipherText: handshakeCiphertext // not used in this branch but required by signature
             )
@@ -261,10 +261,12 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let c1 = try #require(try crypto.encrypt(data: p1, symmetricKey: mk1Sender))
             let d1 = try #require(try crypto.decrypt(data: c1, symmetricKey: mk1Receiver))
             #expect(d1 == p1)
+            #expect(msgNum1Sender == 0) // First message should be index 0
+            #expect(msgNum1Receiver == 0) // First message should be index 0
             
             // 7) Derive message 2 keys and repeat to confirm ratchet progression
-            let mk2Sender = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
-            let mk2Receiver = try await bobManager.deriveReceivedMessageKey(
+            let (mk2Sender, msgNum2Sender) = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            let (mk2Receiver, msgNum2Receiver) = try await bobManager.deriveReceivedMessageKey(
                 sessionId: aliceIdentityLatest.id,
                 cipherText: handshakeCiphertext
             )
@@ -272,6 +274,8 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             let c2 = try #require(try crypto.encrypt(data: p2, symmetricKey: mk2Sender))
             let d2 = try #require(try crypto.decrypt(data: c2, symmetricKey: mk2Receiver))
             #expect(d2 == p2)
+            #expect(msgNum2Sender == 1) // Second message should be index 1
+            #expect(msgNum2Receiver == 1) // Second message should be index 1
             
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
@@ -1316,9 +1320,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     // --- NEW: PERFORMANCE TEST ---
     @Test
     func performanceThousandsOfMessages() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2482,7 +2486,7 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
                 if case RatchetError.missingOneTimeKey = error {
                     #expect(Bool(false), "Loose mode must not preflight with missingOneTimeKey")
                 } else {
-                    #expect(true) // any other failure mode is acceptable here
+                    #expect(Bool(true)) // any other failure mode is acceptable here
                 }
             }
             
