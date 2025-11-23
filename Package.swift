@@ -17,10 +17,9 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.12.3"),
-        .package(url: "https://github.com/needletails/needletail-crypto.git", from: "1.1.2"),
-        .package(url: "https://github.com/needletails/needletail-algorithms.git", from: "2.0.4"),
-        .package(url: "https://github.com/needletails/needletail-logger.git", from: "3.1.1")
+        .package(url: "https://github.com/needletails/needletail-crypto.git", from: "1.2.1"),
+        .package(url: "https://github.com/needletails/needletail-logger.git", from: "3.1.1"),
+        .package(url: "https://github.com/needletails/binary-codable.git", from: "1.0.3")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -28,10 +27,9 @@ let package = Package(
         .target(
             name: "DoubleRatchetKit",
             dependencies: [
-                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "NeedleTailCrypto", package: "needletail-crypto"),
-                .product(name: "NeedleTailAlgorithms", package: "needletail-algorithms"),
                 .product(name: "NeedleTailLogger", package: "needletail-logger"),
+                .product(name: "BinaryCodable", package: "binary-codable")
             ],
         ),
         .testTarget(

@@ -14,54 +14,61 @@
 //  post-quantum secure messaging with Double Ratchet Algorithm and PQXDH integration.
 //
 import Foundation
-import SwiftKyber
 
-/// A representation of a PQKem private key.
+/// Errors that can occur during key validation and initialization.
+public enum KeyErrors: Error {
+    /// The key size is invalid for the expected key type.
+    case invalidKeySize
+}
+
+/// A representation of a MLKEM private key.
 ///
-/// This struct wraps the raw `Data` of a PQKem private key and ensures it is valid upon initialization.
-public struct PQKemPrivateKey: Codable, Sendable, Equatable {
+/// This struct wraps the raw `Data` of a MLKEM private key and ensures it is valid upon initialization.
+public struct MLKEMPrivateKey: Codable, Sendable, Equatable {
     /// A unique identifier for the key (e.g. device or session key).
     public let id: UUID
-
+    
     /// The raw key data.
     public let rawRepresentation: Data
 
-    /// Initializes a new PQKem private key wrapper.
+    /// Initializes a new MLKEM private key wrapper.
     ///
     /// - Parameters
     ///  id: An Identifier for the object
-    ///  rawRepresentation: The raw PQKem private key bytes.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
+    ///  rawRepresentation: The raw MLKEM private key bytes.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
-        let key = rawRepresentation.decodeKyber1024()
-
-        guard key.rawRepresentation.count == Int(kyber1024PrivateKeyLength) else {
-            throw KyberError.invalidKeySize
+        let key = try rawRepresentation.decodeMLKem1024()
+        guard key.seedRepresentation.count == Int(64) else {
+            throw KeyErrors.invalidKeySize
+        }
+        guard key.integrityCheckedRepresentation.count == Int(96) else {
+            throw KeyErrors.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
     }
 }
 
-/// A representation of a PQKem public key.
+/// A representation of a MLKEM public key.
 ///
-/// This struct validates and stores the raw public key data for PQKem.
-public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable {
+/// This struct validates and stores the raw public key data for MLKEM.
+public struct MLKEMPublicKey: Codable, Sendable, Equatable, Hashable {
     /// A unique identifier for the key (e.g. device or session key).
     public let id: UUID
 
     /// The raw key data.
     public let rawRepresentation: Data
 
-    /// Initializes a new PQKem public key wrapper.
+    /// Initializes a new MLKEM public key wrapper.
     ///
     /// - Parameters
     ///  id: An Identifier for the object
-    ///  rawRepresentation: The raw PQKem public key bytes.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is incorrect.
+    ///  rawRepresentation: The raw MLKEM public key bytes.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
-        guard rawRepresentation.count == Int(kyber1024PublicKeyLength) else {
-            throw KyberError.invalidKeySize
+        guard rawRepresentation.count == Int(1568) else {
+            throw KeyErrors.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
@@ -83,10 +90,10 @@ public struct CurvePrivateKey: Codable, Sendable, Equatable {
     /// - Parameters:
     ///   - id: An optional UUID to tag this key. A new UUID is generated if not provided.
     ///   - rawRepresentation: The raw 32-byte Curve private key data.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is not 32 bytes.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is not 32 bytes.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == 32 else {
-            throw KyberError.invalidKeySize
+            throw KeyErrors.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
@@ -106,10 +113,10 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
     /// - Parameters:
     ///   - id: An optional UUID to tag this key. A new UUID is generated if not provided.
     ///   - rawRepresentation: The raw 32-byte Curve public key data.
-    /// - Throws: `KyberError.invalidKeySize` if the key size is not 32 bytes.
+    /// - Throws: `KeyErrors.invalidKeySize` if the key size is not 32 bytes.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == 32 else {
-            throw KyberError.invalidKeySize
+            throw KeyErrors.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
@@ -124,18 +131,18 @@ public struct RemoteKeys: Sendable {
     /// The remote party's one-time Curve public key.
     let oneTime: CurvePublicKey?
 
-    /// The remote party's PQKem public key.
-    let pqKem: PQKemPublicKey
+    /// The remote party's MLKEM public key.
+    let mlKEM: MLKEMPublicKey
 
     /// Initializes a container of remote keys for session initialization.
     public init(
         longTerm: CurvePublicKey,
         oneTime: CurvePublicKey?,
-        pqKem: PQKemPublicKey
+        mlKEM: MLKEMPublicKey
     ) {
         self.longTerm = longTerm
         self.oneTime = oneTime
-        self.pqKem = pqKem
+        self.mlKEM = mlKEM
     }
 }
 
@@ -147,17 +154,17 @@ public struct LocalKeys: Sendable {
     /// The local party's one-time Curve private key.
     let oneTime: CurvePrivateKey?
 
-    /// The local party's pqKem private key.
-    let pqKem: PQKemPrivateKey
+    /// The local party's mlKEM private key.
+    let mlKEM: MLKEMPrivateKey
 
     /// Initializes a container of local keys for session initialization.
     public init(
         longTerm: CurvePrivateKey,
         oneTime: CurvePrivateKey?,
-        pqKem: PQKemPrivateKey
+        mlKEM: MLKEMPrivateKey
     ) {
         self.longTerm = longTerm
         self.oneTime = oneTime
-        self.pqKem = pqKem
+        self.mlKEM = mlKEM
     }
 }

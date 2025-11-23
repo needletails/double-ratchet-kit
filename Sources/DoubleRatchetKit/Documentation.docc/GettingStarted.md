@@ -67,7 +67,7 @@ let aliceProps = SessionIdentity.UnwrappedProps(
     sessionContextId: 1,
     longTermPublicKey: aliceLongTermPublicKey,
     signingPublicKey: aliceSigningPublicKey,
-    pqKemPublicKey: alicePQKemPublicKey,
+    mlKEMPublicKey: aliceMLKEMPublicKey,
     oneTimePublicKey: aliceOneTimePublicKey,
     deviceName: "Alice's iPhone",
     isMasterDevice: true
@@ -99,33 +99,53 @@ try await ratchetManager.senderInitialization(
     remoteKeys: RemoteKeys(
         longTerm: bobLongTermPublicKey,
         oneTime: bobOneTimePublicKey,
-        pqKem: bobPQKemPublicKey
+        mlKEM: bobMLKEMPublicKey
     ),
     localKeys: LocalKeys(
         longTerm: aliceLongTermPrivateKey,
         oneTime: aliceOneTimePrivateKey,
-        pqKem: alicePQKemPrivateKey
+        mlKEM: aliceMLKEMPrivateKey
     )
 )
 ```
 
 ### Recipient Initialization (Bob)
 
+**Using Encrypted Header (Standard):**
+
 ```swift
-// Bob prepares to receive messages from Alice
+// Bob receives the first message from Alice with an encrypted header
+let encryptedHeader = // ... received from Alice
 try await ratchetManager.recipientInitialization(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
-    remoteKeys: RemoteKeys(
-        longTerm: aliceLongTermPublicKey,
-        oneTime: aliceOneTimePublicKey,
-        pqKem: alicePQKemPublicKey
-    ),
+    header: encryptedHeader,
     localKeys: LocalKeys(
         longTerm: bobLongTermPrivateKey,
         oneTime: bobOneTimePrivateKey,
-        pqKem: bobPQKemPrivateKey
+        mlKEM: bobMLKEMPrivateKey
     )
+)
+```
+
+**Alternative Initialization (Advanced):**
+
+```swift
+// For external key derivation workflows
+try await ratchetManager.recipientInitialization(
+    sessionIdentity: bobSessionIdentity,
+    sessionSymmetricKey: sessionKey,
+    localKeys: LocalKeys(
+        longTerm: bobLongTermPrivateKey,
+        oneTime: bobOneTimePrivateKey,
+        mlKEM: bobMLKEMPrivateKey
+    ),
+    remoteKeys: RemoteKeys(
+        longTerm: aliceLongTermPublicKey,
+        oneTime: aliceOneTimePublicKey,
+        mlKEM: aliceMLKEMPublicKey
+    ),
+    ciphertext: mlKEMCiphertext
 )
 ```
 
@@ -136,14 +156,20 @@ try await ratchetManager.recipientInitialization(
 ```swift
 // Alice encrypts a message
 let plaintext = "Hello, Bob!".data(using: .utf8)!
-let encryptedMessage = try await ratchetManager.ratchetEncrypt(plainText: plaintext)
+let encryptedMessage = try await ratchetManager.ratchetEncrypt(
+    plainText: plaintext,
+    sessionId: aliceSessionIdentity.id
+)
 ```
 
 ### Decrypting a Message
 
 ```swift
 // Bob decrypts the message
-let decryptedMessage = try await ratchetManager.ratchetDecrypt(encryptedMessage)
+let decryptedMessage = try await ratchetManager.ratchetDecrypt(
+    encryptedMessage,
+    sessionId: bobSessionIdentity.id
+)
 let message = String(data: decryptedMessage, encoding: .utf8)!
 print("Received: \(message)") // "Hello, Bob!"
 ```
@@ -159,9 +185,9 @@ Key wrappers are used to identify keys that the recipient needs to reference fro
 let curvePrivateKey = try CurvePrivateKey(id: UUID(), curve25519PrivateKey.rawRepresentation)
 let curvePublicKey = try CurvePublicKey(id: UUID(), curve25519PublicKey.rawRepresentation)
 
-// Wrapper for Kyber1024 keys
-let kyberPrivateKey = try PQKemPrivateKey(id: UUID(), kyber1024PrivateKey.rawRepresentation)
-let kyberPublicKey = try PQKemPublicKey(id: UUID(), kyber1024PublicKey.rawRepresentation)
+// Wrapper for MLKEM1024 keys
+let kyberPrivateKey = try MLKEMPrivateKey(id: UUID(), MLKEM1024PrivateKey.rawRepresentation)
+let kyberPublicKey = try MLKEMPublicKey(id: UUID(), MLKEM1024PublicKey.rawRepresentation)
 ```
 
 ## Session Identity Delegate
@@ -192,7 +218,7 @@ class MySessionDelegate: SessionIdentityDelegate {
 
 ```swift
 // Set the delegate
-ratchetManager.setDelegate(MySessionDelegate())
+await ratchetManager.setDelegate(MySessionDelegate())
 ```
 
 ## Swift Concurrency Best Practices
@@ -224,13 +250,22 @@ try await ratchetManager.shutdown()
 
 ```swift
 do {
-    let message = try await ratchetManager.ratchetEncrypt(plainText: data)
+    let message = try await ratchetManager.ratchetEncrypt(
+        plainText: data,
+        sessionId: sessionId
+    )
+} catch RatchetError.missingConfiguration {
+    // Handle missing session
+    print("Session not found")
 } catch RatchetError.stateUninitialized {
     // Handle uninitialized state
     print("Session not initialized")
 } catch RatchetError.encryptionFailed {
     // Handle encryption failure
     print("Encryption failed")
+} catch RatchetError.missingOneTimeKey {
+    // Handle missing one-time key (if OTK consistency is enforced)
+    print("One-time key missing")
 } catch {
     // Handle other errors
     print("Unexpected error: \(error)")

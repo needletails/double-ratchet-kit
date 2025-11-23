@@ -20,6 +20,8 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable>
 
 ### Creating a Ratchet State Manager
 
+**Default Configuration:**
+
 ```swift
 let ratchetManager = RatchetStateManager<SHA256>(
     executor: executor,
@@ -27,9 +29,30 @@ let ratchetManager = RatchetStateManager<SHA256>(
 )
 ```
 
+**Custom Configuration:**
+
+```swift
+let customConfig = RatchetConfiguration(
+    messageKeyData: Data([0x00]),
+    chainKeyData: Data([0x01]),
+    rootKeyData: Data([0x02, 0x03]),
+    associatedData: "MyApp".data(using: .ascii)!,
+    maxSkippedMessageKeys: 1000
+)
+
+let ratchetManager = RatchetStateManager<SHA256>(
+    executor: executor,
+    logger: logger,
+    ratchetConfiguration: customConfig
+)
+```
+
 **Parameters:**
-- `executor`: A `SerialExecutor` used to coordinate concurrent operations
-- `logger`: A `NeedleTailLogger` instance for logging (optional)
+- `executor`: A `SerialExecutor` used to coordinate concurrent operations within the actor
+- `logger`: A `NeedleTailLogger` instance for logging (optional, defaults to new instance)
+- `ratchetConfiguration`: Optional custom configuration. If `nil`, uses default configuration with `maxSkippedMessageKeys: 100`
+
+**Note:** Use a custom configuration only if you need to modify protocol parameters. The default configuration is suitable for most use cases.
 
 ## Core Functionality
 
@@ -56,13 +79,13 @@ try await ratchetManager.senderInitialization(
 
 #### Recipient Initialization
 
-Initialize a session for receiving messages:
+Initialize a session for receiving messages using an encrypted header:
 
 ```swift
 try await ratchetManager.recipientInitialization(
     sessionIdentity: sessionIdentity,
     sessionSymmetricKey: sessionKey,
-    remoteKeys: remoteKeys,
+    header: encryptedHeader,
     localKeys: localKeys
 )
 ```
@@ -70,8 +93,31 @@ try await ratchetManager.recipientInitialization(
 **Parameters:**
 - `sessionIdentity`: The session identity for this communication
 - `sessionSymmetricKey`: Symmetric key for decrypting session metadata
-- `remoteKeys`: Sender's public keys
+- `header`: The `EncryptedHeader` received from the sender
 - `localKeys`: Recipient's private keys
+
+**Alternative Initialization (Advanced):**
+
+For external key derivation workflows, you can use:
+
+```swift
+try await ratchetManager.recipientInitialization(
+    sessionIdentity: sessionIdentity,
+    sessionSymmetricKey: sessionKey,
+    localKeys: localKeys,
+    remoteKeys: remoteKeys,
+    ciphertext: ciphertext
+)
+```
+
+**Parameters:**
+- `sessionIdentity`: The session identity for this communication
+- `sessionSymmetricKey`: Symmetric key for decrypting session metadata
+- `localKeys`: Recipient's private keys
+- `remoteKeys`: Sender's public keys (oneTime is optional)
+- `ciphertext`: The MLKEM ciphertext from the sender's initial handshake
+
+**Note:** This alternative method is designed for advanced use cases where you need to bootstrap a session without calling `ratchetEncrypt` first.
 
 ### Message Operations
 
@@ -80,38 +126,58 @@ try await ratchetManager.recipientInitialization(
 Encrypt a plaintext message:
 
 ```swift
-let encryptedMessage = try await ratchetManager.ratchetEncrypt(plainText: plaintext)
+let encryptedMessage = try await ratchetManager.ratchetEncrypt(
+    plainText: plaintext,
+    sessionId: sessionId
+)
 ```
 
 **Parameters:**
 - `plainText`: The plaintext data to encrypt
+- `sessionId`: The UUID of the session to encrypt for
 
 **Returns:** A `RatchetMessage` containing the encrypted payload and header
 
 **Throws:**
-- `RatchetError.stateUninitialized`: If the session is not initialized
+- `RatchetError.missingConfiguration`: If the session is not found
+- `RatchetError.stateUninitialized`: If the session state is not initialized
 - `RatchetError.sendingKeyIsNil`: If the sending key is missing
 - `RatchetError.encryptionFailed`: If encryption fails
 - `RatchetError.headerEncryptionFailed`: If header encryption fails
+- `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
 
 #### Decrypting Messages
 
 Decrypt a received message:
 
 ```swift
-let decryptedMessage = try await ratchetManager.ratchetDecrypt(encryptedMessage)
+let decryptedMessage = try await ratchetManager.ratchetDecrypt(
+    encryptedMessage,
+    sessionId: sessionId
+)
 ```
 
 **Parameters:**
 - `encryptedMessage`: The `RatchetMessage` to decrypt
+- `sessionId`: The UUID of the session to decrypt for
 
 **Returns:** The decrypted plaintext data
 
 **Throws:**
-- `RatchetError.stateUninitialized`: If the session is not initialized
+- `RatchetError.missingConfiguration`: If the session is not found
+- `RatchetError.stateUninitialized`: If the session state is not initialized
 - `RatchetError.decryptionFailed`: If decryption fails
 - `RatchetError.headerDecryptFailed`: If header decryption fails
 - `RatchetError.expiredKey`: If the message uses an expired key
+- `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
+- `RatchetError.maxSkippedHeadersExceeded`: If too many messages were skipped
+- `RatchetError.skippedKeysDrained`: If skipped message keys have been exhausted
+
+#### Advanced Key Derivation
+
+For advanced use cases where you want to handle encryption/decryption externally, use `ExternalRatchetStateManager` instead of `RatchetStateManager`. See the `ExternalRatchetStateManager` documentation for details on external key derivation workflows.
+
+**Important:** Do not mix external key derivation methods with the standard `ratchetEncrypt`/`ratchetDecrypt` API. Use separate manager instances for each workflow to avoid state inconsistencies and security issues.
 
 ### Session Management
 
@@ -120,11 +186,54 @@ let decryptedMessage = try await ratchetManager.ratchetDecrypt(encryptedMessage)
 Set a delegate for session identity management:
 
 ```swift
-ratchetManager.setDelegate(sessionDelegate)
+await ratchetManager.setDelegate(sessionDelegate)
 ```
 
 **Parameters:**
-- `sessionDelegate`: An object conforming to `SessionIdentityDelegate`
+- `sessionDelegate`: An object conforming to `SessionIdentityDelegate`. Pass `nil` to remove the current delegate.
+
+**Delegate Responsibilities:**
+- Persisting session identities to storage
+- Fetching one-time private keys by ID
+- Managing one-time key rotation
+
+**Important:** The delegate should be set before calling initialization methods if you want session state to be persisted automatically. Without a delegate, session state will only exist in memory.
+
+#### OTK Consistency Enforcement
+
+Enable or disable strict one-time-prekey (OTK) consistency enforcement:
+
+```swift
+await ratchetManager.setEnforceOTKConsistency(true)
+```
+
+**When enabled:** If the header signals an OTK but the corresponding local private OTK cannot be loaded, decryption will fail fast with `RatchetError.missingOneTimeKey`.
+
+**When disabled:** Decryption proceeds even if the OTK is missing, potentially failing later during the actual decryption operation.
+
+**Note:** This should be enabled when using a delegate that manages one-time keys to ensure keys are properly fetched and validated before use.
+
+#### Setting Log Level
+
+Set the logging level for the ratchet state manager:
+
+```swift
+// Development: maximum verbosity
+await ratchetManager.setLogLevel(.trace)
+
+// Production: minimal logging
+await ratchetManager.setLogLevel(.warning)
+```
+
+**Parameters:**
+- `level`: The desired log level. Available levels (from most to least verbose):
+  - `.trace`: Most verbose, includes all debug information
+  - `.debug`: Debug information including operations
+  - `.info`: Informational messages
+  - `.warning`: Warning messages
+  - `.error`: Only error messages
+
+**Note:** The default log level is `.trace`. Adjust this in production to reduce logging overhead.
 
 #### Shutting Down
 
@@ -134,7 +243,16 @@ Clean up resources when done:
 try await ratchetManager.shutdown()
 ```
 
-**Important:** Always call `shutdown()` when the manager is no longer needed to ensure proper cleanup.
+**Lifecycle:**
+- Persists all session states to storage via the delegate
+- Clears in-memory session configurations
+- Marks the manager as shut down
+
+**Important:**
+- Always call `shutdown()` when the manager is no longer needed to ensure proper cleanup
+- The manager cannot be used after `shutdown()` is called
+- If `shutdown()` is not called, the `deinit` will crash with a precondition failure
+- This method is safe to call multiple times (idempotent after first call)
 
 ## Delegate Protocol
 
@@ -214,7 +332,9 @@ let session2Manager = RatchetStateManager<SHA256>(executor: executor, logger: lo
 
 ```swift
 do {
-    let message = try await ratchetManager.ratchetEncrypt(plainText: data)
+    let message = try await ratchetManager.ratchetEncrypt(plainText: data, sessionId: sessionId)
+} catch RatchetError.missingConfiguration {
+    // Session not found - check session ID
 } catch RatchetError.stateUninitialized {
     // Session not initialized - call senderInitialization or recipientInitialization
 } catch RatchetError.sendingKeyIsNil {
@@ -223,14 +343,18 @@ do {
     // Encryption operation failed
 } catch RatchetError.headerEncryptionFailed {
     // Header encryption failed
+} catch RatchetError.missingOneTimeKey {
+    // Required one-time key is missing (if OTK consistency is enforced)
 } catch RatchetError.decryptionFailed {
     // Decryption operation failed
 } catch RatchetError.headerDecryptFailed {
     // Header decryption failed
 } catch RatchetError.expiredKey {
     // Message uses an expired key
-} catch RatchetError.missingOneTimeKey {
-    // Required one-time key is missing
+} catch RatchetError.maxSkippedHeadersExceeded {
+    // Too many messages were skipped
+} catch RatchetError.skippedKeysDrained {
+    // Skipped message keys have been exhausted
 } catch {
     // Handle other errors
 }
@@ -250,7 +374,7 @@ let logger = NeedleTailLogger()
 let ratchetManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
 
 // Set delegate
-ratchetManager.setDelegate(MySessionDelegate())
+await ratchetManager.setDelegate(MySessionDelegate())
 
 // Initialize sending session
 try await ratchetManager.senderInitialization(
@@ -262,10 +386,16 @@ try await ratchetManager.senderInitialization(
 
 // Send message
 let plaintext = "Hello, Bob!".data(using: .utf8)!
-let encryptedMessage = try await ratchetManager.ratchetEncrypt(plainText: plaintext)
+let encryptedMessage = try await ratchetManager.ratchetEncrypt(
+    plainText: plaintext,
+    sessionId: aliceSessionIdentity.id
+)
 
 // Receive message (on Bob's side)
-let decryptedMessage = try await ratchetManager.ratchetDecrypt(encryptedMessage)
+let decryptedMessage = try await ratchetManager.ratchetDecrypt(
+    encryptedMessage,
+    sessionId: bobSessionIdentity.id
+)
 
 // Clean up
 try await ratchetManager.shutdown()

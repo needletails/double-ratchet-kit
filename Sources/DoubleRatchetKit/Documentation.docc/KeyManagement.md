@@ -4,7 +4,7 @@ Comprehensive guide to managing cryptographic keys in DoubleRatchetKit.
 
 ## Overview
 
-DoubleRatchetKit uses a sophisticated key management system that combines classical (Curve25519) and post-quantum (Kyber1024) cryptography. This system provides forward secrecy, post-compromise security, and protection against quantum attacks.
+DoubleRatchetKit uses a sophisticated key management system that combines classical (Curve25519) and post-quantum (MLKEM1024) cryptography. This system provides forward secrecy, post-compromise security, and protection against quantum attacks.
 
 ## Key Types
 
@@ -31,7 +31,7 @@ let curvePrivateKey = try CurvePrivateKey(
 
 **Validation:**
 - Must be exactly 32 bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Throws `KeyErrors.invalidKeySize` if invalid
 
 #### CurvePublicKey
 
@@ -54,16 +54,16 @@ let curvePublicKey = try CurvePublicKey(
 
 **Validation:**
 - Must be exactly 32 bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Throws `KeyErrors.invalidKeySize` if invalid
 
-### Post-Quantum Keys (Kyber1024)
+### Post-Quantum Keys (MLKEM1024)
 
-#### PQKemPrivateKey
+#### MLKEMPrivateKey
 
-Wraps Kyber1024 private keys with identification:
+Wraps MLKEM1024 private keys with identification:
 
 ```swift
-public struct PQKemPrivateKey: Codable, Sendable, Equatable {
+public struct MLKEMPrivateKey: Codable, Sendable, Equatable {
     public let id: UUID
     public let rawRepresentation: Data
 }
@@ -71,22 +71,22 @@ public struct PQKemPrivateKey: Codable, Sendable, Equatable {
 
 **Usage:**
 ```swift
-let kyberPrivateKey = try PQKemPrivateKey(
+let kyberPrivateKey = try MLKEMPrivateKey(
     id: UUID(), 
-    kyber1024PrivateKey.rawRepresentation
+    MLKEM1024PrivateKey.rawRepresentation
 )
 ```
 
 **Validation:**
-- Must be exactly `kyber1024PrivateKeyLength` bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Must be exactly `MLKEM1024PrivateKeyLength` bytes
+- Throws `KeyErrors.invalidKeySize` if invalid
 
-#### PQKemPublicKey
+#### MLKEMPublicKey
 
-Wraps Kyber1024 public keys with identification:
+Wraps MLKEM1024 public keys with identification:
 
 ```swift
-public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable {
+public struct MLKEMPublicKey: Codable, Sendable, Equatable, Hashable {
     public let id: UUID
     public let rawRepresentation: Data
 }
@@ -94,15 +94,15 @@ public struct PQKemPublicKey: Codable, Sendable, Equatable, Hashable {
 
 **Usage:**
 ```swift
-let kyberPublicKey = try PQKemPublicKey(
+let kyberPublicKey = try MLKEMPublicKey(
     id: UUID(), 
-    kyber1024PublicKey.rawRepresentation
+    MLKEM1024PublicKey.rawRepresentation
 )
 ```
 
 **Validation:**
-- Must be exactly `kyber1024PublicKeyLength` bytes
-- Throws `KyberError.invalidKeySize` if invalid
+- Must be exactly `MLKEM1024PublicKeyLength` bytes
+- Throws `KeyErrors.invalidKeySize` if invalid
 
 ## Key Containers
 
@@ -114,7 +114,7 @@ Container for all remote public keys:
 public struct RemoteKeys {
     let longTerm: CurvePublicKey
     let oneTime: CurvePublicKey?
-    let pqKem: PQKemPublicKey
+    let mlKEM: MLKEMPublicKey
 }
 ```
 
@@ -123,7 +123,7 @@ public struct RemoteKeys {
 let remoteKeys = RemoteKeys(
     longTerm: bobLongTermPublicKey,
     oneTime: bobOneTimePublicKey,
-    pqKem: bobPQKemPublicKey
+    mlKEM: bobMLKEMPublicKey
 )
 ```
 
@@ -135,7 +135,7 @@ Container for all local private keys:
 public struct LocalKeys {
     let longTerm: CurvePrivateKey
     let oneTime: CurvePrivateKey?
-    let pqKem: PQKemPrivateKey
+    let mlKEM: MLKEMPrivateKey
 }
 ```
 
@@ -144,7 +144,7 @@ public struct LocalKeys {
 let localKeys = LocalKeys(
     longTerm: aliceLongTermPrivateKey,
     oneTime: aliceOneTimePrivateKey,
-    pqKem: alicePQKemPrivateKey
+    mlKEM: aliceMLKEMPrivateKey
 )
 ```
 
@@ -172,21 +172,21 @@ let curvePublicKey = try CurvePublicKey(
 )
 ```
 
-#### Kyber1024 Keys
+#### MLKEM1024 Keys
 
 ```swift
 import SwiftKyber
 
-// Generate Kyber1024 key pair
-let privateKey = Kyber1024.KeyAgreement.PrivateKey()
+// Generate MLKEM1024 key pair
+let privateKey = MLKEM1024.KeyAgreement.PrivateKey()
 let publicKey = privateKey.publicKey
 
 // Wrap keys
-let kyberPrivateKey = try PQKemPrivateKey(
+let kyberPrivateKey = try MLKEMPrivateKey(
     id: UUID(), 
     privateKey.rawRepresentation
 )
-let kyberPublicKey = try PQKemPublicKey(
+let kyberPublicKey = try MLKEMPublicKey(
     id: UUID(), 
     publicKey.rawRepresentation
 )
@@ -206,7 +206,7 @@ let props = SessionIdentity.UnwrappedProps(
     sessionContextId: 1,
     longTermPublicKey: curvePublicKey.rawRepresentation,
     signingPublicKey: signingPublicKey.rawRepresentation,
-    pqKemPublicKey: kyberPublicKey,
+    mlKEMPublicKey: kyberPublicKey,
     oneTimePublicKey: oneTimePublicKey,
     deviceName: "Alice's iPhone",
     isMasterDevice: true
@@ -310,7 +310,7 @@ func rotateLongTermKeys() async throws {
     let newLocalKeys = LocalKeys(
         longTerm: try CurvePrivateKey(id: UUID(), newPrivateKey.rawRepresentation),
         oneTime: localKeys.oneTime,
-        pqKem: localKeys.pqKem
+        mlKEM: localKeys.mlKEM
     )
     
     // Reinitialize session with new keys
@@ -338,7 +338,7 @@ let cipher = try await derivePQXDHFinalKey(
     remotePublicLongTermKey: remotePublicLongTermKey,
     localOneTimePrivateKey: localOneTimePrivateKey,
     remoteOneTimePublicKey: remoteOneTimePublicKey,
-    remotePQKemPublicKey: remotePQKemPublicKey
+    remoteMLKEMPublicKey: remoteMLKEMPublicKey
 )
 
 // Use derived symmetric key
@@ -355,7 +355,7 @@ let symmetricKey = try await derivePQXDHFinalKeyReceiver(
     remoteOneTimePublicKey: remoteOneTimePublicKey,
     localLongTermPrivateKey: localLongTermPrivateKey,
     localOneTimePrivateKey: localOneTimePrivateKey,
-    localPQKemPrivateKey: localPQKemPrivateKey,
+    localMLKEMPrivateKey: localMLKEMPrivateKey,
     receivedCiphertext: receivedCiphertext
 )
 ```
@@ -369,12 +369,12 @@ All keys are automatically validated for correct size:
 ```swift
 // Curve25519 keys must be 32 bytes
 guard rawRepresentation.count == 32 else {
-    throw KyberError.invalidKeySize
+    throw KeyErrors.invalidKeySize
 }
 
-// Kyber1024 keys must be correct size
-guard rawRepresentation.count == Int(kyber1024PublicKeyLength) else {
-    throw KyberError.invalidKeySize
+// MLKEM1024 keys must be correct size
+guard rawRepresentation.count == Int(MLKEM1024PublicKeyLength) else {
+    throw KeyErrors.invalidKeySize
 }
 ```
 
@@ -450,7 +450,7 @@ import SwiftKyber
 let curvePrivateKey = Curve25519.KeyAgreement.PrivateKey()
 let curvePublicKey = curvePrivateKey.publicKey
 
-let kyberPrivateKey = Kyber1024.KeyAgreement.PrivateKey()
+let kyberPrivateKey = MLKEM1024.KeyAgreement.PrivateKey()
 let kyberPublicKey = kyberPrivateKey.publicKey
 
 let oneTimePrivateKey = Curve25519.KeyAgreement.PrivateKey()
@@ -460,13 +460,13 @@ let oneTimePublicKey = oneTimePrivateKey.publicKey
 let localKeys = LocalKeys(
     longTerm: try CurvePrivateKey(id: UUID(), curvePrivateKey.rawRepresentation),
     oneTime: try CurvePrivateKey(id: UUID(), oneTimePrivateKey.rawRepresentation),
-    pqKem: try PQKemPrivateKey(id: UUID(), kyberPrivateKey.rawRepresentation)
+    mlKEM: try MLKEMPrivateKey(id: UUID(), kyberPrivateKey.rawRepresentation)
 )
 
 let remoteKeys = RemoteKeys(
     longTerm: try CurvePublicKey(id: UUID(), bobCurvePublicKey.rawRepresentation),
     oneTime: try CurvePublicKey(id: UUID(), bobOneTimePublicKey.rawRepresentation),
-    pqKem: try PQKemPublicKey(id: UUID(), bobKyberPublicKey.rawRepresentation)
+    mlKEM: try MLKEMPublicKey(id: UUID(), bobKyberPublicKey.rawRepresentation)
 )
 
 // Initialize session

@@ -96,7 +96,7 @@ public struct UnwrappedProps: Codable & Sendable {
     public var longTermPublicKey: Data
     public let signingPublicKey: Data
     public let oneTimePublicKey: CurvePublicKey?
-    public var pqKemPublicKey: PQKemPublicKey
+    public var mlKEMPublicKey: MLKEMPublicKey
     
     // Session state
     public var state: RatchetState?
@@ -118,7 +118,7 @@ public struct UnwrappedProps: Codable & Sendable {
 - **`longTermPublicKey`**: Long-term Curve25519 public key (IKB)
 - **`signingPublicKey`**: Signed pre-key Curve25519 public key (SPKB)
 - **`oneTimePublicKey`**: Optional one-time Curve25519 public key (OPKBₙ)
-- **`pqKemPublicKey`**: Post-quantum Kyber1024 public key (PQSPKB)
+- **`mlKEMPublicKey`**: Post-quantum MLKEM1024 public key (PQSPKB)
 
 #### Session Information
 
@@ -181,9 +181,9 @@ Session identities work with key wrapper types for secure key management:
 let curvePrivateKey = try CurvePrivateKey(id: UUID(), curve25519PrivateKey.rawRepresentation)
 let curvePublicKey = try CurvePublicKey(id: UUID(), curve25519PublicKey.rawRepresentation)
 
-// Kyber1024 keys
-let kyberPrivateKey = try PQKemPrivateKey(id: UUID(), kyber1024PrivateKey.rawRepresentation)
-let kyberPublicKey = try PQKemPublicKey(id: UUID(), kyber1024PublicKey.rawRepresentation)
+// MLKEM1024 keys
+let kyberPrivateKey = try MLKEMPrivateKey(id: UUID(), MLKEM1024PrivateKey.rawRepresentation)
+let kyberPublicKey = try MLKEMPublicKey(id: UUID(), MLKEM1024PublicKey.rawRepresentation)
 ```
 
 ### Key Validation
@@ -193,12 +193,12 @@ Key wrappers automatically validate key sizes:
 ```swift
 // Curve25519 keys must be 32 bytes
 guard rawRepresentation.count == 32 else {
-    throw KyberError.invalidKeySize
+    throw KeyErrors.invalidKeySize
 }
 
-// Kyber1024 public keys must be the correct size
-guard rawRepresentation.count == Int(kyber1024PublicKeyLength) else {
-    throw KyberError.invalidKeySize
+// MLKEM1024 public keys must be the correct size
+guard rawRepresentation.count == Int(MLKEM1024PublicKeyLength) else {
+    throw KeyErrors.invalidKeySize
 }
 ```
 
@@ -228,7 +228,7 @@ All session data is encrypted using the provided symmetric key:
 
 ```swift
 // Data is encrypted before storage
-let data = try BSONEncoder().encodeData(props)
+let data = try BinaryEncoder().encode(props)
 guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
     throw CryptoError.encryptionFailed
 }
@@ -262,7 +262,7 @@ let props = SessionIdentity.UnwrappedProps(
     sessionContextId: 1,
     longTermPublicKey: aliceLongTermPublicKey,
     signingPublicKey: aliceSigningPublicKey,
-    pqKemPublicKey: alicePQKemPublicKey,
+    mlKEMPublicKey: aliceMLKEMPublicKey,
     oneTimePublicKey: aliceOneTimePublicKey,
     deviceName: "Alice's iPhone",
     isMasterDevice: true

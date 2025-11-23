@@ -47,16 +47,16 @@ let newMessage = try await ratchetManager.ratchetEncrypt(plainText: data)
 **Definition**: Security against both classical and quantum computational attacks.
 
 **Implementation**:
-- **Hybrid PQXDH**: Combines Curve25519 and Kyber1024
-- **Kyber1024**: Post-quantum key encapsulation mechanism
+- **Hybrid PQXDH**: Combines Curve25519 and MLKEM1024
+- **MLKEM1024**: Post-quantum key encapsulation mechanism
 - **Future-Proof**: Secure against quantum computers
 
 **Guarantees**:
 ```swift
 // Classical security (Curve25519)
 let classicalSecret = Curve25519.KeyAgreement.sharedSecret(...)
-// Quantum resistance (Kyber1024)
-let quantumSecret = Kyber1024.KeyAgreement.sharedSecret(...)
+// Quantum resistance (MLKEM1024)
+let quantumSecret = MLKEM1024.KeyAgreement.sharedSecret(...)
 // Combined security
 let finalSecret = classicalSecret + quantumSecret
 ```
@@ -132,7 +132,7 @@ let finalSecret = classicalSecret + quantumSecret
 
 ### Post-Quantum Cryptography
 
-#### Kyber1024
+#### MLKEM1024
 - **Security**: 256-bit post-quantum security
 - **Assumption**: Learning with Errors (LWE) problem
 - **Attack**: Requires solving LWE in quantum polynomial time
