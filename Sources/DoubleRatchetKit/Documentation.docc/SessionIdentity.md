@@ -307,7 +307,7 @@ try await sessionIdentity.updateIdentityProps(
 
 ## Related Documentation
 
-- <doc:RatchetStateManager> - Main protocol interface
+- <doc:DoubleRatchetStateManager> - Main protocol interface
 - <doc:RatchetState> - Session state management
 - <doc:KeyManagement> - Cryptographic key handling
 - <doc:SecurityModel> - Security considerations 

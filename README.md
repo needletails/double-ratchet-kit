@@ -77,7 +77,7 @@ let executor = //Some Executor
 let logger = NeedleTailLogger()
 
 // Initialize the ratchet state manager
-let ratchetManager = RatchetStateManager<SHA256>(
+let ratchetManager = DoubleRatchetStateManager<SHA256>(
     executor: executor,
     logger: logger
 )
@@ -186,7 +186,7 @@ let customConfig = RatchetConfiguration(
     maxSkippedMessageKeys: 1000  // Reduce for memory-constrained environments
 )
 
-let ratchetManager = RatchetStateManager<SHA256>(
+let ratchetManager = DoubleRatchetStateManager<SHA256>(
     executor: executor,
     logger: logger,
     ratchetConfiguration: customConfig
@@ -202,8 +202,8 @@ print("Associated data: \(customConfig.associatedData)")
 For advanced use cases where you need to handle encryption/decryption externally:
 
 ```swift
-// Use ExternalRatchetStateManager for external key derivation
-let externalManager = ExternalRatchetStateManager<SHA256>(executor: executor, logger: logger)
+// Use RatchetKeyStateManager for external key derivation
+let externalManager = RatchetKeyStateManager<SHA256>(executor: executor, logger: logger)
 await externalManager.setDelegate(sessionDelegate)
 
 // Derive message key for external encryption (sending)
@@ -218,7 +218,7 @@ let (messageKey, messageNumber) = try await externalManager.deriveReceivedMessag
 let plaintext = try customDecrypt(encryptedData, key: messageKey)
 ```
 
-**⚠️ Warning:** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are available in `ExternalRatchetStateManager`, not `RatchetStateManager`. They should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. They are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
+**⚠️ Warning:** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are available in `RatchetKeyStateManager`, not `DoubleRatchetStateManager`. They should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. They are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
 
 ### Alternative Recipient Initialization
 
@@ -290,7 +290,7 @@ let kyberPublicKey = try MLKEMPublicKey(id: UUID(), MLKEM1024PublicKey.rawRepres
 
 ### Core Components
 
-- **`RatchetStateManager`**: Main actor managing the Double Ratchet protocol
+- **`DoubleRatchetStateManager`**: Main actor managing the Double Ratchet protocol
 - **`RatchetState`**: Immutable state container for session data
 - **`SessionIdentity`**: Encrypted session identity with cryptographic keys
 - **`RemoteKeys`/`LocalKeys`**: Containers for public/private key pairs
@@ -481,7 +481,7 @@ swift test --verbose
 
 ### Main Classes
 
-#### `RatchetStateManager<Hash>`
+#### `DoubleRatchetStateManager<Hash>`
 
 **Initialization:**
 - `init(executor:logger:ratchetConfiguration:)` - Create manager with optional custom configuration
@@ -503,7 +503,7 @@ swift test --verbose
 - `setCipherText(sessionId:cipherText:)` - Set MLKEM ciphertext in session state
 - `getCipherText(sessionId:)` - Get MLKEM ciphertext from session state
 
-**⚠️ Warning:** These advanced methods should only be used when NOT using `ratchetEncrypt`/`ratchetDecrypt`. They are intended for use in a separate `RatchetStateManager` instance.
+**⚠️ Warning:** These advanced methods should only be used when NOT using `ratchetEncrypt`/`ratchetDecrypt`. They are intended for use in a separate `RatchetKeyStateManager` instance.
 
 **Configuration:**
 - `setDelegate(_:)` - Set session identity delegate

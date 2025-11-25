@@ -1,5 +1,5 @@
 //
-//  ExternalRatchetStateManager.swift
+//  RatchetKeyStateManager.swift
 //  double-ratchet-kit
 //
 //  Created by Cole M on 11/23/25.
@@ -16,7 +16,7 @@
 
 import Foundation
 
-public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
+public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
     
     // MARK: - Private Properties
     
@@ -66,7 +66,7 @@ public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
     }
     
     deinit {
-        precondition(didShutdown, "⛔️ ExternalRatchetStateManager was deinitialized without calling shutdown(). ")
+        precondition(didShutdown, "⛔️ RatchetKeyStateManager was deinitialized without calling shutdown(). ")
     }
     
     /// Sets the delegate for session identity management.
@@ -253,7 +253,7 @@ public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Warning: **This method should only be used when NOT encrypting/decrypting messages via
     ///   `ratchetEncrypt`/`ratchetDecrypt`.** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`,
     ///   `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are
-    ///   designed for external key derivation workflows in `ExternalRatchetStateManager`.
+    ///   designed for external key derivation workflows in `RatchetKeyStateManager`.
     ///   Do not mix these methods with the standard encryption/decryption API, as this may cause state
     ///   inconsistencies and security issues.
     ///
@@ -354,7 +354,7 @@ public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Warning: **This method should only be used when NOT encrypting/decrypting messages via
     ///   `ratchetEncrypt`/`ratchetDecrypt`.** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`,
     ///   `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are
-    ///   designed for external key derivation workflows in `ExternalRatchetStateManager`.
+    ///   designed for external key derivation workflows in `RatchetKeyStateManager`.
     ///   Do not mix these methods with the standard encryption/decryption API, as this may cause state
     ///   inconsistencies and security issues.
     ///
@@ -481,7 +481,7 @@ public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Warning: **This method should only be used when NOT encrypting/decrypting messages via
     ///   `ratchetEncrypt`/`ratchetDecrypt`.** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`,
     ///   `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are
-    ///   designed for external key derivation workflows in `ExternalRatchetStateManager`.
+    ///   designed for external key derivation workflows in `RatchetKeyStateManager`.
     ///   Do not mix these methods with the standard encryption/decryption API, as this may cause state
     ///   inconsistencies and security issues.
     public func getCipherText(sessionId: UUID) async throws -> Data {
@@ -534,7 +534,7 @@ public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Warning: **This method should only be used when NOT encrypting/decrypting messages via
     ///   `ratchetEncrypt`/`ratchetDecrypt`.** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`,
     ///   `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are
-    ///   designed for external key derivation workflows in `ExternalRatchetStateManager`.
+    ///   designed for external key derivation workflows in `RatchetKeyStateManager`.
     ///   Do not mix these methods with the standard encryption/decryption API, as this may cause state
     ///   inconsistencies and security issues.
     public func setCipherText(sessionId: UUID, cipherText: Data) async throws {
@@ -561,7 +561,7 @@ public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Warning: **This method should only be used when NOT encrypting/decrypting messages via
     ///   `ratchetEncrypt`/`ratchetDecrypt`.** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`,
     ///   `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are
-    ///   designed for external key derivation workflows in `ExternalRatchetStateManager`.
+    ///   designed for external key derivation workflows in `RatchetKeyStateManager`.
     ///   Do not mix these methods with the standard encryption/decryption API, as this may cause state
     ///   inconsistencies and security issues.
     public func getSentMessageNumber(sessionId: UUID) async throws -> Int {
@@ -585,7 +585,7 @@ public actor ExternalRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Warning: **This method should only be used when NOT encrypting/decrypting messages via
     ///   `ratchetEncrypt`/`ratchetDecrypt`.** These methods (`deriveMessageKey`, `deriveReceivedMessageKey`,
     ///   `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are
-    ///   designed for external key derivation workflows in `ExternalRatchetStateManager`.
+    ///   designed for external key derivation workflows in `RatchetKeyStateManager`.
     ///   Do not mix these methods with the standard encryption/decryption API, as this may cause state
     ///   inconsistencies and security issues.
     public func getReceivedMessageNumber(sessionId: UUID) async throws -> Int {
