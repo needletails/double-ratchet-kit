@@ -16,10 +16,10 @@ DoubleRatchetKit 2.0.0 is a major release with significant API improvements, enh
 - **✨ Enhanced API Design**: Session-explicit APIs with `sessionId` parameters for multi-session support
 - **🔧 Improved Error Handling**: Comprehensive error types with detailed documentation
 - **📚 Complete Documentation**: Full DocC documentation with examples and best practices
-- **🔐 Advanced Key Derivation**: New `deriveMessageKey` and `deriveReceivedMessageKey` methods for external encryption workflows
+- **🔐 Advanced Key Derivation**: New `RatchetKeyStateManager` with `deriveMessageKey` and `deriveReceivedMessageKey` methods for external encryption workflows
 - **⚙️ Configuration Access**: `RatchetConfiguration` fields are now public for inspection
 - **🛡️ OTK Consistency**: Optional strict one-time key validation with `enforceOTKConsistency`
-- **🔄 Alternative Initialization**: New `recipientInitialization` overload for external key derivation workflows
+- **🔄 Alternative Initialization**: New `recipientInitialization` overload in `RatchetKeyStateManager` for external key derivation workflows
 - **📖 Lifecycle Documentation**: Clear documentation on initialization semantics and state management
 
 ## 🌟 Features
@@ -42,10 +42,9 @@ DoubleRatchetKit 2.0.0 is a major release with significant API improvements, enh
   - Android (via Swift for Android)
   - Linux (Ubuntu 20.04+, or other distributions with Swift 6.1+)
 - **Dependencies**: 
-  - `swift-crypto` (3.12.3+)
-  - `needletail-crypto` (1.1.1+)
-  - `needletail-algorithms` (2.0.1+)
-  - `needletail-logger` (3.0.0+)
+  - `needletail-crypto` (1.2.1+)
+  - `needletail-logger` (3.1.1+)
+  - `binary-codable` (1.0.3+)
 
 ## 🚀 Installation
 
@@ -222,11 +221,14 @@ let plaintext = try customDecrypt(encryptedData, key: messageKey)
 
 ### Alternative Recipient Initialization
 
-For external key derivation workflows:
+For external key derivation workflows using `RatchetKeyStateManager`:
 
 ```swift
+// Use RatchetKeyStateManager for external key derivation
+let keyManager = RatchetKeyStateManager<SHA256>(executor: executor, logger: logger)
+
 // Initialize receiver with keys and ciphertext (without full message)
-try await ratchetManager.recipientInitialization(
+try await keyManager.recipientInitialization(
     sessionIdentity: sessionIdentity,
     sessionSymmetricKey: sessionKey,
     localKeys: localKeys,
@@ -290,7 +292,8 @@ let kyberPublicKey = try MLKEMPublicKey(id: UUID(), MLKEM1024PublicKey.rawRepres
 
 ### Core Components
 
-- **`DoubleRatchetStateManager`**: Main actor managing the Double Ratchet protocol
+- **`DoubleRatchetStateManager`**: Main actor managing the Double Ratchet protocol for standard encryption/decryption workflows
+- **`RatchetKeyStateManager`**: Actor for advanced external key derivation workflows (separate from standard API)
 - **`RatchetState`**: Immutable state container for session data
 - **`SessionIdentity`**: Encrypted session identity with cryptographic keys
 - **`RemoteKeys`/`LocalKeys`**: Containers for public/private key pairs
@@ -401,8 +404,9 @@ try await bobManager.recipientInitialization(
     localKeys: bobLocalKeys
 )
 
-// ✅ Alternative (2.0) - For external key derivation
-try await bobManager.recipientInitialization(
+// ✅ Alternative (2.0) - For external key derivation (requires RatchetKeyStateManager)
+let keyManager = RatchetKeyStateManager<SHA256>(executor: executor, logger: logger)
+try await keyManager.recipientInitialization(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
     localKeys: bobLocalKeys,
@@ -452,8 +456,8 @@ do {
 
 ### ✨ New Features in 2.0.0
 
-- **Advanced Key Derivation**: `deriveMessageKey` and `deriveReceivedMessageKey` for external encryption workflows
-- **Alternative Initialization**: New `recipientInitialization` overload for external key derivation
+- **Advanced Key Derivation**: `RatchetKeyStateManager` with `deriveMessageKey` and `deriveReceivedMessageKey` for external encryption workflows
+- **Alternative Initialization**: New `recipientInitialization` overload in `RatchetKeyStateManager` for external key derivation
 - **OTK Consistency**: `setEnforceOTKConsistency(_:)` for strict one-time key validation
 - **Configuration Access**: `RatchetConfiguration` fields are now public for inspection
 - **Enhanced Logging**: `setLogLevel(_:)` for adjustable verbosity
@@ -488,22 +492,11 @@ swift test --verbose
 
 **Session Management:**
 - `senderInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)` - Initialize sending session
-- `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)` - Initialize receiving session (standard)
-- `recipientInitialization(sessionIdentity:sessionSymmetricKey:localKeys:remoteKeys:ciphertext:)` - Initialize receiving session (advanced)
+- `recipientInitialization(sessionIdentity:sessionSymmetricKey:header:localKeys:)` - Initialize receiving session
 
 **Message Operations:**
 - `ratchetEncrypt(plainText:sessionId:)` - Encrypt message
 - `ratchetDecrypt(_:sessionId:)` - Decrypt message
-
-**Advanced Key Derivation:**
-- `deriveMessageKey(sessionId:)` - Derive key for external encryption
-- `deriveReceivedMessageKey(sessionId:cipherText:)` - Derive key for external decryption
-- `getSentMessageNumber(sessionId:)` - Get current sent message number
-- `getReceivedMessageNumber(sessionId:)` - Get current received message number
-- `setCipherText(sessionId:cipherText:)` - Set MLKEM ciphertext in session state
-- `getCipherText(sessionId:)` - Get MLKEM ciphertext from session state
-
-**⚠️ Warning:** These advanced methods should only be used when NOT using `ratchetEncrypt`/`ratchetDecrypt`. They are intended for use in a separate `RatchetKeyStateManager` instance.
 
 **Configuration:**
 - `setDelegate(_:)` - Set session identity delegate
@@ -512,7 +505,34 @@ swift test --verbose
 - `shutdown()` - Clean up and persist state
 
 **Properties:**
-- `sessionConfigurations: [UUID: SessionConfiguration]` - Read-only access to active sessions
+- `unownedExecutor: UnownedSerialExecutor` - Access to actor's executor
+
+#### `RatchetKeyStateManager<Hash>`
+
+**Initialization:**
+- `init(executor:logger:ratchetConfiguration:)` - Create manager with optional custom configuration
+
+**Session Management:**
+- `senderInitialization(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)` - Initialize sending session
+- `recipientInitialization(sessionIdentity:sessionSymmetricKey:localKeys:remoteKeys:ciphertext:)` - Initialize receiving session (for external key derivation)
+
+**Advanced Key Derivation:**
+- `deriveMessageKey(sessionId:)` - Derive key for external encryption (returns `(SymmetricKey, Int)`)
+- `deriveReceivedMessageKey(sessionId:cipherText:)` - Derive key for external decryption (returns `(SymmetricKey, Int)`)
+- `getSentMessageNumber(sessionId:)` - Get current sent message number (0-based)
+- `getReceivedMessageNumber(sessionId:)` - Get current received message number (0-based)
+- `setCipherText(sessionId:cipherText:)` - Set MLKEM ciphertext in session state
+- `getCipherText(sessionId:)` - Get MLKEM ciphertext from session state
+
+**⚠️ Warning:** These methods should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. They are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
+
+**Configuration:**
+- `setDelegate(_:)` - Set session identity delegate
+- `setEnforceOTKConsistency(_:)` - Enable/disable strict OTK validation
+- `setLogLevel(_:)` - Set logging verbosity
+- `shutdown()` - Clean up and persist state
+
+**Properties:**
 - `unownedExecutor: UnownedSerialExecutor` - Access to actor's executor
 
 #### `SessionIdentity`
