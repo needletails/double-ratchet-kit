@@ -128,84 +128,200 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
         sessionSymmetricKey: SymmetricKey,
         messageType: RatchetStateCore<Hash>.MessageType,
     ) async throws {
-        // Check if configuration already exists
-        if let existingConfig = await core.sessionConfigurations[sessionIdentity.id] {
-            var config = existingConfig
-            config.sessionIdentity = sessionIdentity
-            config.sessionSymmetricKey = sessionSymmetricKey
-            await core.setSessionIdentity(configuration: config)
-        } else {
-            let config = RatchetStateCore<Hash>.SessionConfiguration(
-                sessionIdentity: sessionIdentity,
-                sessionSymmetricKey: sessionSymmetricKey,
-                state: nil
-            )
-            await core.setSessionIdentity(configuration: config)
-        }
-        
-        // Load state from session identity if available
-        if let props = await sessionIdentity.props(symmetricKey: sessionSymmetricKey),
-           let existingState = props.state {
-            var config = await core.sessionConfigurations[sessionIdentity.id]!
-            config.state = existingState
-            await core.setSessionIdentity(configuration: config)
-        } else {
-            // Initialize new state based on message type
-            var config = await core.sessionConfigurations[sessionIdentity.id]!
-            let keys: RatchetStateCore<Hash>.EncryptionKeys
-            var ratchetState: RatchetState
-            
-            switch messageType {
-            case .sending(let k):
-                keys = k
-                // For sender initialization, generate PQXDH ciphertext
-                let pqxdhCipher = try await core.derivePQXDHFinalKey(
-                    localLongTermPrivateKey: keys.localLongTermPrivateKey,
-                    localOneTimePrivateKey: keys.localOneTimePrivateKey,
-                    remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
-                    remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
-                    remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey
-                )
-                
-                // Derive initial chain key from root key
-                let initialChainKey = try await core.deriveChainKey(
-                    from: pqxdhCipher.symmetricKey,
-                    configuration: core.defaultRatchetConfiguration
-                )
-                
-                ratchetState = RatchetState(
-                    remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
-                    remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
-                    remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
-                    localLongTermPrivateKey: keys.localLongTermPrivateKey,
-                    localOneTimePrivateKey: keys.localOneTimePrivateKey,
-                    localMLKEMPrivateKey: keys.localMLKEMPrivateKey,
-                    rootKey: pqxdhCipher.symmetricKey,
-                    messageCiphertext: pqxdhCipher.ciphertext,
-                    sendingKey: initialChainKey
-                )
-                
-            case .receiving(let k):
-                keys = k
-                ratchetState = RatchetState(
-                    remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
-                    remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
-                    remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
-                    localLongTermPrivateKey: keys.localLongTermPrivateKey,
-                    localOneTimePrivateKey: keys.localOneTimePrivateKey,
-                    localMLKEMPrivateKey: keys.localMLKEMPrivateKey
-                )
+        if var configuration = await core.sessionConfigurations[sessionIdentity.id] {
+            // 1. Check if we have a currently loaded session
+            logger.log(level: .trace, message: "Found initialized session, reusing ratchet state")
+            guard var currentProps = await configuration
+                .sessionIdentity
+                .props(symmetricKey: sessionSymmetricKey) else {
+                throw RatchetError.missingProps
             }
             
-            config.state = ratchetState
+            // If we have a session and we call this method again we need to check if it is a new type
+            switch messageType {
+            case let .sending(keys):
+                guard let state = configuration.state else {
+                    throw RatchetError.stateUninitialized
+                }
+                
+                // Check if sending handshake is finished
+                if state.sendingHandshakeFinished == false || state.messageCiphertext == nil {
+                    // Do initial sending setup and update the state with the ciphertext and sending key
+                    var chainKey: SymmetricKey
+                    var updatedState = state
+                    
+                    if let sendingKey = state.sendingKey {
+                        // Sending key already exists, use it
+                        chainKey = sendingKey
+                        currentProps.state = updatedState
+                    } else {
+                        // Generate PQXDH ciphertext for sending
+                        let pqxdhCipher = try await core.derivePQXDHFinalKey(
+                            localLongTermPrivateKey: keys.localLongTermPrivateKey,
+                            localOneTimePrivateKey: keys.localOneTimePrivateKey,
+                            remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
+                            remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
+                            remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey
+                        )
+                        
+                        // Update root key if not set
+                        if updatedState.rootKey == nil {
+                            updatedState = await updatedState.updateRootKey(pqxdhCipher.symmetricKey)
+                        }
+                        
+                        // Update ciphertext
+                        updatedState = await updatedState.updateCiphertext(pqxdhCipher.ciphertext)
+                        
+                        // Derive initial chain key from root key
+                        if let rootKey = updatedState.rootKey {
+                            chainKey = try await core.deriveChainKey(
+                                from: rootKey,
+                                configuration: core.defaultRatchetConfiguration
+                            )
+                        } else {
+                            chainKey = try await core.deriveChainKey(
+                                from: pqxdhCipher.symmetricKey,
+                                configuration: core.defaultRatchetConfiguration
+                            )
+                        }
+                        
+                        // Update state with sending key
+                        updatedState = await updatedState.updateSendingKey(chainKey)
+                        currentProps.state = updatedState
+                    }
+                } else {
+                    // Sending handshake already finished, use existing state
+                    currentProps.state = state
+                }
+                
+            case .receiving(let keys):
+                // For receiving, state should already be initialized via recipientInitialization
+                // Just ensure we have the state
+                if let state = currentProps.state {
+                    currentProps.state = state
+                } else {
+                    // If no state exists, create a basic receiving state
+                    let ratchetState = RatchetState(
+                        remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
+                        remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
+                        remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
+                        localLongTermPrivateKey: keys.localLongTermPrivateKey,
+                        localOneTimePrivateKey: keys.localOneTimePrivateKey,
+                        localMLKEMPrivateKey: keys.localMLKEMPrivateKey
+                    )
+                    currentProps.state = ratchetState
+                }
+            }
             
-            await core.setSessionIdentity(configuration: config)
+            configuration.state = currentProps.state
+            try await sessionIdentity.updateIdentityProps(symmetricKey: sessionSymmetricKey, props: currentProps)
+            
+            configuration.sessionIdentity = sessionIdentity
+            configuration.sessionSymmetricKey = sessionSymmetricKey
+            
+            try await core.updateSessionIdentity(configuration: configuration, persist: true)
+            // Ensure configuration is set in memory for subsequent operations
+            await core.setSessionIdentity(configuration: configuration)
+        } else {
+            logger.log(level: .trace, message: "Session not initialized yet, creating state for ratchet")
+            var configuration = RatchetStateCore<Hash>.SessionConfiguration(
+                sessionIdentity: sessionIdentity,
+                sessionSymmetricKey: sessionSymmetricKey)
+            
+            guard var props = await sessionIdentity.props(symmetricKey: sessionSymmetricKey) else {
+                throw RatchetError.missingProps
+            }
+            
+            if var state = props.state {
+                // If this session identity is not loaded into memory we may have rotated key before loaded;
+                // therefore we need to update session identity. If not we assure we are using the keys
+                // received from the consumer when they feed the session identity.
+                switch messageType {
+                case let .sending(keys):
+                    // Check if sending handshake needs to be completed
+                    if state.sendingHandshakeFinished == false || state.messageCiphertext == nil {
+                        // Generate PQXDH ciphertext for sending
+                        let pqxdhCipher = try await core.derivePQXDHFinalKey(
+                            localLongTermPrivateKey: keys.localLongTermPrivateKey,
+                            localOneTimePrivateKey: keys.localOneTimePrivateKey,
+                            remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
+                            remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
+                            remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey
+                        )
+                        
+                        // Update root key if not set
+                        if state.rootKey == nil {
+                            state = await state.updateRootKey(pqxdhCipher.symmetricKey)
+                        }
+                        
+                        // Update ciphertext
+                        state = await state.updateCiphertext(pqxdhCipher.ciphertext)
+                        
+                        // Derive initial chain key from root key
+                        let initialChainKey: SymmetricKey
+                        if let rootKey = state.rootKey {
+                            initialChainKey = try await core.deriveChainKey(
+                                from: rootKey,
+                                configuration: core.defaultRatchetConfiguration
+                            )
+                        } else {
+                            initialChainKey = try await core.deriveChainKey(
+                                from: pqxdhCipher.symmetricKey,
+                                configuration: core.defaultRatchetConfiguration
+                            )
+                        }
+                        
+                        // Update state with sending key
+                        state = await state.updateSendingKey(initialChainKey)
+                    }
+                    
+                case .receiving(let keys):
+                    // For receiving, state should already be set up via recipientInitialization
+                    // Just ensure keys are updated if needed
+                    if state.remoteLongTermPublicKey != keys.remoteLongTermPublicKey {
+                        state = await state.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
+                    }
+                    if state.remoteOneTimePublicKey != keys.remoteOneTimePublicKey {
+                        state = await state.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
+                    }
+                    if state.remoteMLKEMPublicKey != keys.remoteMLKEMPublicKey {
+                        state = await state.updateRemoteMLKEMPublicKey(keys.remoteMLKEMPublicKey)
+                    }
+                }
+                configuration.state = state
+            } else {
+                // Initialize new state based on message type
+                // First, set the configuration in memory so core.setState can access it
+                await core.setSessionIdentity(configuration: configuration)
+                
+                let state: RatchetState
+                switch messageType {
+                case .sending:
+                    // For sending, use core.setState which generates ciphertext
+                    state = try await core.setState(for: messageType, configuration: configuration)
+                case let .receiving(keys):
+                    // For receiving in external key derivation workflow, create state without header
+                    // The ciphertext is provided separately via recipientInitialization
+                    state = RatchetState(
+                        remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
+                        remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
+                        remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
+                        localLongTermPrivateKey: keys.localLongTermPrivateKey,
+                        localOneTimePrivateKey: keys.localOneTimePrivateKey,
+                        localMLKEMPrivateKey: keys.localMLKEMPrivateKey
+                    )
+                }
+                props.state = state
+                configuration.sessionIdentity = sessionIdentity
+                configuration.state = state
+                try await core.updateSessionIdentity(configuration: configuration)
+            }
+            
+            try await sessionIdentity.updateIdentityProps(symmetricKey: sessionSymmetricKey, props: props)
+            try await core.updateSessionIdentity(configuration: configuration, persist: true)
+            // Ensure configuration is set in memory for subsequent operations
+            await core.setSessionIdentity(configuration: configuration)
         }
-        
-        try await core.updateSessionIdentity(
-            configuration: core.sessionConfigurations[sessionIdentity.id]!,
-            persist: false
-        )
     }
     
     /// Derives the next message key for sending without performing full message encryption.

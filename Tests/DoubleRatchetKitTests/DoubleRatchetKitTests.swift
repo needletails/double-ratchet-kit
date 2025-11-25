@@ -287,6 +287,162 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
     }
     
     @Test
+    func testTwoWayRatchetingWithExternalKeyDerivation() async throws {
+        let aliceManager = RatchetKeyStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = RatchetKeyStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+        
+        do {
+            // 1) Generate identities and key bundles
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+            
+            // 2) Alice initializes sending session to Bob
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: self.aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate
+            )
+            
+            // 3) Extract the initial MLKEM ciphertext from Alice's manager session state
+            let aliceToBobCiphertext = try await aliceManager.getCipherText(sessionId: bobIdentityLatest.id)
+            
+            // 4) Bob initializes as receiver from Alice
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+        
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: self.bobDBSK,
+                localKeys: bundle.bobPrivate,
+                remoteKeys: bundle.alicePublic,
+                ciphertext: aliceToBobCiphertext)
+            
+            // 5) Alice -> Bob: Message 1
+            let (mk1AliceToBob, msgNum1AliceToBob) = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            let (mk1BobFromAlice, msgNum1BobFromAlice) = try await bobManager.deriveReceivedMessageKey(
+                sessionId: aliceIdentityLatest.id,
+                cipherText: aliceToBobCiphertext
+            )
+            
+            let p1AliceToBob = Data("ALICE_TO_BOB_1".utf8)
+            let c1AliceToBob = try #require(try crypto.encrypt(data: p1AliceToBob, symmetricKey: mk1AliceToBob))
+            let d1AliceToBob = try #require(try crypto.decrypt(data: c1AliceToBob, symmetricKey: mk1BobFromAlice))
+            #expect(d1AliceToBob == p1AliceToBob)
+            #expect(msgNum1AliceToBob == 0)
+            #expect(msgNum1BobFromAlice == 0)
+            
+            // 6) Bob initializes sending session to Alice (reverse direction)
+            guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityLatest2,
+                sessionSymmetricKey: self.bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate
+            )
+            
+            // 7) Extract the MLKEM ciphertext from Bob's manager session state
+            let bobToAliceCiphertext = try await bobManager.getCipherText(sessionId: aliceIdentityLatest2.id)
+            
+            // 8) Alice initializes as receiver from Bob
+            guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityLatest2,
+                sessionSymmetricKey: self.aliceDbsk,
+                localKeys: bundle.alicePrivate,
+                remoteKeys: bundle.bobPublic,
+                ciphertext: bobToAliceCiphertext)
+            
+            // 9) Bob -> Alice: Message 1
+            let (mk1BobToAlice, msgNum1BobToAlice) = try await bobManager.deriveMessageKey(sessionId: aliceIdentityLatest2.id)
+            let (mk1AliceFromBob, msgNum1AliceFromBob) = try await aliceManager.deriveReceivedMessageKey(
+                sessionId: bobIdentityLatest2.id,
+                cipherText: bobToAliceCiphertext
+            )
+            
+            let p1BobToAlice = Data("BOB_TO_ALICE_1".utf8)
+            let c1BobToAlice = try #require(try crypto.encrypt(data: p1BobToAlice, symmetricKey: mk1BobToAlice))
+            let d1BobToAlice = try #require(try crypto.decrypt(data: c1BobToAlice, symmetricKey: mk1AliceFromBob))
+            #expect(d1BobToAlice == p1BobToAlice)
+            #expect(msgNum1BobToAlice == 0)
+            #expect(msgNum1AliceFromBob == 0)
+            
+            // 10) Alice -> Bob: Message 2 (continuing in original direction)
+            let (mk2AliceToBob, msgNum2AliceToBob) = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            let (mk2BobFromAlice, msgNum2BobFromAlice) = try await bobManager.deriveReceivedMessageKey(
+                sessionId: aliceIdentityLatest.id,
+                cipherText: aliceToBobCiphertext
+            )
+            
+            let p2AliceToBob = Data("ALICE_TO_BOB_2".utf8)
+            let c2AliceToBob = try #require(try crypto.encrypt(data: p2AliceToBob, symmetricKey: mk2AliceToBob))
+            let d2AliceToBob = try #require(try crypto.decrypt(data: c2AliceToBob, symmetricKey: mk2BobFromAlice))
+            #expect(d2AliceToBob == p2AliceToBob)
+            #expect(msgNum2AliceToBob == 1)
+            #expect(msgNum2BobFromAlice == 1)
+            
+            // 11) Bob -> Alice: Message 2 (continuing in reverse direction)
+            let (mk2BobToAlice, msgNum2BobToAlice) = try await bobManager.deriveMessageKey(sessionId: aliceIdentityLatest2.id)
+            let (mk2AliceFromBob, msgNum2AliceFromBob) = try await aliceManager.deriveReceivedMessageKey(
+                sessionId: bobIdentityLatest2.id,
+                cipherText: bobToAliceCiphertext
+            )
+            
+            let p2BobToAlice = Data("BOB_TO_ALICE_2".utf8)
+            let c2BobToAlice = try #require(try crypto.encrypt(data: p2BobToAlice, symmetricKey: mk2BobToAlice))
+            let d2BobToAlice = try #require(try crypto.decrypt(data: c2BobToAlice, symmetricKey: mk2AliceFromBob))
+            #expect(d2BobToAlice == p2BobToAlice)
+            #expect(msgNum2BobToAlice == 1)
+            #expect(msgNum2AliceFromBob == 1)
+            
+            // 12) Verify bidirectional communication works by sending more messages in both directions
+            // Alice -> Bob: Message 3
+            let (mk3AliceToBob, msgNum3AliceToBob) = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            let (mk3BobFromAlice, msgNum3BobFromAlice) = try await bobManager.deriveReceivedMessageKey(
+                sessionId: aliceIdentityLatest.id,
+                cipherText: aliceToBobCiphertext
+            )
+            
+            let p3AliceToBob = Data("ALICE_TO_BOB_3".utf8)
+            let c3AliceToBob = try #require(try crypto.encrypt(data: p3AliceToBob, symmetricKey: mk3AliceToBob))
+            let d3AliceToBob = try #require(try crypto.decrypt(data: c3AliceToBob, symmetricKey: mk3BobFromAlice))
+            #expect(d3AliceToBob == p3AliceToBob)
+            #expect(msgNum3AliceToBob == 2)
+            #expect(msgNum3BobFromAlice == 2)
+            
+            // Bob -> Alice: Message 3
+            let (mk3BobToAlice, msgNum3BobToAlice) = try await bobManager.deriveMessageKey(sessionId: aliceIdentityLatest2.id)
+            let (mk3AliceFromBob, msgNum3AliceFromBob) = try await aliceManager.deriveReceivedMessageKey(
+                sessionId: bobIdentityLatest2.id,
+                cipherText: bobToAliceCiphertext
+            )
+            
+            let p3BobToAlice = Data("BOB_TO_ALICE_3".utf8)
+            let c3BobToAlice = try #require(try crypto.encrypt(data: p3BobToAlice, symmetricKey: mk3BobToAlice))
+            let d3BobToAlice = try #require(try crypto.decrypt(data: c3BobToAlice, symmetricKey: mk3AliceFromBob))
+            #expect(d3BobToAlice == p3BobToAlice)
+            #expect(msgNum3BobToAlice == 2)
+            #expect(msgNum3AliceFromBob == 2)
+            
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+    
+    @Test
     func testBidirectionalInterleavedOutOfOrder() async throws {
         let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
