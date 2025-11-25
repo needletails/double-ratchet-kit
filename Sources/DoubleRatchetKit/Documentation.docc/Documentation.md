@@ -23,7 +23,7 @@ DoubleRatchetKit implements the Signal protocol's Double Ratchet algorithm with 
 
 ### Core Components
 
-- <doc:RatchetStateManager>
+- <doc:DoubleRatchetStateManager>
 - <doc:SessionIdentity>
 - <doc:RatchetState>
 - <doc:KeyManagement>

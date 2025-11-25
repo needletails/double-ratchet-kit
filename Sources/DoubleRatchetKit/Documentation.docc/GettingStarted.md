@@ -50,7 +50,7 @@ let executor = //Some Executor
 let logger = NeedleTailLogger()
 
 // Initialize the ratchet state manager
-let ratchetManager = RatchetStateManager<SHA256>(
+let ratchetManager = DoubleRatchetStateManager<SHA256>(
     executor: executor,
     logger: logger
 )
@@ -225,11 +225,11 @@ await ratchetManager.setDelegate(MySessionDelegate())
 
 ### Actor Isolation
 
-The `RatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
+The `DoubleRatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
 
 ```swift
 // All state mutations are automatically serialized
-let ratchetManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+let ratchetManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
 
 Task {
     let message1 = try await ratchetManager.ratchetEncrypt(plainText: data1)
@@ -278,8 +278,8 @@ For managing multiple sessions, create separate manager instances:
 
 ```swift
 // Each session should have its own manager instance
-let aliceManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
-let bobManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
+let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
 
 // Each manager can operate concurrently
 await withTaskGroup(of: Void.self) { group in

@@ -8,12 +8,12 @@ This document provides a comprehensive reference for all public APIs in DoubleRa
 
 ## Core Classes
 
-### RatchetStateManager
+### DoubleRatchetStateManager
 
 The main actor that manages the cryptographic state for secure messaging.
 
 ```swift
-public actor RatchetStateManager<Hash: HashFunction & Sendable>
+public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable>
 ```
 
 #### Initialization
@@ -180,7 +180,7 @@ Derives the next message key for sending without performing full message encrypt
 
 **Important:** This method advances the ratchet state. Each call derives a new key and increments the message counter. Do not call this method multiple times for the same message.
 
-**Warning:** This method is available in `ExternalRatchetStateManager`, not `RatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
+**Warning:** This method is available in `RatchetKeyStateManager`, not `DoubleRatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
 
 **See Also:** `deriveReceivedMessageKey(sessionId:cipherText:)` for the receiving side equivalent.
 
@@ -206,7 +206,7 @@ Derives the next message key for receiving without performing full message decry
 
 **Important:** This method advances the ratchet state. Each call derives a new key. Do not call this method multiple times for the same message.
 
-**Warning:** This method is available in `ExternalRatchetStateManager`, not `RatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
+**Warning:** This method is available in `RatchetKeyStateManager`, not `DoubleRatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
 
 **See Also:** `deriveMessageKey(sessionId:)` for the sending side equivalent.
 
@@ -863,10 +863,10 @@ public struct SessionConfiguration: Sendable
 
 **Note:** This struct is public for type inspection only. Its properties are intentionally internal to prevent direct mutation, which could break the internal state management of the ratchet state manager. Use the public API methods to manage sessions rather than modifying configurations directly.
 
-**Access:** Available through the `sessionConfigurations` property on `RatchetStateManager`.
+**Access:** Available through the `sessionConfigurations` property on `DoubleRatchetStateManager`.
 
 ## Related Documentation
 
-- <doc:RatchetStateManager> - Main protocol interface
+- <doc:DoubleRatchetStateManager> - Main protocol interface
 - <doc:SessionIdentity> - Session identity management
 - <doc:KeyManagement> - Cryptographic key handling 

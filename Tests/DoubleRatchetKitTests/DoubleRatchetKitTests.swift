@@ -22,7 +22,7 @@ import Testing
 @testable import DoubleRatchetKit
 
 @Suite(.serialized)
-actor RatchetStateManagerTests: SessionIdentityDelegate {
+actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
     
     let testableRatchetConfiguration = RatchetConfiguration(
         messageKeyData: Data([0x00]), // Data for message key derivation.
@@ -39,9 +39,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testBidirectionalOutOfOrderMessages() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -205,9 +205,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testExternalKeyDerivationWithoutRatchetAPIs() async throws {
-        let aliceManager = ExternalRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = RatchetKeyStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = ExternalRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = RatchetKeyStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -288,9 +288,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testBidirectionalInterleavedOutOfOrder() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -402,9 +402,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testCallFlowLogsBidirectionalOutOfOrder() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -760,9 +760,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func ratchetEncryptDecryptEncrypt() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
@@ -855,9 +855,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func ratchetEncryptDecrypt80Messages() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -946,9 +946,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func ratchetEncryptDecryptMessagesPerUserWitNewIntializations() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1157,9 +1157,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func ratchetEncryptDecryptOutofOrderMessagesPerUserWitNewIntializations() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1378,9 +1378,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func stressOutOfOrderMessages() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1432,9 +1432,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func outOfOrderHeaders() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1484,9 +1484,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     // --- NEW: SERIALIZATION / STATE SAVE-LOAD TEST ---
     @Test
     func serializationAndResumingRatchet() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1528,9 +1528,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func rotatedKeys() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1740,9 +1740,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testErrorHandling() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1812,13 +1812,13 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testConcurrentAccess() async throws {
-        let aliceManager1 = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager1 = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager1.setDelegate(self)
-        let aliceManager2 = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager2 = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager2.setDelegate(self)
-        let bobManager1 = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager1 = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager1.setDelegate(self)
-        let bobManager2 = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager2 = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager2.setDelegate(self)
         
         do {
@@ -1887,9 +1887,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testSessionRecovery() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -1921,9 +1921,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
             #expect(decrypted1 == "Initial message".data(using: .utf8)!)
             
             // Simulate session corruption by creating new managers
-            let aliceManagerRecovery = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+            let aliceManagerRecovery = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
             await aliceManagerRecovery.setDelegate(self)
-            let bobManagerRecovery = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+            let bobManagerRecovery = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
             await bobManagerRecovery.setDelegate(self)
             
             // Re-establish session with same identities
@@ -1964,9 +1964,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testKeyExhaustion() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2017,11 +2017,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testMultiPartyScenario() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
-        let charlieManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let charlieManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await charlieManager.setDelegate(self)
         
         do {
@@ -2092,9 +2092,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     @Test
     func testHashFunctionVariations() async throws {
         // Test with SHA512 instead of SHA256
-        let aliceManager = RatchetStateManager<SHA512>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA512>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA512>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA512>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2135,9 +2135,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testDelegateCallbacks() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2186,9 +2186,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testMemoryPressureHandling() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2237,9 +2237,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testSessionTimeoutAndExpiry() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2288,9 +2288,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testStateSynchronizationFailureDetection() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2374,9 +2374,9 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
     
     @Test
     func testGapFillMisalignmentOnCorruptedOutOfOrder() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManager.setDelegate(self)
         
         do {
@@ -2439,11 +2439,11 @@ actor RatchetStateManagerTests: SessionIdentityDelegate {
 
     @Test
     func testOTKConsistencyEnforcementEndToEnd() async throws {
-        let aliceManager = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
-        let bobManagerLoose = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManagerLoose = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManagerLoose.setDelegate(self)
-        let bobManagerStrict = RatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        let bobManagerStrict = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await bobManagerStrict.setDelegate(self)
         await bobManagerLoose.setEnforceOTKConsistency(false)
         await bobManagerStrict.setEnforceOTKConsistency(true)

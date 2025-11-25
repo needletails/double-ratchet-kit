@@ -145,7 +145,7 @@ let encryptedHeader = encrypt(header, with: headerKey)
 DoubleRatchetKit uses Swift actors for thread safety:
 
 ```swift
-public actor RatchetStateManager<Hash: HashFunction & Sendable> {
+public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
     // All state mutations are serialized through the actor
 }
 ```

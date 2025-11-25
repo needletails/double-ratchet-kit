@@ -1,15 +1,15 @@
-# RatchetStateManager
+# DoubleRatchetStateManager
 
 The main actor that manages the cryptographic state for secure messaging using the Double Ratchet algorithm.
 
 ## Overview
 
-`RatchetStateManager` is the primary interface for implementing secure messaging with the Double Ratchet protocol. It manages session state, handles key rotation, and provides encryption/decryption operations for messages.
+`DoubleRatchetStateManager` is the primary interface for implementing secure messaging with the Double Ratchet protocol. It manages session state, handles key rotation, and provides encryption/decryption operations for messages.
 
 ## Declaration
 
 ```swift
-public actor RatchetStateManager<Hash: HashFunction & Sendable>
+public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable>
 ```
 
 ## Generic Parameters
@@ -23,7 +23,7 @@ public actor RatchetStateManager<Hash: HashFunction & Sendable>
 **Default Configuration:**
 
 ```swift
-let ratchetManager = RatchetStateManager<SHA256>(
+let ratchetManager = DoubleRatchetStateManager<SHA256>(
     executor: executor,
     logger: logger
 )
@@ -40,7 +40,7 @@ let customConfig = RatchetConfiguration(
     maxSkippedMessageKeys: 1000
 )
 
-let ratchetManager = RatchetStateManager<SHA256>(
+let ratchetManager = DoubleRatchetStateManager<SHA256>(
     executor: executor,
     logger: logger,
     ratchetConfiguration: customConfig
@@ -175,7 +175,7 @@ let decryptedMessage = try await ratchetManager.ratchetDecrypt(
 
 #### Advanced Key Derivation
 
-For advanced use cases where you want to handle encryption/decryption externally, use `ExternalRatchetStateManager` instead of `RatchetStateManager`. See the `ExternalRatchetStateManager` documentation for details on external key derivation workflows.
+For advanced use cases where you want to handle encryption/decryption externally, use `RatchetKeyStateManager` instead of `DoubleRatchetStateManager`. See the `RatchetKeyStateManager` documentation for details on external key derivation workflows.
 
 **Important:** Do not mix external key derivation methods with the standard `ratchetEncrypt`/`ratchetDecrypt` API. Use separate manager instances for each workflow to avoid state inconsistencies and security issues.
 
@@ -283,7 +283,7 @@ Notifies that a new one-time key should be generated and made available.
 
 ### Actor Isolation
 
-`RatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
+`DoubleRatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
 
 - **Isolated State**: All state mutations are isolated to the actor
 - **Concurrent Access**: Multiple threads can safely call methods concurrently
@@ -301,7 +301,7 @@ The manager automatically handles memory management for cryptographic state:
 
 ```swift
 // Safe concurrent access
-let ratchetManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+let ratchetManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
 
 // Multiple tasks can safely access the same manager
 await withTaskGroup(of: RatchetMessage.self) { group in
@@ -320,8 +320,8 @@ For managing multiple sessions, create separate manager instances:
 
 ```swift
 // Each session should have its own manager instance
-let session1Manager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
-let session2Manager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+let session1Manager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
+let session2Manager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
 
 // Each manager can operate independently and concurrently
 ```
@@ -371,7 +371,7 @@ import NeedleTailLogger
 // Create manager
 let executor = MainActor.shared
 let logger = NeedleTailLogger()
-let ratchetManager = RatchetStateManager<SHA256>(executor: executor, logger: logger)
+let ratchetManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
 
 // Set delegate
 await ratchetManager.setDelegate(MySessionDelegate())

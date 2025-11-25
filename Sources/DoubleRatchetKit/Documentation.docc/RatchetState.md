@@ -302,6 +302,6 @@ func handleOutOfOrderMessage(_ message: RatchetMessage, state: RatchetState) -> 
 
 ## Related Documentation
 
-- <doc:RatchetStateManager> for the main actor managing ratchet state
+- <doc:DoubleRatchetStateManager> for the main actor managing ratchet state
 - <doc:SessionIdentity> for session identity management
 - <doc:KeyManagement> for key management operations

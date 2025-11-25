@@ -480,7 +480,7 @@ try await ratchetManager.senderInitialization(
 
 ## Related Documentation
 
-- <doc:RatchetStateManager> - Main protocol interface
+- <doc:DoubleRatchetStateManager> - Main protocol interface
 - <doc:SessionIdentity> - Session identity management
 - <doc:RatchetState> - Session state management
 - <doc:SecurityModel> - Security considerations 
