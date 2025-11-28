@@ -42,7 +42,6 @@ public enum CryptoError: Error {
 }
 
 /// Represents the stored identity for an encrypted session.
-/// - Note: Field names correspond to Signal protocol key types.
 public struct _SessionIdentity: Codable, Sendable {
     public let id: UUID
     public let secretName: String
@@ -92,7 +91,6 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     /// Model class handling encrypted storage of `_SessionIdentity`.
     ///
     /// This struct maps to cryptographic key components and session metadata.
-    /// It follows the Signal Protocol naming pattern:
     /// - `longTermPublicKey` → **IKB**
     /// - `signingPublicKey` → **SPKB**
     /// - `oneTimePublicKey` → **OPKBₙ**
@@ -106,7 +104,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public var longTermPublicKey: Data
 
         /// Signed Pre-Key Bundle (signing public key) → SPKB
-        public let signingPublicKey: Data
+        public var signingPublicKey: Data
 
         /// One-Time Pre-Key Bundle (optional) → OPKBₙ
         public var oneTimePublicKey: CurvePublicKey?
@@ -127,6 +125,10 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public mutating func setLongTermPublicKey(_ data: Data) {
             self.longTermPublicKey = data
         }
+
+         public mutating func setSigningPublicKey(_ key: Data) {
+            self.signingPublicKey = key
+        }
         
         public mutating func setOneTimePublicKey(_ key: CurvePublicKey) {
             self.oneTimePublicKey = key
@@ -135,7 +137,6 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public mutating func setMLKEMPublicKey(_ key: MLKEMPublicKey) {
             self.mlKEMPublicKey = key
         }
-        
         
         enum CodingKeys: String, CodingKey, Codable, Sendable {
             case secretName = "a",
