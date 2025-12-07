@@ -420,7 +420,7 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         case let .sending(keys):
             let (sendingKey, cipher) = try await deriveNextMessageKey(
                 localLongTermPrivateKey: keys.localLongTermPrivateKey,
-                remotePublicLongTermKey: keys.remoteLongTermPublicKey,
+                remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
                 localOneTimePrivateKey: keys.localOneTimePrivateKey,
                 remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
                 remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
@@ -557,16 +557,17 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     }
     
     private func deriveNextMessageKey(localLongTermPrivateKey: LocalLongTermPrivateKey,
-                                      remotePublicLongTermKey: RemoteLongTermPublicKey,
+                                      remoteLongTermPublicKey: RemoteLongTermPublicKey,
                                       localOneTimePrivateKey: LocalOneTimePrivateKey?,
                                       remoteOneTimePublicKey: RemoteOneTimePublicKey?,
                                       remoteMLKEMPublicKey: RemoteMLKEMPublicKey,
                                       configuration: SessionConfiguration
     ) async throws -> (SymmetricKey, PQXDHCipher) {
+
         let cipher = try await derivePQXDHFinalKey(
             localLongTermPrivateKey: localLongTermPrivateKey,
             localOneTimePrivateKey: localOneTimePrivateKey,
-            remoteLongTermPublicKey: remotePublicLongTermKey,
+            remoteLongTermPublicKey: remoteLongTermPublicKey,
             remoteOneTimePublicKey: remoteOneTimePublicKey,
             remoteMLKEMPublicKey: remoteMLKEMPublicKey)
         

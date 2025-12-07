@@ -73,7 +73,7 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
                     localKeys: bundle.bobPrivate
                 )
             }
-            let da1 = try! await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id)
+            let da1 = try await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id)
             #expect(da1 == Data("A1".utf8))
             
             // Bob → Alice: change direction and decrypt first response in-order
@@ -2686,5 +2686,152 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
         let encoded = try BinaryEncoder().encode(someData)
         let decoded = try BinaryDecoder().decode(EncryptedHeader.self, from: encoded)
         #expect(decoded == someData)
+    }
+    
+    @Test
+    func testKeyModelSizeValidation() async throws {
+        // Valid Curve25519 key wrappers (32-byte raw representations)
+        let validCurveData = Data(repeating: 0x01, count: 32)
+        let _ = try CurvePrivateKey(validCurveData)
+        let _ = try CurvePublicKey(validCurveData)
+        
+        // Valid MLKEM public key wrapper (1568-byte raw representation)
+        let validMLKEMPublicData = Data(repeating: 0x02, count: 1568)
+        let _ = try MLKEMPublicKey(validMLKEMPublicData)
+        
+        // Invalid CurvePrivateKey size should throw KeyErrors.invalidKeySize
+        #expect(throws: KeyErrors.invalidKeySize.self) {
+            _ = try CurvePrivateKey(Data(repeating: 0x00, count: 16))
+        }
+        
+        // Invalid CurvePublicKey size should throw KeyErrors.invalidKeySize
+        #expect(throws: KeyErrors.invalidKeySize.self) {
+            _ = try CurvePublicKey(Data(repeating: 0x00, count: 64))
+        }
+        
+        // Invalid MLKEMPublicKey size should throw KeyErrors.invalidKeySize
+        #expect(throws: KeyErrors.invalidKeySize.self) {
+            _ = try MLKEMPublicKey(Data(repeating: 0x00, count: 32))
+        }
+    }
+    
+    @Test
+    func testSessionIdentityCryptoRoundTrip() async throws {
+        let (aliceIdentity, _, _) = try await createKeys()
+        
+        // Decrypt props with the correct database symmetric key
+        let initialProps = try await aliceIdentity.decryptProps(symmetricKey: bobDBSK)
+        #expect(initialProps.secretName == "alice")
+        
+        // Decryption with an incorrect key should fail
+        let wrongKey = SymmetricKey(size: .bits256)
+        await #expect(throws: CryptoKitError.self) {
+            _ = try await aliceIdentity.decryptProps(symmetricKey: wrongKey)
+        }
+        
+        // updateProps(_:): round-trip change is persisted
+        var updatedProps = initialProps
+        updatedProps.serverTrusted = true
+        updatedProps.verificationCode = "123456"
+        
+        let roundTripped = try await aliceIdentity.updateProps(
+            symmetricKey: bobDBSK,
+            props: updatedProps)
+        #expect(roundTripped?.serverTrusted == true)
+        #expect(roundTripped?.verificationCode == "123456")
+        
+        // updateIdentityProps(_:): further change is also persisted
+        var updatedProps2 = try #require(roundTripped)
+        updatedProps2.verifiedIdentity = false
+        try await aliceIdentity.updateIdentityProps(
+            symmetricKey: bobDBSK,
+            props: updatedProps2)
+        
+        let propsAfterUpdate = try await aliceIdentity.decryptProps(symmetricKey: bobDBSK)
+        #expect(propsAfterUpdate.verifiedIdentity == false)
+        
+        // makeDecryptedModel(_:): returns the underlying _SessionIdentity model
+        let model = try await aliceIdentity.makeDecryptedModel(
+            of: _SessionIdentity.self,
+            symmetricKey: bobDBSK)
+        #expect(model.id == aliceIdentity.id)
+        #expect(model.secretName == propsAfterUpdate.secretName)
+        #expect(model.longTermPublicKey == propsAfterUpdate.longTermPublicKey)
+        #expect(model.signingPublicKey == propsAfterUpdate.signingPublicKey)
+    }
+    
+    @Test
+    func testRatchetKeyStateManagerMessageCounters() async throws {
+        let aliceManager = RatchetKeyStateManager<SHA256>(
+            executor: executor,
+            ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        
+        let bobManager = RatchetKeyStateManager<SHA256>(
+            executor: executor,
+            ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+        
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+            
+            // Initialize sending and receiving sessions
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+            
+            let aliceToBobCiphertext = try await aliceManager.getCipherText(
+                sessionId: bobIdentityLatest.id)
+            
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                localKeys: bundle.bobPrivate,
+                remoteKeys: bundle.alicePublic,
+                ciphertext: aliceToBobCiphertext)
+            
+            // Initially, no messages have been sent or received
+            let sent0 = try await aliceManager.getSentMessageNumber(sessionId: bobIdentityLatest.id)
+            let received0 = try await bobManager.getReceivedMessageNumber(sessionId: aliceIdentityLatest.id)
+            #expect(sent0 == 0)
+            #expect(received0 == 0)
+            
+            // Derive first message keys and verify counters
+            _ = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            _ = try await bobManager.deriveReceivedMessageKey(
+                sessionId: aliceIdentityLatest.id,
+                cipherText: aliceToBobCiphertext)
+            
+            let sent1 = try await aliceManager.getSentMessageNumber(sessionId: bobIdentityLatest.id)
+            let received1 = try await bobManager.getReceivedMessageNumber(sessionId: aliceIdentityLatest.id)
+            #expect(sent1 == 1)
+            #expect(received1 == 1)
+            
+            // Derive second message keys and verify counters again
+            _ = try await aliceManager.deriveMessageKey(sessionId: bobIdentityLatest.id)
+            _ = try await bobManager.deriveReceivedMessageKey(
+                sessionId: aliceIdentityLatest.id,
+                cipherText: aliceToBobCiphertext)
+            
+            let sent2 = try await aliceManager.getSentMessageNumber(sessionId: bobIdentityLatest.id)
+            let received2 = try await bobManager.getReceivedMessageNumber(sessionId: aliceIdentityLatest.id)
+            #expect(sent2 == 2)
+            #expect(received2 == 2)
+            
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
     }
 }
