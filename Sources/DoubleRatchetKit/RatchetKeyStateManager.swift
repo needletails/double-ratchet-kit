@@ -114,6 +114,7 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
             sessionIdentity: sessionIdentity,
             sessionSymmetricKey: sessionSymmetricKey,
             messageType: .receiving(keys))
+        try await setCipherText(sessionId: sessionIdentity.id, cipherText: ciphertext)
     }
     
     /// Shuts down the ratchet state manager and persists all session states.
@@ -154,35 +155,35 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
                         // Sending key already exists, use it
                         chainKey = sendingKey
                         currentProps.state = updatedState
+                        
                     } else {
-                        // Generate PQXDH ciphertext for sending
-                        let pqxdhCipher = try await core.derivePQXDHFinalKey(
-                            localLongTermPrivateKey: keys.localLongTermPrivateKey,
-                            localOneTimePrivateKey: keys.localOneTimePrivateKey,
-                            remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
-                            remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
-                            remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey
-                        )
-                        
-                        // Update root key if not set
-                        if updatedState.rootKey == nil {
-                            updatedState = await updatedState.updateRootKey(pqxdhCipher.symmetricKey)
-                        }
-                        
-                        // Update ciphertext
-                        updatedState = await updatedState.updateCiphertext(pqxdhCipher.ciphertext)
-                        
+                       
                         // Derive initial chain key from root key
                         if let rootKey = updatedState.rootKey {
                             chainKey = try await core.deriveChainKey(
                                 from: rootKey,
-                                configuration: core.defaultRatchetConfiguration
-                            )
+                                configuration: core.defaultRatchetConfiguration)
+                            
                         } else {
+                            
+                            // Generate PQXDH ciphertext for sending
+                            let pqxdhCipher = try await core.derivePQXDHFinalKey(
+                                localLongTermPrivateKey: keys.localLongTermPrivateKey,
+                                localOneTimePrivateKey: keys.localOneTimePrivateKey,
+                                remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
+                                remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
+                                remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey
+                            )
+                            
+                            updatedState = await updatedState.updateRootKey(pqxdhCipher.symmetricKey)
+                            
+                            // Update ciphertext
+                            updatedState = await updatedState.updateCiphertext(pqxdhCipher.ciphertext)
+                            
                             chainKey = try await core.deriveChainKey(
                                 from: pqxdhCipher.symmetricKey,
-                                configuration: core.defaultRatchetConfiguration
-                            )
+                                configuration: core.defaultRatchetConfiguration)
+                            
                         }
                         
                         // Update state with sending key
@@ -308,8 +309,7 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
                         remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
                         localLongTermPrivateKey: keys.localLongTermPrivateKey,
                         localOneTimePrivateKey: keys.localOneTimePrivateKey,
-                        localMLKEMPrivateKey: keys.localMLKEMPrivateKey
-                    )
+                        localMLKEMPrivateKey: keys.localMLKEMPrivateKey)
                 }
                 props.state = state
                 configuration.sessionIdentity = sessionIdentity
@@ -498,14 +498,16 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
                     localOneTimePrivateKey: state.localOneTimePrivateKey,
                     localMLKEMPrivateKey: state.localMLKEMPrivateKey,
                     receivedCiphertext: cipherText)
-                
+
                 // Derive chain key from the new root key.
                 chainKey = try await core.deriveChainKey(from: finalReceivingKey, configuration: core.defaultRatchetConfiguration)
                 let nextChainKey = try await core.deriveChainKey(from: chainKey, configuration: core.defaultRatchetConfiguration)
                 // Update root and receiving chain key in state for ratchet progression.
                 state = await state.updateRootKey(finalReceivingKey)
                 state = await state.updateReceivingKey(nextChainKey)
+                
             } else {
+                
                 if let receivingKey = state.receivingKey {
                     chainKey = receivingKey
                 } else {
@@ -563,7 +565,6 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
             
             configuration.state = state
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
-            
             return (messageKey, messageNumber)
             
         }
@@ -653,7 +654,7 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
     ///   designed for external key derivation workflows in `RatchetKeyStateManager`.
     ///   Do not mix these methods with the standard encryption/decryption API, as this may cause state
     ///   inconsistencies and security issues.
-    public func setCipherText(sessionId: UUID, cipherText: Data) async throws {
+    private func setCipherText(sessionId: UUID, cipherText: Data) async throws {
         
         var configuration = try await core.getCurrentConfiguration(id: sessionId)
         

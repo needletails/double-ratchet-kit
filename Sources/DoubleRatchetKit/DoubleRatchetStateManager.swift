@@ -231,7 +231,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
     public func setEnforceOTKConsistency(_ value: Bool) async {
         await core.setEnforceOTKConsistency(value)
     }
-
+    
     // MARK: - Initialization
     
     /// Initializes the ratchet state manager.
@@ -960,25 +960,13 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             throw RatchetError.headerDecryptFailed
         }
         
-        // No key change detected:
-        if !state.receivingHandshakeFinished {
-            // During handshake, derive and store next receiving header key for upcoming messages.
-            let newNextReceivingHeaderKey = try await core.derivePQXDHFinalKey(
-                localLongTermPrivateKey: state.localLongTermPrivateKey,
-                localOneTimePrivateKey: state.localOneTimePrivateKey,
-                remoteLongTermPublicKey: state.remoteLongTermPublicKey,
-                remoteOneTimePublicKey: state.remoteOneTimePublicKey,
-                remoteMLKEMPublicKey: state.remoteMLKEMPublicKey)
-            
-            state = await state.updateReceivingNextHeaderKey(newNextReceivingHeaderKey.symmetricKey)
-        } else {
-            // After handshake, advance next receiving header key by ratcheting it forward.
-            guard let nextReceivingHeaderKey = state.nextReceivingHeaderKey else {
-                throw RatchetError.receivingHeaderKeyIsNil
-            }
-            let newReceivingHeaderKey = try await core.deriveChainKey(from: nextReceivingHeaderKey, configuration: core.defaultRatchetConfiguration)
-            state = await state.updateReceivingNextHeaderKey(newReceivingHeaderKey)
+        // After handshake, advance next receiving header key by ratcheting it forward.
+        let nextReceivingHeaderKey = state.nextReceivingHeaderKey ?? state.receivingHeaderKey
+        guard let nextReceivingHeaderKey else {
+            throw RatchetError.receivingHeaderKeyIsNil
         }
+        let newReceivingHeaderKey = try await core.deriveChainKey(from: nextReceivingHeaderKey, configuration: core.defaultRatchetConfiguration)
+        state = await state.updateReceivingNextHeaderKey(newReceivingHeaderKey)
         
         // Before this is header decryption and keys change logic(Keys are not changing in this scenario)
         if let key = state.skippedMessageKeys.first(where: {
@@ -1216,7 +1204,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         let ratchetMessage: RatchetMessage
         let chainKey: SymmetricKey
     }
-
+    
     /// Concatenates associated data with a ratchet message header and hashes them into a nonce.
     ///
     /// - Parameters:

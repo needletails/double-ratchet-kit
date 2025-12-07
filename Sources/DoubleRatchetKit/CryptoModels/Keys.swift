@@ -126,13 +126,13 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
 /// A container for all remote public keys used during session setup.
 public struct RemoteKeys: Sendable {
     /// The remote party's long-term Curve public key.
-    let longTerm: CurvePublicKey
+    public let longTerm: CurvePublicKey
 
     /// The remote party's one-time Curve public key.
-    let oneTime: CurvePublicKey?
+    public let oneTime: CurvePublicKey?
 
     /// The remote party's MLKEM public key.
-    let mlKEM: MLKEMPublicKey
+    public let mlKEM: MLKEMPublicKey
 
     /// Initializes a container of remote keys for session initialization.
     public init(
@@ -149,13 +149,13 @@ public struct RemoteKeys: Sendable {
 /// A container for all local private keys used during session setup.
 public struct LocalKeys: Sendable {
     /// The local party's long-term Curve private key.
-    let longTerm: CurvePrivateKey
+    public let longTerm: CurvePrivateKey
 
     /// The local party's one-time Curve private key.
-    let oneTime: CurvePrivateKey?
+    public let oneTime: CurvePrivateKey?
 
     /// The local party's mlKEM private key.
-    let mlKEM: MLKEMPrivateKey
+    public let mlKEM: MLKEMPrivateKey
 
     /// Initializes a container of local keys for session initialization.
     public init(
