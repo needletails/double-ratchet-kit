@@ -479,7 +479,12 @@ swift test
 
 # Run with verbose output
 swift test --verbose
+
+# Run with code coverage (generates .build/coverage data for inspection)
+swift test --enable-code-coverage
 ```
+
+Test coverage is not enforced at 100%. To check coverage, run `swift test --enable-code-coverage` and inspect the generated coverage data (e.g. with `xcrun llvm-cov report` or Xcode). The suite includes re-synchronization scenarios: out-of-order delivery followed by subsequent sends to ensure both sides stay in sync (see `testResynchronizationAfterOutOfOrderSubsequentSends`, `testOutOfOrderThenBidirectionalFlowContinues`, `testLargeGapOutOfOrderThenResyncAndContinue`).
 
 ## 📚 API Reference
 

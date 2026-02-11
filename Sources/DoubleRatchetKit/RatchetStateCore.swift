@@ -104,7 +104,6 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     ) {
         self.executor = executor
         self.logger = logger
-        self.logger.setLogLevel(.trace)
         if let ratchetConfiguration {
             defaultRatchetConfiguration = ratchetConfiguration
         }
@@ -472,7 +471,16 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         localMLKEMPrivateKey: LocalMLKEMPrivateKey,
         receivedCiphertext: Data,
     ) async throws -> SymmetricKey {
-        
+        if shouldEmitKeyPayloadLogs {
+            try logger.log(level: .debug, message: """
+                               Recording keys during derivePQXDHFinalKeyReceiver:\n
+                               local LTK: \(Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localLongTermPrivateKey).publicKey.rawRepresentation.base64EncodedString().prefix(10))\n
+                                local OTK: \(localOneTimePrivateKey?.id)\n
+                                local MLKEM: \(localMLKEMPrivateKey.id)\n
+                                remote LTK: \(remoteLongTermPublicKey.base64EncodedString().prefix(10))\n
+                                remote OTK: \(remoteOneTimePublicKey?.id)
+                """)
+        }
         // Derive shared secret for long-term keys
         let K_B = try await deriveSharedSecret(localPrivateKey: localLongTermPrivateKey, remotePublicKey: remoteLongTermPublicKey)
         let K_B_data = K_B.bytes
@@ -526,6 +534,17 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         remoteMLKEMPublicKey: RemoteMLKEMPublicKey,
     ) async throws -> PQXDHCipher {
         
+        if shouldEmitKeyPayloadLogs {
+            try logger.log(level: .debug, message: """
+                            Recording keys during derivePQXDHFinalKey:\n
+                            local LTK: \(Curve25519.KeyAgreement.PrivateKey(rawRepresentation:  localLongTermPrivateKey).publicKey.rawRepresentation.base64EncodedString()  .prefix(10))\n
+                            local OTK: \(localOneTimePrivateKey?.id)\n
+                            remote LTK: \(remoteLongTermPublicKey.base64EncodedString().prefix(10))\n
+                            remote OTK: \(remoteOneTimePublicKey?.id)\n
+                            remote MLKEM: \(remoteMLKEMPublicKey.id)"
+                """)
+        }
+        
         let K_A = try await deriveSharedSecret(localPrivateKey: localLongTermPrivateKey, remotePublicKey: remoteLongTermPublicKey)
         
         var K_A_ot_data = Data()
@@ -563,7 +582,7 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
                                       remoteMLKEMPublicKey: RemoteMLKEMPublicKey,
                                       configuration: SessionConfiguration
     ) async throws -> (SymmetricKey, PQXDHCipher) {
-
+        
         let cipher = try await derivePQXDHFinalKey(
             localLongTermPrivateKey: localLongTermPrivateKey,
             localOneTimePrivateKey: localOneTimePrivateKey,
@@ -585,4 +604,13 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         return (newChainKey, cipher)
     }
     
+}
+
+@inline(__always)
+var shouldEmitKeyPayloadLogs: Bool {
+    #if DEBUG
+    return ProcessInfo.processInfo.environment["DRK_VERBOSE_KEY_LOGGING"] != nil
+    #else
+    return false
+    #endif
 }
