@@ -18,7 +18,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/needletails/needletail-crypto.git", from: "1.2.1"),
-        .package(url: "https://github.com/needletails/needletail-logger.git", from: "3.1.1"),
+        .package(url: "https://github.com/needletails/needletail-logger.git", from: "3.1.4"),
         .package(url: "https://github.com/needletails/binary-codable.git", from: "1.0.3")
     ],
     targets: [
