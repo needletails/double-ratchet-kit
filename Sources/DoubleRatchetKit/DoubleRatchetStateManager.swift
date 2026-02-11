@@ -294,7 +294,6 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
     ) {
         self.executor = executor
         self.logger = logger
-        self.logger.setLogLevel(.trace)
         core = RatchetStateCore<Hash>(
             executor: executor,
             logger: logger,
@@ -503,6 +502,9 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                     currentProps.state = await currentProps.state?.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
                     currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
                     currentProps.state = await currentProps.state?.updateRemoteMLKEMPublicKey(keys.remoteMLKEMPublicKey)
+                    currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
+                    currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
+                    currentProps.state = await currentProps.state?.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
                     currentProps.longTermPublicKey = keys.remoteLongTermPublicKey
                     currentProps.oneTimePublicKey = keys.remoteOneTimePublicKey
                     currentProps.mlKEMPublicKey = keys.remoteMLKEMPublicKey
