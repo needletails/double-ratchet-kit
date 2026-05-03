@@ -253,7 +253,7 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     func setSessionIdentity(configuration: SessionConfiguration) {
         sessionConfigurations[configuration.sessionIdentity.id] = configuration
     }
-    
+
     /// Checks if a message number has already been decrypted for the specified session.
     ///
     /// This method is used internally to prevent duplicate decryption of messages,
@@ -475,10 +475,10 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
             try logger.log(level: .debug, message: """
                                Recording keys during derivePQXDHFinalKeyReceiver:\n
                                local LTK: \(Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localLongTermPrivateKey).publicKey.rawRepresentation.base64EncodedString().prefix(10))\n
-                                local OTK: \(localOneTimePrivateKey?.id)\n
+                                local OTK: \(localOneTimePrivateKey?.id.uuidString ?? "missing local one-time key")\n
                                 local MLKEM: \(localMLKEMPrivateKey.id)\n
                                 remote LTK: \(remoteLongTermPublicKey.base64EncodedString().prefix(10))\n
-                                remote OTK: \(remoteOneTimePublicKey?.id)
+                                remote OTK: \(remoteOneTimePublicKey?.id.uuidString ?? "missing remote one-time key")
                 """)
         }
         // Derive shared secret for long-term keys
@@ -538,9 +538,9 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
             try logger.log(level: .debug, message: """
                             Recording keys during derivePQXDHFinalKey:\n
                             local LTK: \(Curve25519.KeyAgreement.PrivateKey(rawRepresentation:  localLongTermPrivateKey).publicKey.rawRepresentation.base64EncodedString()  .prefix(10))\n
-                            local OTK: \(localOneTimePrivateKey?.id)\n
+                            local OTK: \(localOneTimePrivateKey?.id.uuidString ?? "missing local one-time key")\n
                             remote LTK: \(remoteLongTermPublicKey.base64EncodedString().prefix(10))\n
-                            remote OTK: \(remoteOneTimePublicKey?.id)\n
+                            remote OTK: \(remoteOneTimePublicKey?.id.uuidString ?? "missing remote one-time key")\n
                             remote MLKEM: \(remoteMLKEMPublicKey.id)"
                 """)
         }

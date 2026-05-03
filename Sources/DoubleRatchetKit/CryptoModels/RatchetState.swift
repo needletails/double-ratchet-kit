@@ -63,7 +63,7 @@ public struct SkippedMessageKey: Codable, Sendable {
     /// The index of the skipped message.
     let messageIndex: Int
 
-    /// Pre-derived message key for the skipped message (Signal-style storage).
+    /// Pre-derived message key for the skipped message (storage).
     let messageKey: SymmetricKey
 
     private enum CodingKeys: String, CodingKey, Sendable {

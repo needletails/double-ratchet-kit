@@ -2941,7 +2941,7 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
                 _ = try await bobManager.ratchetDecrypt(corruptedM3, sessionId: aliceIdentityLatest.id)
             }
             
-            // Now decrypt valid m2: with Signal-style MK storage, this should succeed
+            // Now decrypt valid m2: with MK storage, this should succeed
             let dm2 = try await bobManager.ratchetDecrypt(m2, sessionId: aliceIdentityLatest.id)
             #expect(dm2 == Data("m2".utf8))
             

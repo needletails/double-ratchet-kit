@@ -689,7 +689,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             sessionSymmetricKey: sessionSymmetricKey,
             messageType: .receiving(.init(header: header, local: localKeys)))
     }
-    
+
     /// Represents a Diffie-Hellman key pair used for Curve25519.
     private struct DiffieHellmanKeyPair: Sendable {
         let privateKey: Curve25519.KeyAgreement.PrivateKey
