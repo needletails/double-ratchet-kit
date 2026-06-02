@@ -17,7 +17,7 @@
 /*
  # Double Ratchet API Overview
  
- This module implements the **Double Ratchet Algorithm**, which provides *asynchronous forward secrecy* and *post-compromise security* for secure messaging. It is based on the Signal protocol specification:
+ This module implements the **Double Ratchet Algorithm**, which provides *asynchronous forward secrecy* and *post-compromise security* for secure messaging, per the public Double Ratchet specification:
  
  📄 Specification: https://signal.org/docs/specifications/doubleratchet/doubleratchet.pdf
  

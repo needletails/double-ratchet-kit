@@ -4,7 +4,7 @@ Understand the security properties, threat model, and cryptographic assumptions 
 
 ## Overview
 
-DoubleRatchetKit provides a comprehensive security model based on the Signal protocol with post-quantum enhancements. This document outlines the security guarantees, threat model, and implementation security considerations.
+DoubleRatchetKit provides a comprehensive security model based on the Double Ratchet algorithm with post-quantum enhancements. This document outlines the security guarantees, threat model, and implementation security considerations.
 
 ## Security Properties
 

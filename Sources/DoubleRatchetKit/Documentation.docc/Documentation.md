@@ -4,7 +4,7 @@ A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X
 
 ## Overview
 
-DoubleRatchetKit implements the Signal protocol's Double Ratchet algorithm with post-quantum security enhancements. It provides:
+DoubleRatchetKit implements the Double Ratchet algorithm with post-quantum security enhancements (PQXDH). It provides:
 
 - **Forward Secrecy**: Message keys change with every message
 - **Post-Compromise Security**: Recovery from key compromise

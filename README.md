@@ -24,7 +24,7 @@ DoubleRatchetKit 2.0.0 is a major release with significant API improvements, enh
 
 ## 🌟 Features
 
-- **🔐 Double Ratchet Protocol**: Implements the Signal protocol specification for secure messaging
+- **🔐 Double Ratchet Protocol**: Double Ratchet secure messaging with PQXDH key agreement
 - **⚡ Post-Quantum Security**: Hybrid PQXDH with MLKEM1024 and Curve25519
 - **🔄 Forward Secrecy**: Message keys change with every message
 - **🛡️ Post-Compromise Security**: Recovery from key compromise
@@ -613,7 +613,7 @@ This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE)
 
 ## 🙏 Acknowledgments
 
-- **Signal Protocol**: Based on the Signal specification
+- **Double Ratchet**: Public Double Ratchet algorithm specification
 - **ML‑KEM (Kyber)**: Post-quantum cryptography standard
 - **Swift Crypto**: Apple's cryptographic primitives
 - **NeedleTail Organization**: Supporting libraries and tools
