@@ -504,6 +504,17 @@ public struct RatchetState: Sendable, Codable {
         return ratchetState
     }
 
+    func removeSkippedMessage(_ message: SkippedMessageKey) async -> Self {
+        var ratchetState = self
+        ratchetState.skippedMessageKeys.removeAll {
+            $0.messageIndex == message.messageIndex &&
+                $0.remoteLongTermPublicKey == message.remoteLongTermPublicKey &&
+                $0.remoteOneTimePublicKey == message.remoteOneTimePublicKey &&
+                $0.remoteMLKEMPublicKey == message.remoteMLKEMPublicKey
+        }
+        return ratchetState
+    }
+
     func removeAllSkippedMessages() async -> Self {
         var ratchetState = self
         ratchetState.skippedMessageKeys.removeAll()

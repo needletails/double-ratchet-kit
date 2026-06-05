@@ -43,7 +43,7 @@ DoubleRatchetKit 2.0.0 is a major release with significant API improvements, enh
   - Linux (Ubuntu 20.04+, or other distributions with Swift 6.1+)
 - **Dependencies**: 
   - `needletail-crypto` (1.2.1+)
-  - `needletail-logger` (3.1.1+)
+  - `needletail-logger` (3.1.5+)
   - `binary-codable` (1.0.3+)
 
 ## 🚀 Installation
