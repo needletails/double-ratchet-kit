@@ -47,6 +47,9 @@ let ratchetManager = DoubleRatchetStateManager<SHA256>(
 )
 ```
 
+`associatedData` is authenticated as AES-GCM associated data for payload
+encryption, together with the encoded ratchet header.
+
 **Parameters:**
 - `executor`: A `SerialExecutor` used to coordinate concurrent operations within the actor
 - `logger`: A `NeedleTailLogger` instance for logging (optional, defaults to new instance)

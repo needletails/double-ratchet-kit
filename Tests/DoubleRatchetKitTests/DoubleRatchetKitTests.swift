@@ -28,7 +28,7 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
         messageKeyData: Data([0x00]), // Data for message key derivation.
         chainKeyData: Data([0x01]), // Data for chain key derivation.
         rootKeyData: Data([0x02, 0x03]), // Data for root key derivation.
-        associatedData: "DoubleRatchetKit".data(using: .ascii)!, // Associated data for messages.
+        associatedData: "DoubleRatchetKit".data(using: .ascii)!, // Payload AEAD associated data.
         maxSkippedMessageKeys: 100)
     
     struct KeyPair {
@@ -3133,6 +3133,119 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
 
             let decrypted = try await bobManager.ratchetDecrypt(m2, sessionId: aliceIdentityLatest.id)
             #expect(decrypted == Data("m2".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testPayloadDecryptFailsWhenAssociatedDataDiffers() async throws {
+        let aliceConfiguration = testableRatchetConfiguration
+        let bobConfiguration = RatchetConfiguration(
+            messageKeyData: testableRatchetConfiguration.messageKeyData,
+            chainKeyData: testableRatchetConfiguration.chainKeyData,
+            rootKeyData: testableRatchetConfiguration.rootKeyData,
+            associatedData: "DifferentAppContext".data(using: .ascii)!,
+            maxSkippedMessageKeys: testableRatchetConfiguration.maxSkippedMessageKeys)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: aliceConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: bobConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let message = try await aliceManager.ratchetEncrypt(
+                plainText: Data("aad-bound".utf8),
+                sessionId: bobIdentityLatest.id)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: message.header,
+                localKeys: bundle.bobPrivate)
+
+            await #expect(throws: CryptoKitError.self) {
+                _ = try await bobManager.ratchetDecrypt(message, sessionId: aliceIdentityLatest.id)
+            }
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testPayloadDecryptFailsWhenAuthenticatedHeaderChanges() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let message = try await aliceManager.ratchetEncrypt(
+                plainText: Data("header-bound".utf8),
+                sessionId: bobIdentityLatest.id)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: message.header,
+                localKeys: bundle.bobPrivate)
+
+            let tamperedHeader = EncryptedHeader(
+                remoteLongTermPublicKey: message.header.remoteLongTermPublicKey,
+                remoteOneTimePublicKey: message.header.remoteOneTimePublicKey,
+                remoteMLKEMPublicKey: message.header.remoteMLKEMPublicKey,
+                headerCiphertext: message.header.headerCiphertext,
+                messageCiphertext: message.header.messageCiphertext,
+                oneTimeKeyId: message.header.oneTimeKeyId,
+                mlKEMOneTimeKeyId: UUID(),
+                encrypted: message.header.encrypted)
+            let tamperedMessage = RatchetMessage(
+                header: tamperedHeader,
+                encryptedData: message.encryptedData)
+
+            await #expect(throws: CryptoKitError.self) {
+                _ = try await bobManager.ratchetDecrypt(tamperedMessage, sessionId: aliceIdentityLatest.id)
+            }
+
+            let recovered = try await bobManager.ratchetDecrypt(message, sessionId: aliceIdentityLatest.id)
+            #expect(recovered == Data("header-bound".utf8))
 
             try await aliceManager.shutdown()
             try await bobManager.shutdown()

@@ -225,9 +225,9 @@ let finalSecret = classicalSecret + quantumSecret
 - **Resource Management**: Careful resource usage
 
 ### Compatibility
-- **Interoperability**: Compatible with existing protocols
-- **Backward Compatibility**: Supports legacy systems
-- **Standards Compliance**: Follows relevant standards
+- **Ecosystem**: Compatible within the NeedleTails protocol stack (e.g. Post-Quantum Solace)
+- **Wire format**: Not interoperable with third-party messaging clients unless explicitly documented
+- **Standards Compliance**: Follows relevant post-quantum and cryptographic standards
 
 ## Security Testing
 

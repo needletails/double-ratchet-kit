@@ -34,7 +34,7 @@ public init(
 **Default Configuration:**
 - `maxSkippedMessageKeys: 100`
 - Standard key derivation data
-- Associated data: "DoubleRatchetKit"
+- Protocol context data: "DoubleRatchetKit"
 
 **Note:** Use a custom `ratchetConfiguration` only if you need to modify protocol parameters for compatibility or security requirements. The default configuration is suitable for most use cases.
 
@@ -683,6 +683,9 @@ public let rootKeyData: Data
 public let associatedData: Data
 public let maxSkippedMessageKeys: Int
 ```
+
+`associatedData` is authenticated as AES-GCM associated data for payload
+encryption, together with the encoded ratchet header.
 
 #### Initialization
 

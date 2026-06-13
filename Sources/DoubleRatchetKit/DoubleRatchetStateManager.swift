@@ -126,13 +126,15 @@ import NeedleTailLogger
 /// An actor that manages the cryptographic state for secure messaging using the Double Ratchet algorithm.
 ///
 /// ## Overview
-/// Provides Double Ratchet with header encryption and PQXDH integration for
-/// asynchronous forward secrecy and post‑compromise security. Combines a Diffie‑Hellman
-/// ratchet with symmetric‑key ratchets so keys change per message.
+/// Provides a NeedleTails Double Ratchet with header encryption and PQXDH-style
+/// integration for asynchronous forward secrecy and post‑compromise security.
+/// Combines a Diffie‑Hellman ratchet with symmetric‑key ratchets so keys change
+/// per message. Influenced by public specifications; not wire-compatible with
+/// third-party messaging clients.
 ///
-/// - Specification: https://signal.org/docs/specifications/doubleratchet/
-/// - PQXDH: https://signal.org/docs/specifications/pqxdh/
-/// - X3DH: https://signal.org/docs/specifications/x3dh/
+/// - Double Ratchet reference: https://signal.org/docs/specifications/doubleratchet/
+/// - PQXDH reference: https://signal.org/docs/specifications/pqxdh/
+/// - X3DH reference: https://signal.org/docs/specifications/x3dh/
 ///
 /// ## Core Features
 /// - Header Encryption (HE): Encrypts headers under the sending header key (`HKs`).
@@ -807,11 +809,11 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         // Step 7: Encrypt the payload using AEAD with the current sending key.
         let messageKey = try await core.symmetricKeyRatchet(from: sendingKey)
         
-        guard let encryptedData = try crypto.encrypt(
-            data: plainText,
-            symmetricKey: messageKey) else {
-            throw RatchetError.encryptionFailed
-        }
+        let payloadAAD = try await payloadAssociatedData(for: encryptedHeader)
+        let encryptedData = try encryptPayload(
+            plainText,
+            using: messageKey,
+            associatedData: payloadAAD)
         
         if !state.sendingHandshakeFinished {
             state = await state.updateSendingHandshakeFinished(true)
@@ -825,13 +827,6 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         state = await state.updateSendingKey(newChainKey)
         state = await state.incrementSentMessagesCount()
         
-        let nonce = try await concatenate(
-            associatedData: core.defaultRatchetConfiguration.associatedData,
-            header: encryptedHeader)
-        
-        guard nonce.count == 32 else {
-            throw RatchetError.invalidNonceLength
-        }
         configuration.state = state
         try await core.updateSessionIdentity(configuration: configuration, persist: true)
         
@@ -1144,21 +1139,14 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             throw RatchetError.stateUninitialized
         }
         
-        let nonce = try await concatenate(
-            associatedData: core.defaultRatchetConfiguration.associatedData,
-            header: decodedMessage.ratchetMessage.header)
-        guard nonce.count == 32 else {
-            throw RatchetError.invalidNonceLength
-        }
-        
         let messageKey = try await core.symmetricKeyRatchet(from: decodedMessage.chainKey)
+        let payloadAAD = try await payloadAssociatedData(for: decodedMessage.ratchetMessage.header)
         
         if state.receivingHandshakeFinished == false {
-            guard let decryptedMessage = try crypto.decrypt(
-                data: decodedMessage.ratchetMessage.encryptedData,
-                symmetricKey: messageKey) else {
-                throw RatchetError.decryptionFailed
-            }
+            let decryptedMessage = try decryptPayload(
+                decodedMessage.ratchetMessage.encryptedData,
+                using: messageKey,
+                associatedData: payloadAAD)
             
             // If an OTK was used for this initial message and enforcement is enabled,
             // consume it via delegate and clear it from state to prevent reuse.
@@ -1176,11 +1164,10 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             logger.log(level: .trace, message: "Initial receiving handshake succeeded")
             return decryptedMessage
         } else {
-            guard let decryptedMessage = try crypto.decrypt(
-                data: decodedMessage.ratchetMessage.encryptedData,
-                symmetricKey: messageKey) else {
-                throw RatchetError.decryptionFailed
-            }
+            let decryptedMessage = try decryptPayload(
+                decodedMessage.ratchetMessage.encryptedData,
+                using: messageKey,
+                associatedData: payloadAAD)
             state = await state.incrementReceivedMessagesCount()
             state = await state.updateLastDecryptedMessageNumber(messageNumber)
             state = await markAlreadyDecrypted(
@@ -1201,19 +1188,11 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         usingMessageKey messageKey: SymmetricKey,
         messageNumber: Int
     ) async throws -> Data {
-        let nonce = try await concatenate(
-            associatedData: core.defaultRatchetConfiguration.associatedData,
-            header: ratchetMessage.header)
-        guard nonce.count == 32 else {
-            throw RatchetError.invalidNonceLength
-        }
-        
-        guard let decryptedMessage = try crypto.decrypt(
-            data: ratchetMessage.encryptedData,
-            symmetricKey: messageKey) else {
-            throw RatchetError.decryptionFailed
-        }
-        return decryptedMessage
+        let payloadAAD = try await payloadAssociatedData(for: ratchetMessage.header)
+        return try decryptPayload(
+            ratchetMessage.encryptedData,
+            using: messageKey,
+            associatedData: payloadAAD)
     }
     
     /// A container for a decrypted ratchet message and its corresponding symmetric key.
@@ -1222,23 +1201,43 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         let chainKey: SymmetricKey
     }
     
-    /// Concatenates associated data with a ratchet message header and hashes them into a nonce.
-    ///
-    /// - Parameters:
-    ///   - associatedData: Application-level associated data (AAD) for AEAD encryption.
-    ///   - header: The encrypted message header.
-    /// - Returns: A 32-byte nonce derived via SHA-256 hash.
-    /// - Throws: Encoding errors during BinaryEncoder encoding.
-    private func concatenate(
-        associatedData: Data,
-        header: EncryptedHeader,
-    ) async throws -> Data {
+    /// Builds the AEAD associated data for payload encryption.
+    private func payloadAssociatedData(for header: EncryptedHeader) async throws -> Data {
         let headerData = try BinaryEncoder().encode(header)
-        let info = headerData + associatedData
-        let digest = SHA256.hash(data: info)
-        return digest.withUnsafeBytes { buffer in
-            Data(buffer: buffer.bindMemory(to: UInt8.self))
+        return await core.defaultRatchetConfiguration.associatedData + headerData
+    }
+
+    private func encryptPayload(
+        _ plaintext: Data,
+        using messageKey: SymmetricKey,
+        associatedData: Data
+    ) throws -> Data {
+        do {
+            let sealedBox = try AES.GCM.seal(
+                plaintext,
+                using: messageKey,
+                authenticating: associatedData)
+            guard let combined = sealedBox.combined else {
+                throw RatchetError.encryptionFailed
+            }
+            return combined
+        } catch let error as RatchetError {
+            throw error
+        } catch {
+            throw RatchetError.encryptionFailed
         }
+    }
+
+    private func decryptPayload(
+        _ encryptedData: Data,
+        using messageKey: SymmetricKey,
+        associatedData: Data
+    ) throws -> Data {
+        let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
+        return try AES.GCM.open(
+            sealedBox,
+            using: messageKey,
+            authenticating: associatedData)
     }
     
     /// Executes a full Diffie-Hellman ratchet step, updating keys and session state based on new keys.

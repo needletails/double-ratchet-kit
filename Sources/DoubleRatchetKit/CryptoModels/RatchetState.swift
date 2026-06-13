@@ -262,7 +262,7 @@ public struct RatchetConfiguration: Sendable, Codable {
     public let chainKeyData: Data
     /// Data used to derive the root key.
     public let rootKeyData: Data
-    /// Additional data associated with the messages.
+    /// Protocol context authenticated as payload AEAD associated data.
     public let associatedData: Data
     /// Maximum number of skipped message keys to retain.
     public let maxSkippedMessageKeys: Int
@@ -280,7 +280,7 @@ public struct RatchetConfiguration: Sendable, Codable {
     ///   - messageKeyData: Data used to derive message keys.
     ///   - chainKeyData: Data used to derive chain keys.
     ///   - rootKeyData: Data used to derive the root key.
-    ///   - associatedData: Additional data associated with the messages.
+    ///   - associatedData: Protocol context authenticated as payload AEAD associated data.
     ///   - maxSkippedMessageKeys: Maximum number of skipped message keys to retain.
     public init(
         messageKeyData: Data,

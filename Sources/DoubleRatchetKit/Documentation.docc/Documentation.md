@@ -4,7 +4,9 @@ A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X
 
 ## Overview
 
-DoubleRatchetKit implements the Double Ratchet algorithm with post-quantum security enhancements (PQXDH). It provides:
+DoubleRatchetKit implements a NeedleTails Double Ratchet with post-quantum
+security enhancements (PQXDH-style handshake). Influenced by public
+specifications; not wire-compatible with third-party messaging clients. It provides:
 
 - **Forward Secrecy**: Message keys change with every message
 - **Post-Compromise Security**: Recovery from key compromise

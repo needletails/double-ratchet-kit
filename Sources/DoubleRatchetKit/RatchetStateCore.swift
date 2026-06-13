@@ -26,7 +26,7 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         messageKeyData: Data([0x00]), // Data for message key derivation.
         chainKeyData: Data([0x01]), // Data for chain key derivation.
         rootKeyData: Data([0x02, 0x03]), // Data for root key derivation.
-        associatedData: "DoubleRatchetKit".data(using: .ascii)!, // Associated data for messages.
+        associatedData: "DoubleRatchetKit".data(using: .ascii)!, // Payload AEAD associated data.
         maxSkippedMessageKeys: 100)
     
     // MARK: - Private Properties

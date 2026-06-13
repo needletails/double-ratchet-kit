@@ -5,13 +5,38 @@ A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X
 [![Swift](https://img.shields.io/badge/Swift-6.1+-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-iOS%2018%2B%20%7C%20macOS%2015%2B%20%7C%20Linux%20%7C%20Android-blue.svg)](https://developer.apple.com)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/needletails/double-ratchet-kit/releases)
+[![Version](https://img.shields.io/badge/Version-3.0.0-green.svg)](https://github.com/needletails/double-ratchet-kit/releases)
 
-## 🎉 Version 2.0.0
+## 🎉 Version 3.0.0
 
-DoubleRatchetKit 2.0.0 is a major release with significant API improvements, enhanced documentation, and better error handling.
+DoubleRatchetKit 3.0.0 is a major security release. It hardens **when ratchet
+state is persisted** and **how payload AEAD authenticates context**. Receiving
+keys, header counters, skipped-message caches, and one-time key consumption now
+commit **only after authenticated decrypt succeeds**, and payload AES-GCM tags
+now bind `associatedData` plus the encoded encrypted header.
 
 ### What's New
+
+- **🔐 Payload AEAD binding**: `associatedData` is now authenticated as real
+  AES-GCM AAD together with the encoded encrypted header. Mismatched context or
+  header tampering fails decrypt.
+- **🛡️ Deferred state persistence**: `SessionIdentityDelegate.updateSessionIdentity`
+  is no longer called when decrypt fails. DH-ratchet and header advancement run
+  on working copies until AEAD authentication succeeds.
+- **🔑 Safer one-time key consumption**: Curve and ML-KEM OTKs are removed only
+  after a successful initial handshake decrypt, not on a failed attempt.
+- **⏱️ Out-of-order hardening**: Corrupt skipped messages no longer burn stored
+  `SkippedMessageKey` entries or advance counters.
+- **🧪 Regression coverage**: New tests for corrupted initial decrypt, corrupted
+  gap-fill, and bogus receiving-key changes that must not persist.
+- **📦 Dependency floor**: `needletail-crypto` 1.3.0+, `needletail-logger` 3.1.5+.
+
+> **Upgrading from 2.x?** Public Swift APIs are unchanged — see the
+> [3.0.0 Migration Guide](#-300-migration-guide) for behavioral differences
+> integrators must retest. For the 1.x → 2.0 API break, see the
+> [2.0.0 Migration Guide](#-200-migration-guide).
+
+### What's New in 2.0.0 (previous major)
 
 - **✨ Enhanced API Design**: Session-explicit APIs with `sessionId` parameters for multi-session support
 - **🔧 Improved Error Handling**: Comprehensive error types with detailed documentation
@@ -42,7 +67,7 @@ DoubleRatchetKit 2.0.0 is a major release with significant API improvements, enh
   - Android (via Swift for Android)
   - Linux (Ubuntu 20.04+, or other distributions with Swift 6.1+)
 - **Dependencies**: 
-  - `needletail-crypto` (1.2.1+)
+  - `needletail-crypto` (1.3.0+)
   - `needletail-logger` (3.1.5+)
   - `binary-codable` (1.0.3+)
 
@@ -54,7 +79,14 @@ Add DoubleRatchetKit to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "2.0.0")
+    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "3.0.0")
+]
+```
+
+For version 2.x:
+```swift
+dependencies: [
+    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "2.0.0", upToNextMajor: "3.0.0")
 ]
 ```
 
@@ -195,6 +227,9 @@ let ratchetManager = DoubleRatchetStateManager<SHA256>(
 print("Max skipped keys: \(customConfig.maxSkippedMessageKeys)")
 print("Associated data: \(customConfig.associatedData)")
 ```
+
+`associatedData` is authenticated as AES-GCM associated data for payload
+encryption, together with the encoded ratchet header.
 
 ### External Key Derivation
 
@@ -355,6 +390,97 @@ To view the documentation:
 ### API Reference
 
 For detailed API documentation, see the [API Reference](https://github.com/needletails/double-ratchet-kit/blob/main/Sources/DoubleRatchetKit/Documentation.docc/APIReference.md) or build the DocC documentation in Xcode.
+
+## 🧭 3.0.0 Migration Guide
+
+Version 3.0.0 changes **persistence semantics** and **payload AEAD semantics**,
+not public Swift signatures. Integrators upgrading from 2.x should retest
+decrypt-failure, out-of-order recovery, and any queued ciphertext paths rather
+than expecting a compile-time break.
+
+### ⚠️ Behavioral Changes
+
+1. **Failed decrypt no longer persists state**
+   - **2.x**: Receiving keys, header indices, or skipped-key caches could advance
+     (and be written via `updateSessionIdentity`) even when AEAD authentication failed.
+   - **3.0.0**: State advances are held in memory until decrypt succeeds; the delegate
+     is not called for failed attempts.
+
+2. **One-time keys consumed only after success**
+   - **2.x**: An initial-handshake decrypt failure could still remove the local OTK.
+   - **3.0.0**: OTK removal happens only after authenticated decrypt.
+
+3. **Corrupt out-of-order messages are dropped safely**
+   - **2.x**: A bad gap-fill attempt could consume a stored skipped key.
+   - **3.0.0**: The skipped key is retained; counters do not advance.
+
+4. **Payload associated data is now cryptographically enforced**
+   - **2.x**: `associatedData` was documented as AEAD context, but payload
+     AES-GCM did not authenticate it (or the encoded header) in the tag.
+   - **3.0.0**: Payload decrypt requires the exact `associatedData + encoded header`
+     AAD. Pre-3.0.0 ciphertext may fail decrypt until sessions are reestablished.
+
+### 🎯 Why These Changes?
+
+- **Security**: A single corrupted or replayed frame must not brick a session or
+  burn keys the peer still needs.
+- **Layered recovery**: Lets upper layers (e.g. Post-Quantum Solace) retry,
+  request resend, or reestablish without ratchet state having already moved on.
+- **Deterministic persistence**: `SessionIdentityDelegate` callbacks now mean
+  "durable state changed after a verified message," not "decrypt was attempted."
+
+### 📝 Migration Steps
+
+#### Step 1: Pin DoubleRatchetKit 3.0.0
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "3.0.0")
+]
+```
+
+Post-Quantum Solace 3.0.0 requires this release. Do not mix PQS 3.x with DRK 2.x.
+
+#### Step 2: Retest failure and replay paths
+
+Re-run integration tests where you previously observed:
+- decrypt failures followed by successful resend of the same `sharedMessageId`
+- out-of-order delivery with corrupt middle frames
+- session reestablishment after `maxSkippedHeadersExceeded` or OTK mismatch
+
+No source changes are required if you only call the public
+`ratchetEncrypt` / `ratchetDecrypt` APIs.
+
+#### Step 3: Audit custom delegate assumptions (if any)
+
+If your `SessionIdentityDelegate` implementation assumed
+`updateSessionIdentity` fires on every decrypt **attempt**, update that logic.
+In 3.0.0 it fires only when durable ratchet state actually changes after success.
+
+```swift
+// ✅ Still correct — persist whatever identity the delegate receives
+func updateSessionIdentity(_ identity: SessionIdentity) async throws {
+    try await store.save(identity)
+}
+```
+
+### ✅ Post-upgrade checklist
+
+- [ ] `Package.swift` pins `from: "3.0.0"`
+- [ ] If using Post-Quantum Solace, upgrade it to 3.0.0 in the same release
+- [ ] Decrypt-failure → resend of the same `sharedMessageId` still succeeds
+- [ ] Out-of-order delivery with a corrupt middle frame does not brick the session
+- [ ] OTK mismatch / `maxSkippedHeadersExceeded` recovery paths retested
+- [ ] `SessionIdentityDelegate` logic does not assume a callback per decrypt attempt
+
+### 📌 Migration Notes
+
+- ✅ **No** changes to `ratchetEncrypt` / `ratchetDecrypt` signatures
+- ✅ **No** wire-format changes to `RatchetMessage` or `EncryptedHeader`
+- ✅ **No** changes to `senderInitialization` / `recipientInitialization` signatures
+- ⚠️ On-disk ratchet snapshots taken under 2.x semantics may differ from 3.0.0
+  evolution for sessions that were mid-recovery during upgrade — plan a clean
+  reestablishment or retest active sessions after upgrading
 
 ## 🧭 2.0.0 Migration Guide
 
@@ -555,7 +681,7 @@ Test coverage is not enforced at 100%. To check coverage, run `swift test --enab
 - `messageKeyData: Data` - Data for message key derivation
 - `chainKeyData: Data` - Data for chain key derivation
 - `rootKeyData: Data` - Data for root key derivation
-- `associatedData: Data` - Associated data for messages
+- `associatedData: Data` - Protocol context authenticated as payload AEAD associated data
 - `maxSkippedMessageKeys: Int` - Maximum skipped keys to retain
 
 ### Error Handling
@@ -598,6 +724,17 @@ await ratchetManager.setLogLevel(.debug)
 // Available levels: .trace, .debug, .info, .warning, .error
 // Default is .trace for maximum verbosity
 ```
+
+### Version History
+
+- **3.0.0** (Current): Payload AEAD now authenticates `associatedData` and the
+  encoded header; deferred ratchet state persistence until authenticated decrypt
+  succeeds; OTK consumption and skipped-key handling hardened. Requires
+  `needletail-crypto` 1.3.0+.
+- **2.0.0**: Session-explicit `sessionId` APIs, header-driven receive
+  initialization, `RatchetKeyStateManager`, OTK consistency enforcement, and
+  expanded DocC documentation.
+- **1.x**: Initial Double Ratchet + PQXDH implementation.
 
 ## 🤝 Contributing
 
