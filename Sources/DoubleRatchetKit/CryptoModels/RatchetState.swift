@@ -63,7 +63,7 @@ public struct SkippedMessageKey: Codable, Sendable {
     /// The index of the skipped message.
     let messageIndex: Int
 
-    /// Pre-derived message key for the skipped message (Signal-style storage).
+    /// Pre-derived message key for the skipped message (storage).
     let messageKey: SymmetricKey
 
     private enum CodingKeys: String, CodingKey, Sendable {
@@ -501,6 +501,17 @@ public struct RatchetState: Sendable, Codable {
     func removeSkippedMessages(at number: Int) async -> Self {
         var ratchetState = self
         ratchetState.skippedMessageKeys.removeAll(where: { $0.messageIndex == number })
+        return ratchetState
+    }
+
+    func removeSkippedMessage(_ message: SkippedMessageKey) async -> Self {
+        var ratchetState = self
+        ratchetState.skippedMessageKeys.removeAll {
+            $0.messageIndex == message.messageIndex &&
+                $0.remoteLongTermPublicKey == message.remoteLongTermPublicKey &&
+                $0.remoteOneTimePublicKey == message.remoteOneTimePublicKey &&
+                $0.remoteMLKEMPublicKey == message.remoteMLKEMPublicKey
+        }
         return ratchetState
     }
 

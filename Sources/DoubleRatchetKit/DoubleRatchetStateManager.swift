@@ -17,7 +17,7 @@
 /*
  # Double Ratchet API Overview
  
- This module implements the **Double Ratchet Algorithm**, which provides *asynchronous forward secrecy* and *post-compromise security* for secure messaging. It is based on the Signal protocol specification:
+ This module implements the **Double Ratchet Algorithm**, which provides *asynchronous forward secrecy* and *post-compromise security* for secure messaging, per the public Double Ratchet specification:
  
  📄 Specification: https://signal.org/docs/specifications/doubleratchet/doubleratchet.pdf
  
@@ -404,22 +404,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         }
         
         func checkReceivingKeyChanges(state: RatchetState, header: EncryptedHeader) -> Bool {
-            
-            if state.remoteLongTermPublicKey != header.remoteLongTermPublicKey {
-                logger.log(level: .trace, message: "Receiveing long term key has changed")
-                return true
-            }
-            
-            if state.remoteOneTimePublicKey != header.remoteOneTimePublicKey {
-                logger.log(level: .trace, message: "Receiveing one time key has changed")
-                return true
-            }
-            
-            if state.remoteMLKEMPublicKey != header.remoteMLKEMPublicKey {
-                logger.log(level: .trace, message: "Receiveing mlKEM key has changed")
-                return true
-            }
-            return false
+            hasReceivingKeyChanges(state: state, header: header)
         }
         
         if var configuration = await core.sessionConfigurations[sessionIdentity.id] {
@@ -498,28 +483,9 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                 }
                 
                 if changesDetected {
-                    
-                    currentProps.state = await currentProps.state?.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
-                    currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
-                    currentProps.state = await currentProps.state?.updateRemoteMLKEMPublicKey(keys.remoteMLKEMPublicKey)
                     currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
                     currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
                     currentProps.state = await currentProps.state?.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
-                    currentProps.longTermPublicKey = keys.remoteLongTermPublicKey
-                    currentProps.oneTimePublicKey = keys.remoteOneTimePublicKey
-                    currentProps.mlKEMPublicKey = keys.remoteMLKEMPublicKey
-                    
-                    configuration.state = currentProps.state
-                    do {
-                        
-                        currentProps.state = try await diffieHellmanRatchet(
-                            header: header,
-                            configuration: configuration)
-                        
-                    } catch {
-                        configuration.state = nil
-                        changesDetected = false
-                    }
                 }
             }
             
@@ -572,8 +538,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                                     mlKEM: keys.localMLKEMPrivateKey),
                                 configuration: configuration)
                         } catch {
-                            configuration.state = nil
-                            changesDetected = false
+                            throw error
                         }
                     }
                 case .receiving(let keys):
@@ -587,14 +552,6 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                         state = await state.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
                         state = await state.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
                         state = await state.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
-                        
-                        configuration.state = state
-                        do {
-                            state = try await diffieHellmanRatchet(header: header, configuration: configuration)
-                        } catch {
-                            configuration.state = nil
-                            changesDetected = false
-                        }
                     }
                 }
                 configuration.state = state
@@ -610,6 +567,24 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
             await core.setSessionIdentity(configuration: configuration)
         }
+    }
+    
+    private func hasReceivingKeyChanges(state: RatchetState, header: EncryptedHeader) -> Bool {
+        if state.remoteLongTermPublicKey != header.remoteLongTermPublicKey {
+            logger.log(level: .trace, message: "Receiving long term key has changed")
+            return true
+        }
+        
+        if state.remoteOneTimePublicKey != header.remoteOneTimePublicKey {
+            logger.log(level: .trace, message: "Receiving one time key has changed")
+            return true
+        }
+        
+        if state.remoteMLKEMPublicKey != header.remoteMLKEMPublicKey {
+            logger.log(level: .trace, message: "Receiving mlKEM key has changed")
+            return true
+        }
+        return false
     }
     
     // MARK: - Public Interface
@@ -689,7 +664,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             sessionSymmetricKey: sessionSymmetricKey,
             messageType: .receiving(.init(header: header, local: localKeys)))
     }
-    
+
     /// Represents a Diffie-Hellman key pair used for Curve25519.
     private struct DiffieHellmanKeyPair: Sendable {
         let privateKey: Curve25519.KeyAgreement.PrivateKey
@@ -909,11 +884,19 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                 if let fetched = try await delegate?.fetchOneTimePrivateKey(otkId) {
                     state = await state.updateLocalOneTimePrivateKey(fetched)
                     configuration.state = state
-                    try await core.updateSessionIdentity(configuration: configuration)
                 } else if await core.enforceOTKConsistency {
                     throw RatchetError.missingOneTimeKey
                 }
             }
+        }
+        
+        if hasReceivingKeyChanges(state: state, header: message.header) {
+            configuration.state = state
+            state = try await diffieHellmanRatchet(
+                header: message.header,
+                configuration: configuration,
+                persist: false)
+            configuration.state = state
         }
         
         // HEADER DECRYPTION PHASE
@@ -932,7 +915,6 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             // Update state with new receiving header key and persist changes.
             state = await state.updateReceivingHeaderKey(finalHeaderReceivingKey)
             configuration.state = state
-            try await core.updateSessionIdentity(configuration: configuration)
         } else {
             // If handshake completed, ratchet receiving header key forward to derive next header key.
             if state.headerIndex == 0 {
@@ -942,20 +924,15 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                 let newReceivingHeaderKey = try await core.deriveChainKey(from: receivingHeaderKey, configuration: core.defaultRatchetConfiguration)
                 state = await state.updateReceivingHeaderKey(newReceivingHeaderKey)
                 configuration.state = state
-                try await core.updateSessionIdentity(configuration: configuration)
             }
         }
         
         // Decrypt the header now that the appropriate key is available.
-        let header = try await decryptHeader(
+        let (header, headerState) = try await decryptHeaderWithWorkingState(
             encryptedHeader: message.header,
-            configuration: configuration)
-        
-        configuration = try await core.getCurrentConfiguration(id: sessionId)
-        guard let newState = configuration.state else {
-            throw RatchetError.stateUninitialized
-        }
-        state = newState
+            configuration: configuration,
+            persistAdvancedState: false)
+        state = headerState
         
         // Ensure header was successfully decrypted before continuing.
         guard let decrypted = header.decrypted else {
@@ -980,16 +957,19 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             if let oneTimeKey = key.remoteOneTimePublicKey, oneTimeKey != header.remoteOneTimePublicKey?.rawRepresentation {
                 throw RatchetError.expiredKey
             }
-            state = await state.removeSkippedMessages(at: key.messageIndex)
-            state = await state.updateAlreadyDecryptedMessageNumber(decrypted.messageNumber)
-            
-            configuration.state = state
-            try await core.updateSessionIdentity(configuration: configuration)
-            // Decrypt using stored message key
-            return try await processFoundMessage(
+            let plaintext = try await processFoundMessage(
                 ratchetMessage: message,
                 usingMessageKey: key.messageKey,
                 messageNumber: decrypted.messageNumber)
+            state = await state.removeSkippedMessage(key)
+            state = await markAlreadyDecrypted(
+                decrypted.messageNumber,
+                in: state,
+                configuration: core.defaultRatchetConfiguration)
+
+            configuration.state = state
+            try await core.updateSessionIdentity(configuration: configuration, persist: true)
+            return plaintext
         }
         // Gap-fill and prepare MK for current message using a working copy, commit after decrypt
         var preparedMessageKey: SymmetricKey? = nil
@@ -1046,15 +1026,27 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                 state = await state.updateReceivingKey(nextChainKey)
             }
             
-            // Update State
-            configuration.state = state
-            try await core.updateSessionIdentity(configuration: configuration)
-            
-            // Process the decrypted message with derived message key.
-            return try await processFoundMessage(
-                decodedMessage: DecodedMessage(ratchetMessage: message, chainKey: chainKey),
+            let messageKey = try await core.symmetricKeyRatchet(from: chainKey)
+            let plaintext = try await processFoundMessage(
+                ratchetMessage: message,
+                usingMessageKey: messageKey,
                 messageNumber: decrypted.messageNumber,
-                configuration: configuration)
+            )
+
+            // If an OTK was used for this initial message and enforcement is enabled,
+            // consume it via delegate and clear it from state only after auth succeeds.
+            if await core.enforceOTKConsistency, let otkId = message.header.oneTimeKeyId {
+                await delegate?.updateOneTimeKey(remove: otkId)
+                state = await state.updateLocalOneTimePrivateKey(nil)
+            }
+
+            state = await state.incrementReceivedMessagesCount()
+            state = await state.updateReceivingHandshakeFinished(true)
+
+            configuration.state = state
+            try await core.updateSessionIdentity(configuration: configuration, persist: true)
+            logger.log(level: .trace, message: "Initial receiving handshake succeeded")
+            return plaintext
         } else {
             // Subsequent messages after handshake, decrypt using prepared MK, then commit prepared state exactly once
             guard let messageKey = preparedMessageKey else { throw RatchetError.decryptionFailed }
@@ -1069,11 +1061,26 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             // Ensure we set lastDecrypted and counts based on message number n -> Ns = n+1
             commitState = await commitState.updateLastDecryptedMessageNumber(decrypted.messageNumber)
             commitState = await commitState.updateReceivedMessagesCount(decrypted.messageNumber + 1)
-            commitState = await commitState.updateAlreadyDecryptedMessageNumber(decrypted.messageNumber)
+            commitState = await markAlreadyDecrypted(
+                decrypted.messageNumber,
+                in: commitState,
+                configuration: core.defaultRatchetConfiguration)
             configuration.state = commitState
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
             return plaintext
         }
+    }
+
+    private func markAlreadyDecrypted(
+        _ messageNumber: Int,
+        in state: RatchetState,
+        configuration: RatchetConfiguration
+    ) async -> RatchetState {
+        var state = await state.updateAlreadyDecryptedMessageNumber(messageNumber)
+        let oldestRetained = max(0, messageNumber - configuration.maxSkippedMessageKeys)
+        let retained = state.alreadyDecryptedMessageNumbers.filter { $0 >= oldestRetained }
+        state = await state.setAlreadyDecryptedMessageNumbers(Set(retained))
+        return state
     }
     
     // Derive and stash skipped message keys and prepare the current message key; do not mutate live state
@@ -1089,6 +1096,11 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         guard var receivingKey = state.receivingKey else { throw RatchetError.receivingKeyIsNil } //ck
         
         if receivedMessagesCount < messageNumber {
+            let skippedCount = messageNumber - receivedMessagesCount
+            if skippedCount > configuration.maxSkippedMessageKeys {
+                throw RatchetError.maxSkippedHeadersExceeded
+            }
+
             for i in receivedMessagesCount ..< messageNumber {
                 let messageKey = try await core.symmetricKeyRatchet(from: receivingKey) //mk_i
                 let nextReceivingKey = try await core.deriveChainKey(from: receivingKey, configuration: configuration) //nextCK
@@ -1171,7 +1183,10 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             }
             state = await state.incrementReceivedMessagesCount()
             state = await state.updateLastDecryptedMessageNumber(messageNumber)
-            state = await state.updateAlreadyDecryptedMessageNumber(messageNumber)
+            state = await markAlreadyDecrypted(
+                messageNumber,
+                in: state,
+                configuration: core.defaultRatchetConfiguration)
             
             configuration.state = state
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
@@ -1234,7 +1249,8 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
     private func diffieHellmanRatchet(
         header: EncryptedHeader? = nil,
         localKeys: LocalKeys? = nil,
-        configuration: RatchetStateCore<Hash>.SessionConfiguration
+        configuration: RatchetStateCore<Hash>.SessionConfiguration,
+        persist: Bool = true
     ) async throws -> RatchetState {
         // 1. Load current state
         var configuration = configuration
@@ -1324,7 +1340,9 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         }
         logger.log(level: .trace, message: "Ratchet state successfully updated and returned")
         configuration.state = state
-        try await core.updateSessionIdentity(configuration: configuration)
+        if persist {
+            try await core.updateSessionIdentity(configuration: configuration)
+        }
         return state
     }
 }
@@ -1433,15 +1451,27 @@ extension DoubleRatchetStateManager {
         encryptedHeader: EncryptedHeader,
         configuration: RatchetStateCore<Hash>.SessionConfiguration
     ) async throws -> EncryptedHeader {
+        let (header, _) = try await decryptHeaderWithWorkingState(
+            encryptedHeader: encryptedHeader,
+            configuration: configuration,
+            persistAdvancedState: true)
+        return header
+    }
+
+    private func decryptHeaderWithWorkingState(
+        encryptedHeader: EncryptedHeader,
+        configuration: RatchetStateCore<Hash>.SessionConfiguration,
+        persistAdvancedState: Bool
+    ) async throws -> (EncryptedHeader, RatchetState) {
         var configuration = configuration
-        for _ in await 0..<core.defaultRatchetConfiguration.maxSkippedMessageKeys {
+        for _ in await 0...core.defaultRatchetConfiguration.maxSkippedMessageKeys {
             guard let state = configuration.state else {
                 throw RatchetError.stateUninitialized
             }
             // Try any stashed header keys first
             for skipped in state.skippedHeaderMessages {
                 if let header = try? await attemptHeaderDecryption(encryptedHeader: encryptedHeader, chainKey: skipped.chainKey) {
-                    return header
+                    return (header, state)
                 }
             }
             // Try current receiving header key
@@ -1449,7 +1479,7 @@ extension DoubleRatchetStateManager {
                 throw RatchetError.receivingHeaderKeyIsNil
             }
             if let header = try? await attemptHeaderDecryption(encryptedHeader: encryptedHeader, chainKey: chainKey) {
-                return header
+                return (header, state)
             }
             // If still failing, advance header chain until we either decrypt or hit the cap
             if await state.skippedHeaderMessages.count >= core.defaultRatchetConfiguration.maxSkippedMessageKeys {
@@ -1465,7 +1495,9 @@ extension DoubleRatchetStateManager {
             let nextChainKey = try await core.deriveChainKey(from: currentHeaderKey, configuration: core.defaultRatchetConfiguration)
             stateToAdvance = await stateToAdvance.updateReceivingHeaderKey(nextChainKey)
             configuration.state = stateToAdvance
-            try await core.updateSessionIdentity(configuration: configuration, persist: true)
+            if persistAdvancedState {
+                try await core.updateSessionIdentity(configuration: configuration, persist: true)
+            }
         }
         throw RatchetError.maxSkippedHeadersExceeded
     }

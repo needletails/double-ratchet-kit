@@ -2941,10 +2941,199 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
                 _ = try await bobManager.ratchetDecrypt(corruptedM3, sessionId: aliceIdentityLatest.id)
             }
             
-            // Now decrypt valid m2: with Signal-style MK storage, this should succeed
+            // Now decrypt valid m2: with MK storage, this should succeed
             let dm2 = try await bobManager.ratchetDecrypt(m2, sessionId: aliceIdentityLatest.id)
             #expect(dm2 == Data("m2".utf8))
             
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testCorruptedInitialDecryptDoesNotAdvanceReceivingState() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let validInitial = try await aliceManager.ratchetEncrypt(
+                plainText: Data("initial".utf8),
+                sessionId: bobIdentityLatest.id)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: validInitial.header,
+                localKeys: bundle.bobPrivate)
+
+            let stateBeforeFailure = aliceIdentityLatest.data
+            let corruptedInitial = RatchetMessage(
+                header: validInitial.header,
+                encryptedData: Data(repeating: 0xA5, count: validInitial.encryptedData.count))
+
+            await #expect(throws: CryptoKitError.self) {
+                _ = try await bobManager.ratchetDecrypt(corruptedInitial, sessionId: aliceIdentityLatest.id)
+            }
+            #expect(aliceIdentityLatest.data == stateBeforeFailure)
+
+            let decrypted = try await bobManager.ratchetDecrypt(validInitial, sessionId: aliceIdentityLatest.id)
+            #expect(decrypted == Data("initial".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testCorruptedSkippedMessageDoesNotConsumeStoredKey() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let m1 = try await aliceManager.ratchetEncrypt(plainText: Data("m1".utf8), sessionId: bobIdentityLatest.id)
+            let m2 = try await aliceManager.ratchetEncrypt(plainText: Data("m2".utf8), sessionId: bobIdentityLatest.id)
+            let m3 = try await aliceManager.ratchetEncrypt(plainText: Data("m3".utf8), sessionId: bobIdentityLatest.id)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: m1.header,
+                localKeys: bundle.bobPrivate)
+
+            #expect(try await bobManager.ratchetDecrypt(m1, sessionId: aliceIdentityLatest.id) == Data("m1".utf8))
+            #expect(try await bobManager.ratchetDecrypt(m3, sessionId: aliceIdentityLatest.id) == Data("m3".utf8))
+
+            let stateBeforeFailure = aliceIdentityLatest.data
+            let corruptedM2 = RatchetMessage(
+                header: m2.header,
+                encryptedData: Data(repeating: 0x5A, count: m2.encryptedData.count))
+
+            await #expect(throws: CryptoKitError.self) {
+                _ = try await bobManager.ratchetDecrypt(corruptedM2, sessionId: aliceIdentityLatest.id)
+            }
+            #expect(aliceIdentityLatest.data == stateBeforeFailure)
+
+            let recovered = try await bobManager.ratchetDecrypt(m2, sessionId: aliceIdentityLatest.id)
+            #expect(recovered == Data("m2".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    @Test
+    func testBogusReceivingKeyChangeDoesNotPersistBeforeAuthenticatedDecrypt() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let m1 = try await aliceManager.ratchetEncrypt(plainText: Data("m1".utf8), sessionId: bobIdentityLatest.id)
+            let m2 = try await aliceManager.ratchetEncrypt(plainText: Data("m2".utf8), sessionId: bobIdentityLatest.id)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: m1.header,
+                localKeys: bundle.bobPrivate)
+            #expect(try await bobManager.ratchetDecrypt(m1, sessionId: aliceIdentityLatest.id) == Data("m1".utf8))
+
+            let bogusRemoteLongTerm = crypto.generateCurve25519PrivateKey().publicKey.rawRepresentation
+            let bogusHeader = EncryptedHeader(
+                remoteLongTermPublicKey: bogusRemoteLongTerm,
+                remoteOneTimePublicKey: m2.header.remoteOneTimePublicKey,
+                remoteMLKEMPublicKey: m2.header.remoteMLKEMPublicKey,
+                headerCiphertext: m2.header.headerCiphertext,
+                messageCiphertext: Data(repeating: 0x11, count: m2.header.messageCiphertext.count),
+                oneTimeKeyId: m2.header.oneTimeKeyId,
+                mlKEMOneTimeKeyId: m2.header.mlKEMOneTimeKeyId!,
+                encrypted: m2.header.encrypted)
+            guard let stateBeforeSetup = await aliceIdentityLatest.props(symmetricKey: bobDBSK)?.state else {
+                throw RatchetError.stateUninitialized
+            }
+
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: bogusHeader,
+                localKeys: bundle.bobPrivate)
+            guard let stateAfterSetup = await aliceIdentityLatest.props(symmetricKey: bobDBSK)?.state else {
+                throw RatchetError.stateUninitialized
+            }
+            #expect(stateAfterSetup.remoteLongTermPublicKey == stateBeforeSetup.remoteLongTermPublicKey)
+            #expect(stateAfterSetup.remoteOneTimePublicKey == stateBeforeSetup.remoteOneTimePublicKey)
+            #expect(stateAfterSetup.remoteMLKEMPublicKey == stateBeforeSetup.remoteMLKEMPublicKey)
+            #expect(stateAfterSetup.receivedMessagesCount == stateBeforeSetup.receivedMessagesCount)
+            let stateBeforeFailure = aliceIdentityLatest.data
+
+            let bogusMessage = RatchetMessage(header: bogusHeader, encryptedData: m2.encryptedData)
+            await #expect(throws: (any Error).self) {
+                _ = try await bobManager.ratchetDecrypt(bogusMessage, sessionId: aliceIdentityLatest.id)
+            }
+            #expect(aliceIdentityLatest.data == stateBeforeFailure)
+
+            let decrypted = try await bobManager.ratchetDecrypt(m2, sessionId: aliceIdentityLatest.id)
+            #expect(decrypted == Data("m2".utf8))
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
@@ -3187,6 +3376,221 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
             #expect(sent2 == 2)
             #expect(received2 == 2)
             
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    // MARK: - Skipped Message Key Bounds
+
+    private func makeCappedConfiguration(maxSkippedMessageKeys: Int) -> RatchetConfiguration {
+        RatchetConfiguration(
+            messageKeyData: Data([0x00]),
+            chainKeyData: Data([0x01]),
+            rootKeyData: Data([0x02, 0x03]),
+            associatedData: "DoubleRatchetKit".data(using: .ascii)!,
+            maxSkippedMessageKeys: maxSkippedMessageKeys)
+    }
+
+    /// A message whose number is further ahead than `maxSkippedMessageKeys` allows must be
+    /// rejected instead of deriving and stashing an unbounded run of skipped message keys.
+    /// A peer (or attacker replaying a peer) claiming a huge `messageNumber` would otherwise
+    /// force O(gap) key derivations and O(gap) persisted `SkippedMessageKey` entries.
+    @Test
+    func testGapFillBeyondMaxSkippedMessageKeysIsRejected() async throws {
+        let cap = 5
+        let configuration = makeCappedConfiguration(maxSkippedMessageKeys: cap)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: configuration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: configuration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            // Establish the session with one in-order round trip (message number 0).
+            let a1 = try await aliceManager.ratchetEncrypt(plainText: Data("A1".utf8), sessionId: bobIdentityLatest.id)
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: a1.header,
+                localKeys: bundle.bobPrivate)
+            let da1 = try await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id)
+            #expect(da1 == Data("A1".utf8))
+
+            // Alice sends cap + 2 more messages; only the final one is delivered.
+            // The receive gap (cap + 1) exceeds the configured bound.
+            var lastMessage: RatchetMessage?
+            for i in 1 ... (cap + 2) {
+                lastMessage = try await aliceManager.ratchetEncrypt(
+                    plainText: Data("M\(i)".utf8),
+                    sessionId: bobIdentityLatest.id)
+            }
+            guard let lateMessage = lastMessage,
+                  let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest2,
+                sessionSymmetricKey: bobDBSK,
+                header: lateMessage.header,
+                localKeys: bundle.bobPrivate)
+
+            await #expect(throws: RatchetError.maxSkippedHeadersExceeded) {
+                _ = try await bobManager.ratchetDecrypt(lateMessage, sessionId: aliceIdentityLatest2.id)
+            }
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    /// A gap of exactly `maxSkippedMessageKeys` must still decrypt, and the
+    /// skipped keys stashed while filling the gap must still decrypt earlier
+    /// out-of-order messages.
+    @Test
+    func testGapFillAtMaxSkippedMessageKeysBoundarySucceeds() async throws {
+        let cap = 5
+        let configuration = makeCappedConfiguration(maxSkippedMessageKeys: cap)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: configuration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: configuration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let a1 = try await aliceManager.ratchetEncrypt(plainText: Data("A1".utf8), sessionId: bobIdentityLatest.id)
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: a1.header,
+                localKeys: bundle.bobPrivate)
+            let da1 = try await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id)
+            #expect(da1 == Data("A1".utf8))
+
+            // Alice sends cap + 1 more messages; only the final one is delivered first.
+            // The receive gap is exactly the cap, which is allowed.
+            var sent: [RatchetMessage] = []
+            for i in 1 ... (cap + 1) {
+                sent.append(try await aliceManager.ratchetEncrypt(
+                    plainText: Data("M\(i)".utf8),
+                    sessionId: bobIdentityLatest.id))
+            }
+            guard let boundaryMessage = sent.last,
+                  let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest2,
+                sessionSymmetricKey: bobDBSK,
+                header: boundaryMessage.header,
+                localKeys: bundle.bobPrivate)
+            let boundaryPlaintext = try await bobManager.ratchetDecrypt(boundaryMessage, sessionId: aliceIdentityLatest2.id)
+            #expect(boundaryPlaintext == Data("M\(cap + 1)".utf8))
+
+            // The first skipped message must still decrypt from the stash.
+            guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest3,
+                sessionSymmetricKey: bobDBSK,
+                header: sent[0].header,
+                localKeys: bundle.bobPrivate)
+            let earlyPlaintext = try await bobManager.ratchetDecrypt(sent[0], sessionId: aliceIdentityLatest3.id)
+            #expect(earlyPlaintext == Data("M1".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    /// `alreadyDecryptedMessageNumbers` must not grow without bound across a long-lived
+    /// chain: entries older than the skip window can never be consulted again.
+    @Test
+    func testAlreadyDecryptedMessageNumbersStayBounded() async throws {
+        let cap = 5
+        let configuration = makeCappedConfiguration(maxSkippedMessageKeys: cap)
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: configuration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: configuration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let totalMessages = 30
+            for i in 0 ..< totalMessages {
+                let message = try await aliceManager.ratchetEncrypt(
+                    plainText: Data("S\(i)".utf8),
+                    sessionId: bobIdentityLatest.id)
+                guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                    throw TestErrors.identityNotFound
+                }
+                try await bobManager.recipientInitialization(
+                    sessionIdentity: aliceIdentityLatest,
+                    sessionSymmetricKey: bobDBSK,
+                    header: message.header,
+                    localKeys: bundle.bobPrivate)
+                let plaintext = try await bobManager.ratchetDecrypt(message, sessionId: aliceIdentityLatest.id)
+                #expect(plaintext == Data("S\(i)".utf8))
+            }
+
+            guard let finalIdentity = getSessionIdentity(for: aliceIdentity.id),
+                  let props = await finalIdentity.props(symmetricKey: bobDBSK),
+                  let state = props.state else {
+                throw TestErrors.identityNotFound
+            }
+            #expect(
+                state.alreadyDecryptedMessageNumbers.count <= cap + 1,
+                "alreadyDecryptedMessageNumbers should be pruned to the skip window, found \(state.alreadyDecryptedMessageNumbers.count) entries")
+
             try await aliceManager.shutdown()
             try await bobManager.shutdown()
         } catch {
