@@ -962,7 +962,10 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                 usingMessageKey: key.messageKey,
                 messageNumber: decrypted.messageNumber)
             state = await state.removeSkippedMessage(key)
-            state = await state.updateAlreadyDecryptedMessageNumber(decrypted.messageNumber)
+            state = await markAlreadyDecrypted(
+                decrypted.messageNumber,
+                in: state,
+                configuration: core.defaultRatchetConfiguration)
 
             configuration.state = state
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
@@ -1058,11 +1061,26 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             // Ensure we set lastDecrypted and counts based on message number n -> Ns = n+1
             commitState = await commitState.updateLastDecryptedMessageNumber(decrypted.messageNumber)
             commitState = await commitState.updateReceivedMessagesCount(decrypted.messageNumber + 1)
-            commitState = await commitState.updateAlreadyDecryptedMessageNumber(decrypted.messageNumber)
+            commitState = await markAlreadyDecrypted(
+                decrypted.messageNumber,
+                in: commitState,
+                configuration: core.defaultRatchetConfiguration)
             configuration.state = commitState
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
             return plaintext
         }
+    }
+
+    private func markAlreadyDecrypted(
+        _ messageNumber: Int,
+        in state: RatchetState,
+        configuration: RatchetConfiguration
+    ) async -> RatchetState {
+        var state = await state.updateAlreadyDecryptedMessageNumber(messageNumber)
+        let oldestRetained = max(0, messageNumber - configuration.maxSkippedMessageKeys)
+        let retained = state.alreadyDecryptedMessageNumbers.filter { $0 >= oldestRetained }
+        state = await state.setAlreadyDecryptedMessageNumbers(Set(retained))
+        return state
     }
     
     // Derive and stash skipped message keys and prepare the current message key; do not mutate live state
@@ -1078,6 +1096,11 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         guard var receivingKey = state.receivingKey else { throw RatchetError.receivingKeyIsNil } //ck
         
         if receivedMessagesCount < messageNumber {
+            let skippedCount = messageNumber - receivedMessagesCount
+            if skippedCount > configuration.maxSkippedMessageKeys {
+                throw RatchetError.maxSkippedHeadersExceeded
+            }
+
             for i in receivedMessagesCount ..< messageNumber {
                 let messageKey = try await core.symmetricKeyRatchet(from: receivingKey) //mk_i
                 let nextReceivingKey = try await core.deriveChainKey(from: receivingKey, configuration: configuration) //nextCK
@@ -1160,7 +1183,10 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             }
             state = await state.incrementReceivedMessagesCount()
             state = await state.updateLastDecryptedMessageNumber(messageNumber)
-            state = await state.updateAlreadyDecryptedMessageNumber(messageNumber)
+            state = await markAlreadyDecrypted(
+                messageNumber,
+                in: state,
+                configuration: core.defaultRatchetConfiguration)
             
             configuration.state = state
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
@@ -1438,7 +1464,7 @@ extension DoubleRatchetStateManager {
         persistAdvancedState: Bool
     ) async throws -> (EncryptedHeader, RatchetState) {
         var configuration = configuration
-        for _ in await 0..<core.defaultRatchetConfiguration.maxSkippedMessageKeys {
+        for _ in await 0...core.defaultRatchetConfiguration.maxSkippedMessageKeys {
             guard let state = configuration.state else {
                 throw RatchetError.stateUninitialized
             }
