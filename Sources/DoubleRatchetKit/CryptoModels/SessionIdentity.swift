@@ -17,6 +17,7 @@
 import Foundation
 import BinaryCodable
 import NeedleTailCrypto
+import Synchronization
 
 /// Protocol defining the base model functionality.
 public protocol SecureModelProtocol: Codable, Sendable {
@@ -72,11 +73,34 @@ public struct _SessionIdentity: Codable, Sendable {
 /// The public interface is for creating local models to be saved to the database as encrypted data.
 public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     public let id: UUID
-    public var data: Data
+
+    /// Encrypted payload storage. A `Mutex` guards the bytes because instances
+    /// legitimately cross actor boundaries (state manager, persistence
+    /// delegates): an unsynchronized `var data: Data` raced concurrent
+    /// `updateIdentityProps`/`decryptProps` calls on the copy-on-write buffer's
+    /// reference counts, corrupting the heap (caught by glibc on Linux).
+    private let storage: Mutex<Data>
+
+    public var data: Data {
+        get { storage.withLock { $0 } }
+        set { storage.withLock { $0 = newValue } }
+    }
 
     enum CodingKeys: String, CodingKey, Codable, Sendable {
         case id = "a"
         case data = "b"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        storage = Mutex(try container.decode(Data.self, forKey: .data))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(data, forKey: .data)
     }
 
     /// Asynchronously retrieves the decrypted properties, if available.
@@ -199,12 +223,12 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             throw CryptoError.encryptionFailed
         }
         self.id = id
-        self.data = encryptedData
+        self.storage = Mutex(encryptedData)
     }
 
     public init(id: UUID, data: Data) {
         self.id = id
-        self.data = data
+        self.storage = Mutex(data)
     }
 
     /// Asynchronously sets the properties of the model using the provided symmetric key.
