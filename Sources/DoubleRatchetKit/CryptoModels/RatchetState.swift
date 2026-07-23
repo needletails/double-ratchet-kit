@@ -66,12 +66,34 @@ public struct SkippedMessageKey: Codable, Sendable {
     /// Pre-derived message key for the skipped message (storage).
     let messageKey: SymmetricKey
 
+    /// The sender's per-turn ratchet public key for the chain this key belongs to.
+    /// Disambiguates equal message indices across ratchet turns. `nil` for keys
+    /// stashed from legacy (pre-ratchet) chains.
+    let chainRatchetPublicKey: Data?
+
     private enum CodingKeys: String, CodingKey, Sendable {
         case remoteLongTermPublicKey = "a"
         case remoteOneTimePublicKey = "b"
         case remoteMLKEMPublicKey = "c"
         case messageIndex = "d"
         case messageKey = "e"
+        case chainRatchetPublicKey = "f"
+    }
+
+    init(
+        remoteLongTermPublicKey: Data,
+        remoteOneTimePublicKey: Data?,
+        remoteMLKEMPublicKey: Data,
+        messageIndex: Int,
+        messageKey: SymmetricKey,
+        chainRatchetPublicKey: Data? = nil
+    ) {
+        self.remoteLongTermPublicKey = remoteLongTermPublicKey
+        self.remoteOneTimePublicKey = remoteOneTimePublicKey
+        self.remoteMLKEMPublicKey = remoteMLKEMPublicKey
+        self.messageIndex = messageIndex
+        self.messageKey = messageKey
+        self.chainRatchetPublicKey = chainRatchetPublicKey
     }
 }
 
@@ -230,27 +252,66 @@ public struct EncryptedHeader: Sendable, Codable, Hashable {
 }
 
 /// Represents the header of a message in the Double Ratchet protocol.
+///
+/// The per-turn hybrid ratchet fields ride inside the *encrypted* header body
+/// (HE variant), preserving metadata protection. They are optional so legacy
+/// in-flight frames (encrypted before the per-turn ratchet shipped) still decode.
 public struct MessageHeader: Sendable, Codable {
     /// The length of the previous message chain.
     public let previousChainLength: Int
 
     public let messageNumber: Int
 
+    /// The sender's current per-turn Curve25519 ratchet public key (32 bytes).
+    public let ratchetPublicKey: Data?
+
+    /// The sender's current per-turn ML-KEM-1024 ratchet public key (~1.6 KB).
+    /// The peer encapsulates to this key on its next sending ratchet step.
+    public let ratchetKEMPublicKey: Data?
+
+    /// ML-KEM ciphertext encapsulated to the receiver's last advertised ratchet
+    /// KEM public key. Rides in every header of the sending chain (not just the
+    /// turn boundary) so the receiver can complete the matching receiving step
+    /// even when the first message of the chain is lost or reordered.
+    public let ratchetKEMCiphertext: Data?
+
     private enum CodingKeys: String, CodingKey, Sendable {
         case previousChainLength = "a"
         case messageNumber = "b"
+        case ratchetPublicKey = "c"
+        case ratchetKEMPublicKey = "d"
+        case ratchetKEMCiphertext = "e"
     }
 
     /// Initializes a new MessageHeader with the specified parameters.
     /// - Parameters:
     ///   - previousChainLength: The length of the previous message chain.
     ///   - messageNumber: The message number of the given message
+    ///   - ratchetPublicKey: The sender's per-turn Curve25519 ratchet public key.
+    ///   - ratchetKEMPublicKey: The sender's per-turn ML-KEM ratchet public key.
+    ///   - ratchetKEMCiphertext: ML-KEM ciphertext for the receiver (turn boundaries only).
     public init(
         previousChainLength: Int,
-        messageNumber: Int
+        messageNumber: Int,
+        ratchetPublicKey: Data? = nil,
+        ratchetKEMPublicKey: Data? = nil,
+        ratchetKEMCiphertext: Data? = nil
     ) {
         self.previousChainLength = previousChainLength
         self.messageNumber = messageNumber
+        self.ratchetPublicKey = ratchetPublicKey
+        self.ratchetKEMPublicKey = ratchetKEMPublicKey
+        self.ratchetKEMCiphertext = ratchetKEMCiphertext
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        previousChainLength = try container.decode(Int.self, forKey: .previousChainLength)
+        messageNumber = try container.decode(Int.self, forKey: .messageNumber)
+        // Legacy frames lack these keys entirely; treat absence as nil.
+        ratchetPublicKey = try container.decodeIfPresent(Data.self, forKey: .ratchetPublicKey)
+        ratchetKEMPublicKey = try container.decodeIfPresent(Data.self, forKey: .ratchetKEMPublicKey)
+        ratchetKEMCiphertext = try container.decodeIfPresent(Data.self, forKey: .ratchetKEMCiphertext)
     }
 }
 
@@ -327,6 +388,13 @@ public struct RatchetState: Sendable, Codable {
         case headerIndex = "x" // Index of the skipped header.
         case lastDecryptedMessageNumber = "y" // The message number for the last decrytped message.
         case alreadyDecryptedMessageNumbers = "z" // A Set of already decrypted messages
+        case localRatchetPrivateKey = "A" // Per-turn local Curve25519 ratchet private key.
+        case remoteRatchetPublicKey = "B" // Per-turn remote Curve25519 ratchet public key.
+        case localRatchetKEMPrivateKey = "C" // Per-turn local ML-KEM ratchet private key.
+        case remoteRatchetKEMPublicKey = "D" // Per-turn remote ML-KEM ratchet public key.
+        case isSessionInitiator = "E" // Whether this party initiated the session (PQXDH sender).
+        case sendingChainRemoteRatchetKey = "F" // Remote ratchet key the current sending chain is keyed against.
+        case localRatchetKEMCiphertext = "G" // KEM ciphertext for the current sending chain (rides in every header).
     }
 
     // MARK: - Properties
@@ -407,6 +475,40 @@ public struct RatchetState: Sendable, Codable {
     private(set) var lastDecryptedMessageNumber: Int = 0
 
     private(set) var alreadyDecryptedMessageNumbers = Set<Int>()
+
+    // MARK: - Per-Turn Hybrid Ratchet Properties
+    //
+    // All optional so states persisted before the per-turn ratchet shipped still decode.
+
+    /// Per-turn local Curve25519 ratchet private key (raw representation).
+    /// Regenerated on every sending ratchet step (first send after a received turn).
+    private(set) var localRatchetPrivateKey: Data?
+
+    /// The peer's latest per-turn Curve25519 ratchet public key, learned from a decrypted header.
+    private(set) var remoteRatchetPublicKey: Data?
+
+    /// Per-turn local ML-KEM-1024 ratchet private key (encoded). Regenerated per sending step;
+    /// the peer encapsulates to its public counterpart on their next turn.
+    private(set) var localRatchetKEMPrivateKey: Data?
+
+    /// The peer's latest per-turn ML-KEM-1024 ratchet public key. Encapsulate to this on the
+    /// next sending ratchet step.
+    private(set) var remoteRatchetKEMPublicKey: Data?
+
+    /// Whether this party initiated the session (ran PQXDH as sender). `nil` on legacy states;
+    /// treat as unknown. Used only to label bootstrap chains.
+    private(set) var isSessionInitiator: Bool?
+
+    /// The peer ratchet public key the *current sending chain* was keyed against.
+    /// A sending ratchet step is due exactly when `remoteRatchetPublicKey` differs from
+    /// this value — i.e. the peer has taken a turn since we last rotated our sending chain.
+    /// Bursts in one direction leave it equal, so no step is performed per message.
+    private(set) var sendingChainRemoteRatchetKey: Data?
+
+    /// The ML-KEM ciphertext produced at our last sending ratchet step. Rides in every
+    /// header of the current sending chain so the receiver can complete its receiving
+    /// step from any message of the chain, not just the (possibly lost) boundary frame.
+    private(set) var localRatchetKEMCiphertext: Data?
 
     // MARK: - Initializers
 
@@ -524,6 +626,13 @@ public struct RatchetState: Sendable, Codable {
     func incrementSkippedHeaderIndex() async -> Self {
         var ratchetState = self
         ratchetState.headerIndex += 1
+        return ratchetState
+    }
+
+    /// Resets the skipped-header index for a fresh receiving chain (per-turn ratchet step).
+    func resetHeaderIndex() async -> Self {
+        var ratchetState = self
+        ratchetState.headerIndex = 0
         return ratchetState
     }
 
@@ -750,6 +859,57 @@ public struct RatchetState: Sendable, Codable {
     func resetAlreadyDecryptedMessageNumber() async -> Self {
         var ratchetState = self
         ratchetState.alreadyDecryptedMessageNumbers.removeAll()
+        return ratchetState
+    }
+
+    // MARK: - Per-Turn Hybrid Ratchet Updaters
+
+    /// Updates the per-turn local Curve25519 ratchet private key.
+    func updateLocalRatchetPrivateKey(_ key: Data?) async -> Self {
+        var ratchetState = self
+        ratchetState.localRatchetPrivateKey = key
+        return ratchetState
+    }
+
+    /// Updates the peer's per-turn Curve25519 ratchet public key.
+    func updateRemoteRatchetPublicKey(_ key: Data?) async -> Self {
+        var ratchetState = self
+        ratchetState.remoteRatchetPublicKey = key
+        return ratchetState
+    }
+
+    /// Updates the per-turn local ML-KEM ratchet private key.
+    func updateLocalRatchetKEMPrivateKey(_ key: Data?) async -> Self {
+        var ratchetState = self
+        ratchetState.localRatchetKEMPrivateKey = key
+        return ratchetState
+    }
+
+    /// Updates the peer's per-turn ML-KEM ratchet public key.
+    func updateRemoteRatchetKEMPublicKey(_ key: Data?) async -> Self {
+        var ratchetState = self
+        ratchetState.remoteRatchetKEMPublicKey = key
+        return ratchetState
+    }
+
+    /// Records whether this party initiated the session (PQXDH sender).
+    func updateIsSessionInitiator(_ value: Bool) async -> Self {
+        var ratchetState = self
+        ratchetState.isSessionInitiator = value
+        return ratchetState
+    }
+
+    /// Records the remote ratchet key the current sending chain is keyed against.
+    func updateSendingChainRemoteRatchetKey(_ key: Data?) async -> Self {
+        var ratchetState = self
+        ratchetState.sendingChainRemoteRatchetKey = key
+        return ratchetState
+    }
+
+    /// Updates the ML-KEM ciphertext for the current sending chain.
+    func updateLocalRatchetKEMCiphertext(_ ciphertext: Data?) async -> Self {
+        var ratchetState = self
+        ratchetState.localRatchetKEMCiphertext = ciphertext
         return ratchetState
     }
 }

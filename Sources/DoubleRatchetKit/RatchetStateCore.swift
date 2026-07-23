@@ -254,6 +254,17 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         sessionConfigurations[configuration.sessionIdentity.id] = configuration
     }
 
+    /// Removes the in-memory session configuration for the specified session, if present.
+    ///
+    /// Use this when the persisted session identity has been rolled back after a failed
+    /// ratchet attempt: the cached configuration holds the failed attempt's mutations and
+    /// must be discarded so the next operation rebuilds state from the persisted row.
+    ///
+    /// - Parameter id: The UUID of the session whose cached configuration should be removed.
+    func removeConfiguration(id: UUID) {
+        sessionConfigurations.removeValue(forKey: id)
+    }
+
     /// Checks if a message number has already been decrypted for the specified session.
     ///
     /// This method is used internally to prevent duplicate decryption of messages,
@@ -409,13 +420,15 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
             guard let header = keys.header else {
                 throw RatchetError.missingConfiguration
             }
-            return RatchetState(
+            let state = RatchetState(
                 remoteLongTermPublicKey: header.remoteLongTermPublicKey,
                 remoteOneTimePublicKey: header.remoteOneTimePublicKey,
                 remoteMLKEMPublicKey: header.remoteMLKEMPublicKey,
                 localLongTermPrivateKey: keys.localLongTermPrivateKey,
                 localOneTimePrivateKey: keys.localOneTimePrivateKey,
                 localMLKEMPrivateKey: keys.localMLKEMPrivateKey)
+            // The initiator's ratchet publics are adopted later, from the first decrypted header.
+            return await state.updateIsSessionInitiator(false)
         case let .sending(keys):
             let (sendingKey, cipher) = try await deriveNextMessageKey(
                 localLongTermPrivateKey: keys.localLongTermPrivateKey,
@@ -424,7 +437,7 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
                 remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
                 remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
                 configuration: configuration)
-            return RatchetState(
+            var state = RatchetState(
                 remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
                 remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
                 remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
@@ -434,6 +447,15 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
                 rootKey: cipher.symmetricKey,
                 messageCiphertext: cipher.ciphertext,
                 sendingKey: sendingKey)
+            // Per-turn hybrid ratchet bootstrap (initiator): generate the initial ratchet key
+            // pairs so their publics can ride in the first encrypted headers. The responder's
+            // first reply performs the first full ratchet step against these keys.
+            let ratchetCurve = Curve25519.KeyAgreement.PrivateKey()
+            let ratchetKEM = try MLKEM1024.PrivateKey().encode()
+            state = await state.updateLocalRatchetPrivateKey(ratchetCurve.rawRepresentation)
+            state = await state.updateLocalRatchetKEMPrivateKey(ratchetKEM)
+            state = await state.updateIsSessionInitiator(true)
+            return state
         }
     }
     
@@ -441,6 +463,47 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     func symmetricKeyRatchet(from symmetricKey: SymmetricKey) async throws -> SymmetricKey {
         let chainKey = HMAC<SHA256>.authenticationCode(for: defaultRatchetConfiguration.messageKeyData, using: symmetricKey)
         return SymmetricKey(data: chainKey)
+    }
+    
+    /// The `KDF_RK` step of the per-turn hybrid ratchet.
+    ///
+    /// Mixes fresh per-turn secrets (Curve25519 DH output concatenated with the ML-KEM shared
+    /// secret) into the root chain, per the Double Ratchet spec's KDF_RK:
+    /// - HKDF-SHA512, salt = old root key (continuity: each root commits to its predecessor),
+    ///   info = `rootKeyData`, 64-byte output split into (new root, chain key).
+    ///
+    /// Both parties run this with identical inputs on a turn boundary — the sender at its
+    /// sending ratchet step, the receiver at the matching receiving step — so the returned
+    /// chain key serves as the sender's CKs and the receiver's CKr. Header-key chains are
+    /// unchanged by the DH ratchet (they remain the per-message symmetric HE chains seeded at
+    /// the PQXDH bootstrap), so metadata protection and the existing skipped-header handling
+    /// are preserved while message keys gain per-turn post-compromise security.
+    ///
+    /// - Parameters:
+    ///   - rootKey: The current root key (HKDF salt). `nil` (no established root yet)
+    ///     degrades to an empty salt, keeping the derivation well-defined at bootstrap.
+    ///   - input: `dhOutput || kemSharedSecret` for this turn.
+    /// - Returns: `(rootKey, chainKey)`.
+    func kdfRootKey(
+        _ rootKey: SymmetricKey?,
+        input: Data
+    ) -> (rootKey: SymmetricKey, chainKey: SymmetricKey) {
+        let okm = HKDF<SHA512>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: input),
+            salt: rootKey?.bytes ?? Data(),
+            info: defaultRatchetConfiguration.rootKeyData,
+            outputByteCount: 64)
+        let bytes = okm.bytes
+        let newRootKey = SymmetricKey(data: Data(bytes.prefix(32)))
+        let chainKey = SymmetricKey(data: Data(bytes.dropFirst(32)))
+        return (newRootKey, chainKey)
+    }
+    
+    /// Curve25519 Diffie-Hellman returning the raw shared-secret bytes, for the per-turn ratchet.
+    func ratchetDH(localPrivate: Data, remotePublic: Data) throws -> Data {
+        let priv = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: localPrivate)
+        let pub = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: remotePublic)
+        return try priv.sharedSecretFromKeyAgreement(with: pub).bytes
     }
     
     /// Derives a new chain key from a base symmetric key and ratchet configuration.

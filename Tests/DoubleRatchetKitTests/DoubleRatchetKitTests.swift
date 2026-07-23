@@ -3712,4 +3712,405 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
             throw error
         }
     }
+
+    // MARK: - Per-Turn Hybrid Ratchet Tests
+
+    /// Post-compromise security: every direction change must perform a hybrid DH ratchet
+    /// step, mixing fresh Curve25519 + ML-KEM entropy into the root. The root key must
+    /// advance on each turn and stay synchronized between both parties.
+    @Test
+    func testPerTurnRatchetAdvancesRootAndHeals() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            func aliceState() async throws -> RatchetState {
+                guard let identity = getSessionIdentity(for: bobIdentity.id),
+                      let state = await identity.props(symmetricKey: aliceDbsk)?.state else {
+                    throw TestErrors.identityNotFound
+                }
+                return state
+            }
+            func bobState() async throws -> RatchetState {
+                guard let identity = getSessionIdentity(for: aliceIdentity.id),
+                      let state = await identity.props(symmetricKey: bobDBSK)?.state else {
+                    throw TestErrors.identityNotFound
+                }
+                return state
+            }
+
+            // Turn 0: Alice bootstraps via PQXDH and sends A1.
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+            let a1 = try await aliceManager.ratchetEncrypt(plainText: Data("A1".utf8), sessionId: bobIdentityLatest.id)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: a1.header,
+                localKeys: bundle.bobPrivate)
+            #expect(try await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id) == Data("A1".utf8))
+
+            let root0Alice = try #require(try await aliceState().rootKey)
+            let root0Bob = try #require(try await bobState().rootKey)
+            #expect(root0Alice == root0Bob, "Bootstrap roots must match (shared PQXDH secret)")
+
+            // Turn 1: Bob's first reply performs the first full sending ratchet step.
+            guard let aliceIdentityForSend = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityForSend,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate)
+            let b1 = try await bobManager.ratchetEncrypt(plainText: Data("B1".utf8), sessionId: aliceIdentityForSend.id)
+
+            let root1Bob = try #require(try await bobState().rootKey)
+            #expect(root1Bob != root0Bob, "Bob's first reply must advance the root (sending ratchet step)")
+
+            guard let bobIdentityForReceive = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityForReceive,
+                sessionSymmetricKey: aliceDbsk,
+                header: b1.header,
+                localKeys: bundle.alicePrivate)
+            #expect(try await aliceManager.ratchetDecrypt(b1, sessionId: bobIdentityForReceive.id) == Data("B1".utf8))
+
+            let root1Alice = try #require(try await aliceState().rootKey)
+            #expect(root1Alice == root1Bob, "Roots must stay synchronized after Bob's turn")
+
+            // Turn 2: Alice's next send steps against Bob's fresh ratchet keys.
+            guard let bobIdentityForSend2 = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityForSend2,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+            let a2 = try await aliceManager.ratchetEncrypt(plainText: Data("A2".utf8), sessionId: bobIdentityForSend2.id)
+
+            let root2Alice = try #require(try await aliceState().rootKey)
+            #expect(root2Alice != root1Alice, "Alice's turn must advance the root again")
+
+            guard let aliceIdentityForReceive2 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityForReceive2,
+                sessionSymmetricKey: bobDBSK,
+                header: a2.header,
+                localKeys: bundle.bobPrivate)
+            #expect(try await bobManager.ratchetDecrypt(a2, sessionId: aliceIdentityForReceive2.id) == Data("A2".utf8))
+
+            let root2Bob = try #require(try await bobState().rootKey)
+            #expect(root2Bob == root2Alice, "Roots must stay synchronized after Alice's turn")
+
+            // Turn 3: one more round trip to prove the cadence is stable.
+            guard let aliceIdentityForSend3 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityForSend3,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate)
+            let b2 = try await bobManager.ratchetEncrypt(plainText: Data("B2".utf8), sessionId: aliceIdentityForSend3.id)
+
+            guard let bobIdentityForReceive3 = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityForReceive3,
+                sessionSymmetricKey: aliceDbsk,
+                header: b2.header,
+                localKeys: bundle.alicePrivate)
+            #expect(try await aliceManager.ratchetDecrypt(b2, sessionId: bobIdentityForReceive3.id) == Data("B2".utf8))
+
+            let root3Alice = try #require(try await aliceState().rootKey)
+            let root3Bob = try #require(try await bobState().rootKey)
+            #expect(root3Alice == root3Bob)
+            #expect(root3Alice != root2Alice)
+            // All four roots distinct: continuous healing, no root reuse across turns.
+            let roots: Set<Data> = [
+                root0Alice.withUnsafeBytes { Data($0) },
+                root1Alice.withUnsafeBytes { Data($0) },
+                root2Alice.withUnsafeBytes { Data($0) },
+                root3Alice.withUnsafeBytes { Data($0) },
+            ]
+            #expect(roots.count == 4, "Each turn must produce a unique root key")
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    /// Out-of-order delivery across a ratchet turn: messages from the previous chain that
+    /// were still in flight when the turn happened must decrypt from the skipped-key stash
+    /// (spec `SkipMessageKeys(header.previousChainLength)`), keyed by the old chain's
+    /// ratchet key so indices never collide with the new chain.
+    @Test
+    func testOutOfOrderDeliveryAcrossRatchetTurn() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            // Alice sends A1, A2, A3 on her bootstrap chain.
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+            let a1 = try await aliceManager.ratchetEncrypt(plainText: Data("A1".utf8), sessionId: bobIdentityLatest.id)
+            let a2 = try await aliceManager.ratchetEncrypt(plainText: Data("A2".utf8), sessionId: bobIdentityLatest.id)
+            let a3 = try await aliceManager.ratchetEncrypt(plainText: Data("A3".utf8), sessionId: bobIdentityLatest.id)
+
+            // Bob receives only A1 before replying.
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: a1.header,
+                localKeys: bundle.bobPrivate)
+            #expect(try await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id) == Data("A1".utf8))
+
+            // Bob replies (ratchet turn) while A2/A3 are still in flight.
+            guard let aliceIdentityForSend = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityForSend,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate)
+            let b1 = try await bobManager.ratchetEncrypt(plainText: Data("B1".utf8), sessionId: aliceIdentityForSend.id)
+
+            guard let bobIdentityForReceive = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityForReceive,
+                sessionSymmetricKey: aliceDbsk,
+                header: b1.header,
+                localKeys: bundle.alicePrivate)
+            #expect(try await aliceManager.ratchetDecrypt(b1, sessionId: bobIdentityForReceive.id) == Data("B1".utf8))
+
+            // Alice sends A4 on a fresh chain (her sending ratchet step). Its header carries
+            // previousChainLength = 3, telling Bob to stash keys for the unseen A2/A3.
+            guard let bobIdentityForSend = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityForSend,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+            let a4 = try await aliceManager.ratchetEncrypt(plainText: Data("A4".utf8), sessionId: bobIdentityForSend.id)
+
+            guard let aliceIdentityForA4 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityForA4,
+                sessionSymmetricKey: bobDBSK,
+                header: a4.header,
+                localKeys: bundle.bobPrivate)
+            #expect(try await bobManager.ratchetDecrypt(a4, sessionId: aliceIdentityForA4.id) == Data("A4".utf8))
+
+            // Late old-chain frames arrive after the turn: A3 first, then A2.
+            guard let aliceIdentityForA3 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityForA3,
+                sessionSymmetricKey: bobDBSK,
+                header: a3.header,
+                localKeys: bundle.bobPrivate)
+            #expect(try await bobManager.ratchetDecrypt(a3, sessionId: aliceIdentityForA3.id) == Data("A3".utf8))
+
+            guard let aliceIdentityForA2 = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityForA2,
+                sessionSymmetricKey: bobDBSK,
+                header: a2.header,
+                localKeys: bundle.bobPrivate)
+            #expect(try await bobManager.ratchetDecrypt(a2, sessionId: aliceIdentityForA2.id) == Data("A2".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    /// Hybrid braid accounting: a ratchet turn must carry BOTH primitives. After each
+    /// side's first step, its state must hold local Curve + ML-KEM ratchet privates, the
+    /// KEM ciphertext for its current chain, and the peer's adopted ratchet publics.
+    @Test
+    func testHybridBraidStateAccounting() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+            let a1 = try await aliceManager.ratchetEncrypt(plainText: Data("A1".utf8), sessionId: bobIdentityLatest.id)
+
+            // Alice's bootstrap state already carries her per-turn key pairs (both primitives).
+            guard let aliceIdentitySnapshot = getSessionIdentity(for: bobIdentity.id),
+                  let aliceBootstrapState = await aliceIdentitySnapshot.props(symmetricKey: aliceDbsk)?.state else {
+                throw TestErrors.identityNotFound
+            }
+            #expect(aliceBootstrapState.localRatchetPrivateKey != nil, "Initiator must carry a Curve ratchet private from bootstrap")
+            #expect(aliceBootstrapState.localRatchetKEMPrivateKey != nil, "Initiator must carry an ML-KEM ratchet private from bootstrap")
+            #expect(aliceBootstrapState.isSessionInitiator == true)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: a1.header,
+                localKeys: bundle.bobPrivate)
+            _ = try await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id)
+
+            // Bob adopted Alice's ratchet publics from the bootstrap header.
+            guard let bobIdentityView = getSessionIdentity(for: aliceIdentity.id),
+                  let bobAfterReceive = await bobIdentityView.props(symmetricKey: bobDBSK)?.state else {
+                throw TestErrors.identityNotFound
+            }
+            #expect(bobAfterReceive.remoteRatchetPublicKey != nil, "Receiver must adopt the sender's Curve ratchet public")
+            #expect(bobAfterReceive.remoteRatchetKEMPublicKey != nil, "Receiver must adopt the sender's ML-KEM ratchet public")
+            #expect(bobAfterReceive.isSessionInitiator == false)
+
+            // Bob's first reply performs the hybrid sending step.
+            guard let aliceIdentityForSend = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityForSend,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate)
+            let b1 = try await bobManager.ratchetEncrypt(plainText: Data("B1".utf8), sessionId: aliceIdentityForSend.id)
+
+            guard let bobIdentityViewAfterSend = getSessionIdentity(for: aliceIdentity.id),
+                  let bobAfterStep = await bobIdentityViewAfterSend.props(symmetricKey: bobDBSK)?.state else {
+                throw TestErrors.identityNotFound
+            }
+            #expect(bobAfterStep.localRatchetPrivateKey != nil, "Step must install a fresh Curve ratchet private")
+            #expect(bobAfterStep.localRatchetKEMPrivateKey != nil, "Step must install a fresh ML-KEM ratchet private")
+            #expect(bobAfterStep.localRatchetKEMCiphertext != nil, "Step must retain the KEM ciphertext for the whole chain")
+            #expect(
+                bobAfterStep.sendingChainRemoteRatchetKey == bobAfterStep.remoteRatchetPublicKey,
+                "Sending chain must be keyed against the peer's current ratchet key")
+
+            // Alice completes the matching receiving step and adopts Bob's fresh publics.
+            guard let bobIdentityForReceive = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityForReceive,
+                sessionSymmetricKey: aliceDbsk,
+                header: b1.header,
+                localKeys: bundle.alicePrivate)
+            #expect(try await aliceManager.ratchetDecrypt(b1, sessionId: bobIdentityForReceive.id) == Data("B1".utf8))
+
+            guard let aliceIdentityAfterReceive = getSessionIdentity(for: bobIdentity.id),
+                  let aliceAfterStep = await aliceIdentityAfterReceive.props(symmetricKey: aliceDbsk)?.state else {
+                throw TestErrors.identityNotFound
+            }
+            #expect(aliceAfterStep.remoteRatchetPublicKey != nil)
+            #expect(aliceAfterStep.remoteRatchetKEMPublicKey != nil)
+            #expect(
+                aliceAfterStep.remoteRatchetPublicKey != aliceBootstrapState.remoteRatchetPublicKey,
+                "Alice must have adopted Bob's fresh per-turn ratchet key")
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
+
+    /// Legacy in-flight drain (wire compatibility): frames encoded before the per-turn
+    /// ratchet existed lack the ratchet header keys entirely. Codable omits nil optionals,
+    /// so a header encoded with nil ratchet fields is byte-equivalent to a pre-3.1 frame;
+    /// it must decode with `nil` for the new fields, and full headers must round-trip.
+    @Test
+    func testLegacyMessageHeaderDecodesWithoutRatchetFields() async throws {
+        // Legacy-shaped frame: same type, only the original "a"/"b" keys on the wire.
+        let legacyShaped = MessageHeader(previousChainLength: 7, messageNumber: 42)
+        let legacyData = try BinaryEncoder().encode(legacyShaped)
+        let decodedLegacy = try BinaryDecoder().decode(MessageHeader.self, from: legacyData)
+        #expect(decodedLegacy.previousChainLength == 7)
+        #expect(decodedLegacy.messageNumber == 42)
+        #expect(decodedLegacy.ratchetPublicKey == nil, "Legacy frames must decode with nil ratchet fields")
+        #expect(decodedLegacy.ratchetKEMPublicKey == nil)
+        #expect(decodedLegacy.ratchetKEMCiphertext == nil)
+
+        // A full turn-boundary header round-trips all hybrid fields intact.
+        let curveKey = crypto.generateCurve25519PrivateKey().publicKey.rawRepresentation
+        let kemPublic = Data(repeating: 0xAB, count: 1568)
+        let kemCiphertext = Data(repeating: 0xCD, count: 1568)
+        let full = MessageHeader(
+            previousChainLength: 3,
+            messageNumber: 0,
+            ratchetPublicKey: curveKey,
+            ratchetKEMPublicKey: kemPublic,
+            ratchetKEMCiphertext: kemCiphertext)
+        let fullData = try BinaryEncoder().encode(full)
+        let decodedFull = try BinaryDecoder().decode(MessageHeader.self, from: fullData)
+        #expect(decodedFull.ratchetPublicKey == curveKey)
+        #expect(decodedFull.ratchetKEMPublicKey == kemPublic)
+        #expect(decodedFull.ratchetKEMCiphertext == kemCiphertext)
+        #expect(decodedFull.previousChainLength == 3)
+        #expect(decodedFull.messageNumber == 0)
+    }
 }
