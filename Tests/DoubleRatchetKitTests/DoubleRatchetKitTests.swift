@@ -202,6 +202,95 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
             throw error
         }
     }
+
+    /// Initiating-phase bootstrap must not require message number 0.
+    ///
+    /// Double Ratchet: every pre-handshake frame carries the PQXDH material. If
+    /// the initiator's first ciphertext is lost or reordered, the receiver opens
+    /// from the first frame that arrives, stashes skipped keys for earlier
+    /// indices, and can still decrypt a late message 0.
+    @Test
+    func testInitiatingPhaseBootstrapSkipsForwardWhenFirstFrameMissing() async throws {
+        let aliceManager = DoubleRatchetStateManager<SHA256>(
+            executor: executor,
+            ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = DoubleRatchetStateManager<SHA256>(
+            executor: executor,
+            ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.senderInitialization(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: self.aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            let a0 = try await aliceManager.ratchetEncrypt(
+                plainText: Data("A0".utf8),
+                sessionId: bobIdentityLatest.id)
+            let a1 = try await aliceManager.ratchetEncrypt(
+                plainText: Data("A1".utf8),
+                sessionId: bobIdentityLatest.id)
+            let a2 = try await aliceManager.ratchetEncrypt(
+                plainText: Data("A2".utf8),
+                sessionId: bobIdentityLatest.id)
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            // Deliver A2 first — never saw A0. Must bootstrap, not throw
+            // initialMessageNotReceived.
+            try await bobManager.recipientInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: self.bobDBSK,
+                header: a2.header,
+                localKeys: bundle.bobPrivate)
+            let da2 = try await bobManager.ratchetDecrypt(a2, sessionId: aliceIdentityLatest.id)
+            #expect(da2 == Data("A2".utf8))
+
+            // Late A0 arrives via the skipped-key stash minted during bootstrap.
+            let da0 = try await bobManager.ratchetDecrypt(a0, sessionId: aliceIdentityLatest.id)
+            #expect(da0 == Data("A0".utf8))
+
+            let da1 = try await bobManager.ratchetDecrypt(a1, sessionId: aliceIdentityLatest.id)
+            #expect(da1 == Data("A1".utf8))
+
+            // Bob can reply; Alice decrypts — the pair is a live session.
+            try await bobManager.senderInitialization(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: self.bobDBSK,
+                remoteKeys: bundle.alicePublic,
+                localKeys: bundle.bobPrivate)
+            let b0 = try await bobManager.ratchetEncrypt(
+                plainText: Data("B0".utf8),
+                sessionId: aliceIdentityLatest.id)
+
+            guard let bobIdentityForReply = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.recipientInitialization(
+                sessionIdentity: bobIdentityForReply,
+                sessionSymmetricKey: self.aliceDbsk,
+                header: b0.header,
+                localKeys: bundle.alicePrivate)
+            let db0 = try await aliceManager.ratchetDecrypt(b0, sessionId: bobIdentityForReply.id)
+            #expect(db0 == Data("B0".utf8))
+
+            try await aliceManager.shutdown()
+            try await bobManager.shutdown()
+        } catch {
+            try? await aliceManager.shutdown()
+            try? await bobManager.shutdown()
+            throw error
+        }
+    }
     
     @Test
     func testExternalKeyDerivationWithoutRatchetAPIs() async throws {

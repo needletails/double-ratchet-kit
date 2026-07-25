@@ -430,10 +430,20 @@ public struct RatchetState: Sendable, Codable {
     private(set) var receivingKey: SymmetricKey?
 
     /// Count of messages sent.
-    private(set) var sentMessagesCount: Int = 0
+    /// Count of messages sent on this session.
+    ///
+    /// Publicly readable so hosts can distinguish a never-used initiating lane
+    /// (`== 0`) from one that already transmitted frames the peer never answered
+    /// (`> 0` with `receivedMessagesCount == 0`) when deciding whether a stale
+    /// process-lifetime remint is safe.
+    public private(set) var sentMessagesCount: Int = 0
 
     /// Count of messages received.
-    private(set) var receivedMessagesCount: Int = 0
+    ///
+    /// Publicly readable so hosts can distinguish an initiating session the
+    /// peer has answered (> 0) from one whose handshake never completed (== 0)
+    /// when deciding whether a session reset is safe.
+    public private(set) var receivedMessagesCount: Int = 0
 
     /// Count of messages in the previous sending chain.
     private(set) var previousMessagesCount: Int = 0

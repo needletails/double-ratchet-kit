@@ -1082,13 +1082,15 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         // We then handle decryption logic.. at this point the key order must be in resolved
         // MESSAGE DECRYPTION PHASE
         if !state.receivingHandshakeFinished {
-            var chainKey: SymmetricKey
+            // Initiating-phase bootstrap (Double Ratchet / PQXDH): every
+            // pre-handshake frame carries the full PQXDH material in its header.
+            // The receiver must be able to open the session from the first frame
+            // that arrives — not only message number 0. Loss or reorder of the
+            // initiator's first ciphertext must not permanently kill the lane;
+            // skip message keys 0..<N into the skipped-key store (bounded by
+            // maxSkippedMessageKeys) and decrypt N, same as the post-handshake
+            // gap-fill path.
             if state.rootKey == nil {
-                if decrypted.messageNumber != 0 {
-                    throw RatchetError.initialMessageNotReceived
-                }
-                // First message after handshake:
-                // Derive root and chain keys from PQXDH final key receiver function.
                 let finalReceivingKey = try await core.derivePQXDHFinalKeyReceiver(
                     remoteLongTermPublicKey: state.remoteLongTermPublicKey,
                     remoteOneTimePublicKey: state.remoteOneTimePublicKey,
@@ -1101,31 +1103,28 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                     state = await state.updateCiphertext(message.header.messageCiphertext)
                 }
                 
-                // Derive chain key from the new root key.
-                chainKey = try await core.deriveChainKey(from: finalReceivingKey, configuration: core.defaultRatchetConfiguration)
-                let nextChainKey = try await core.deriveChainKey(from: chainKey, configuration: core.defaultRatchetConfiguration)
-                // Update root and receiving chain key in state for ratchet progression.
+                // CK_0 seeds gap-fill; deriveMessageKey advances past N and
+                // stashes skipped MKs for any earlier frames that arrive later.
+                let chainKey = try await core.deriveChainKey(
+                    from: finalReceivingKey,
+                    configuration: core.defaultRatchetConfiguration)
                 state = await state.updateRootKey(finalReceivingKey)
-                state = await state.updateReceivingKey(nextChainKey)
-            } else {
-                if let receivingKey = state.receivingKey {
-                    chainKey = receivingKey
-                } else {
-                    guard let rootKey = state.rootKey else {
-                        throw RatchetError.rootKeyIsNil
-                    }
-                    // if we have a root key but not a receiving key create a receiving key from the root key
-                    chainKey = try await core.deriveChainKey(
-                        from: rootKey,
-                        configuration: core.defaultRatchetConfiguration,
-                    )
+                state = await state.updateReceivingKey(chainKey)
+            } else if state.receivingKey == nil {
+                guard let rootKey = state.rootKey else {
+                    throw RatchetError.rootKeyIsNil
                 }
-                
-                let nextChainKey = try await core.deriveChainKey(from: chainKey, configuration: core.defaultRatchetConfiguration)
-                state = await state.updateReceivingKey(nextChainKey)
+                let chainKey = try await core.deriveChainKey(
+                    from: rootKey,
+                    configuration: core.defaultRatchetConfiguration)
+                state = await state.updateReceivingKey(chainKey)
             }
-            
-            let messageKey = try await core.symmetricKeyRatchet(from: chainKey)
+
+            let (bootstrappedState, messageKey) = try await deriveMessageKey(
+                header: header,
+                configuration: core.defaultRatchetConfiguration,
+                state: state)
+            state = bootstrappedState
             let plaintext = try await processFoundMessage(
                 ratchetMessage: message,
                 usingMessageKey: messageKey,
@@ -1148,7 +1147,14 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
                 state = await state.updateRemoteRatchetKEMPublicKey(headerRatchetKEMKey)
             }
 
-            state = await state.incrementReceivedMessagesCount()
+            // Align counters with the decrypted index so subsequent gap-fill
+            // and skipped-key lookups stay consistent with post-handshake commits.
+            state = await state.updateLastDecryptedMessageNumber(decrypted.messageNumber)
+            state = await state.updateReceivedMessagesCount(decrypted.messageNumber + 1)
+            state = await markAlreadyDecrypted(
+                decrypted.messageNumber,
+                in: state,
+                configuration: core.defaultRatchetConfiguration)
             state = await state.updateReceivingHandshakeFinished(true)
 
             configuration.state = state
