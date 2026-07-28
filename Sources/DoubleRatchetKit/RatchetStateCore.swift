@@ -60,6 +60,11 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     /// Tracks whether `shutdown()` has been called.
     private nonisolated(unsafe) var didShutdown = false
     
+    /// The shared admission and exclusivity point for all session mutations.
+    private let mutationGate = SessionMutationGate()
+    private var shutdownInProgress = false
+    private var shutdownWaiters: [CheckedContinuation<Void, Error>] = []
+    
     /// Represents session identity and associated symmetric key for key derivation.
     public struct SessionConfiguration: Sendable {
         /// The session identity for this configuration.
@@ -161,11 +166,47 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     ///
     /// - Throws: An error if session state persistence fails through the delegate.
     public func shutdown() async throws {
-        for (_, configuration) in sessionConfigurations {
-            try await updateSessionIdentity(configuration: configuration, persist: true)
+        guard !didShutdown else { return }
+
+        if shutdownInProgress {
+            return try await withCheckedThrowingContinuation { continuation in
+                shutdownWaiters.append(continuation)
+            }
         }
-        sessionConfigurations.removeAll()
-        didShutdown = true
+        shutdownInProgress = true
+
+        do {
+            await mutationGate.closeAndWaitForLeases()
+            for (_, configuration) in sessionConfigurations {
+                try await updateSessionIdentity(configuration: configuration, persist: true)
+            }
+            sessionConfigurations.removeAll()
+            didShutdown = true
+            finishShutdown(with: .success(()))
+        } catch {
+            finishShutdown(with: .failure(error))
+            throw error
+        }
+    }
+    
+    /// Runs a complete session mutation under the core-owned FIFO lease for that session.
+    ///
+    /// This is intentionally only used by public mutation entry points. Internal helpers run
+    /// within the lease their caller already owns and must not acquire it recursively.
+    func withSessionMutation<T: Sendable>(
+        sessionId: UUID,
+        operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        try await mutationGate.withLease(for: sessionId, operation: operation)
+    }
+
+    private func finishShutdown(with result: Result<Void, Error>) {
+        shutdownInProgress = false
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(with: result)
+        }
     }
     
     // MARK: - Private Helper Methods

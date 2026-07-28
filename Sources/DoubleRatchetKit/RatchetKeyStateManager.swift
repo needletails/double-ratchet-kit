@@ -94,6 +94,21 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
         remoteKeys: RemoteKeys,
         localKeys: LocalKeys,
     ) async throws {
+        try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
+            try await senderInitializationImpl(
+                sessionIdentity: sessionIdentity,
+                sessionSymmetricKey: sessionSymmetricKey,
+                remoteKeys: remoteKeys,
+                localKeys: localKeys)
+        }
+    }
+    
+    private func senderInitializationImpl(
+        sessionIdentity: SessionIdentity,
+        sessionSymmetricKey: SymmetricKey,
+        remoteKeys: RemoteKeys,
+        localKeys: LocalKeys,
+    ) async throws {
         let keys = RatchetStateCore<Hash>.EncryptionKeys(remote: remoteKeys, local: localKeys)
         try await loadConfigurations(
             sessionIdentity: sessionIdentity,
@@ -103,6 +118,23 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
     
     /// Initializes a receiving session for external key derivation workflows.
     public func recipientInitialization(
+        sessionIdentity: SessionIdentity,
+        sessionSymmetricKey: SymmetricKey,
+        localKeys: LocalKeys,
+        remoteKeys: RemoteKeys,
+        ciphertext: Data
+    ) async throws {
+        try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
+            try await recipientInitializationImpl(
+                sessionIdentity: sessionIdentity,
+                sessionSymmetricKey: sessionSymmetricKey,
+                localKeys: localKeys,
+                remoteKeys: remoteKeys,
+                ciphertext: ciphertext)
+        }
+    }
+    
+    private func recipientInitializationImpl(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         localKeys: LocalKeys,
@@ -375,6 +407,12 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
     ///
     /// - SeeAlso: `deriveReceivedMessageKey(sessionId:cipherText:)` for the receiving side equivalent.
     public func deriveMessageKey(sessionId: UUID) async throws -> (SymmetricKey, Int) {
+        try await core.withSessionMutation(sessionId: sessionId) { [self] in
+            try await deriveMessageKeyImpl(sessionId: sessionId)
+        }
+    }
+    
+    private func deriveMessageKeyImpl(sessionId: UUID) async throws -> (SymmetricKey, Int) {
         
         var configuration = try await core.getCurrentConfiguration(id: sessionId)
         
@@ -476,6 +514,12 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
     ///
     /// - SeeAlso: `deriveMessageKey(sessionId:)` for the sending side equivalent.
     public func deriveReceivedMessageKey(sessionId: UUID, cipherText: Data) async throws -> (SymmetricKey, Int) {
+        try await core.withSessionMutation(sessionId: sessionId) { [self] in
+            try await deriveReceivedMessageKeyImpl(sessionId: sessionId, cipherText: cipherText)
+        }
+    }
+    
+    private func deriveReceivedMessageKeyImpl(sessionId: UUID, cipherText: Data) async throws -> (SymmetricKey, Int) {
         
         var configuration = try await core.getCurrentConfiguration(id: sessionId)
         

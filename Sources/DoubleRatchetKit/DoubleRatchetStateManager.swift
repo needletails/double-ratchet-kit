@@ -679,6 +679,21 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         remoteKeys: RemoteKeys,
         localKeys: LocalKeys,
     ) async throws {
+        try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
+            try await senderInitializationImpl(
+                sessionIdentity: sessionIdentity,
+                sessionSymmetricKey: sessionSymmetricKey,
+                remoteKeys: remoteKeys,
+                localKeys: localKeys)
+        }
+    }
+    
+    private func senderInitializationImpl(
+        sessionIdentity: SessionIdentity,
+        sessionSymmetricKey: SymmetricKey,
+        remoteKeys: RemoteKeys,
+        localKeys: LocalKeys,
+    ) async throws {
         let keys = RatchetStateCore<Hash>.EncryptionKeys(remote: remoteKeys, local: localKeys)
         try await loadConfigurations(
             sessionIdentity: sessionIdentity,
@@ -714,6 +729,21 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - Note: For handling out-of-order messages, you may call this method multiple times with different
     ///   headers. The method will detect key changes and update the ratchet state as needed.
     public func recipientInitialization(
+        sessionIdentity: SessionIdentity,
+        sessionSymmetricKey: SymmetricKey,
+        header: EncryptedHeader,
+        localKeys: LocalKeys
+    ) async throws {
+        try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
+            try await recipientInitializationImpl(
+                sessionIdentity: sessionIdentity,
+                sessionSymmetricKey: sessionSymmetricKey,
+                header: header,
+                localKeys: localKeys)
+        }
+    }
+    
+    private func recipientInitializationImpl(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         header: EncryptedHeader,
@@ -782,6 +812,12 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
     /// - SeeAlso:
     ///   `derivePQXDHFinalKey`, `encryptHeader`, `updateSessionIdentity`, `RatchetMessage`
     public func ratchetEncrypt(plainText: Data, sessionId: UUID) async throws -> RatchetMessage {
+        try await core.withSessionMutation(sessionId: sessionId) { [self] in
+            try await ratchetEncryptImpl(plainText: plainText, sessionId: sessionId)
+        }
+    }
+    
+    private func ratchetEncryptImpl(plainText: Data, sessionId: UUID) async throws -> RatchetMessage {
         logger.log(level: .trace, message: "Ratchet encrypt started")
         
         var configuration = try await core.getCurrentConfiguration(id: sessionId)
@@ -940,6 +976,12 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
     ///
     /// - SeeAlso: `derivePQXDHFinalKeyReceiver(_:)`, `diffieHellmanRatchet(header:)`, `symmetricKeyRatchet(from:)`
     public func ratchetDecrypt(_ message: RatchetMessage, sessionId: UUID) async throws -> Data {
+        try await core.withSessionMutation(sessionId: sessionId) { [self] in
+            try await ratchetDecryptImpl(message, sessionId: sessionId)
+        }
+    }
+    
+    private func ratchetDecryptImpl(_ message: RatchetMessage, sessionId: UUID) async throws -> Data {
         logger.log(level: .trace, message: "Ratchet decrypt started")
         
         var configuration = try await core.getCurrentConfiguration(id: sessionId)
