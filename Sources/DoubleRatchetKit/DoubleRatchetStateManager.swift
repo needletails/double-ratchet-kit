@@ -17,9 +17,7 @@
 /*
  # Double Ratchet API Overview
  
- This module implements the **Double Ratchet Algorithm**, which provides *asynchronous forward secrecy* and *post-compromise security* for secure messaging, per the public Double Ratchet specification:
- 
- 📄 Specification: https://signal.org/docs/specifications/doubleratchet/doubleratchet.pdf
+ This module implements the **Double Ratchet Algorithm**, which provides *asynchronous forward secrecy* and *post-compromise security* for secure messaging.
  
  The Double Ratchet combines a **Diffie-Hellman (DH) ratchet** and **symmetric-key ratchets** to derive message keys that change with every message. It ensures that compromise of current or past keys does not reveal other session messages.
  
@@ -46,8 +44,6 @@
  - Bob's signed prekey (SPKB) becomes the initial DH ratchet public key.
  - Alice's first Double Ratchet message includes the PQXDH initial ciphertext.
  
- 🔒 PQXDH Specification: https://signal.org/docs/specifications/pqxdh/
- 
  ## Key Components
  
  - `DoubleRatchetStateManager`: Core ratchet state machine. Handles key rotation, message counters, and skipped key pruning.
@@ -59,12 +55,6 @@
  - Bounded header-gap scanning: `decryptHeader` tries skipped header keys, then the current header key, and then advances the header key iteratively up to `maxSkippedMessageKeys`. This supports large out-of-order gaps while keeping per-message work bounded.
  - Error surface: Internal crypto failures surface as `CryptoKitError` or specific `RatchetError` values (e.g., `missingConfiguration`, `receivingHeaderKeyIsNil`, `maxSkippedHeadersExceeded`). Callers should avoid exposing detailed crypto errors to untrusted clients.
  - Logging: Do not log key material or ciphertext in production. Any prints in this file are intended for debugging and must be disabled in production builds.
- 
- ## References
- 
- - Double Ratchet Specification: https://signal.org/docs/specifications/doubleratchet/
- - PQXDH Specification: https://signal.org/docs/specifications/pqxdh/
- - X3DH (original): https://signal.org/docs/specifications/x3dh/
  */
 
 /* INITIAL MESSAGE (Handshake Phase)
@@ -129,12 +119,7 @@ import NeedleTailLogger
 /// Provides a NeedleTails Double Ratchet with header encryption and PQXDH-style
 /// integration for asynchronous forward secrecy and post‑compromise security.
 /// Combines a Diffie‑Hellman ratchet with symmetric‑key ratchets so keys change
-/// per message. Influenced by public specifications; not wire-compatible with
-/// third-party messaging clients.
-///
-/// - Double Ratchet reference: https://signal.org/docs/specifications/doubleratchet/
-/// - PQXDH reference: https://signal.org/docs/specifications/pqxdh/
-/// - X3DH reference: https://signal.org/docs/specifications/x3dh/
+/// per message. Not wire-compatible with third-party messaging clients.
 ///
 /// ## Core Features
 /// - Header Encryption (HE): Encrypts headers under the sending header key (`HKs`).
