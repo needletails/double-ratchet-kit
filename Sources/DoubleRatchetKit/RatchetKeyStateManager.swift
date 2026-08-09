@@ -58,7 +58,6 @@ public actor RatchetKeyStateManager<Hash: HashFunction & Sendable> {
     ) {
         self.executor = executor
         self.logger = logger
-        self.logger.setLogLevel(.trace)
         core = RatchetStateCore(
             executor: executor,
             logger: logger,
