@@ -37,7 +37,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await aliceManager.openAsSender(
+                try await aliceManager.initiateSession(
                     sessionIdentity: bobIdentityLatest,
                     sessionSymmetricKey: self.aliceDbsk,
                     remoteKeys: bundle.bobPublic,
@@ -51,7 +51,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await bobManager.openAsRecipient(
+                try await bobManager.respondToSession(
                     sessionIdentity: aliceIdentityLatest,
                     sessionSymmetricKey: self.bobDBSK,
                     header: a1.header,
@@ -66,7 +66,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await bobManager.openAsSender(
+                try await bobManager.initiateSession(
                     sessionIdentity: aliceIdentityLatest2,
                     sessionSymmetricKey: self.bobDBSK,
                     remoteKeys: bundle.alicePublic,
@@ -80,7 +80,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try! await aliceManager.openAsRecipient(
+                try! await aliceManager.respondToSession(
                     sessionIdentity: bobIdentityLatest2,
                     sessionSymmetricKey: self.aliceDbsk,
                     header: b1.header,
@@ -95,7 +95,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await aliceManager.openAsSender(
+                try await aliceManager.initiateSession(
                     sessionIdentity: bobIdentityLatest3,
                     sessionSymmetricKey: self.aliceDbsk,
                     remoteKeys: bundle.bobPublic,
@@ -109,7 +109,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await bobManager.openAsRecipient(
+                try await bobManager.respondToSession(
                     sessionIdentity: aliceIdentityLatest3,
                     sessionSymmetricKey: self.bobDBSK,
                     header: a3.header,
@@ -125,7 +125,7 @@ extension MessageRatchetTests {
             }
         
             await #expect(throws: Never.self) {
-                try await bobManager.openAsRecipient(
+                try await bobManager.respondToSession(
                     sessionIdentity: aliceIdentityLatest4,
                     sessionSymmetricKey: self.bobDBSK,
                     header: a2.header,
@@ -140,7 +140,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await bobManager.openAsSender(
+                try await bobManager.initiateSession(
                     sessionIdentity: aliceIdentityLatest5,
                     sessionSymmetricKey: self.bobDBSK,
                     remoteKeys: bundle.alicePublic,
@@ -154,7 +154,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await aliceManager.openAsRecipient(
+                try await aliceManager.respondToSession(
                     sessionIdentity: bobIdentityLatest3,
                     sessionSymmetricKey: self.aliceDbsk,
                     header: b3.header,
@@ -169,7 +169,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             await #expect(throws: Never.self) {
-                try await aliceManager.openAsRecipient(
+                try await aliceManager.respondToSession(
                     sessionIdentity: bobIdentityLatest4,
                     sessionSymmetricKey: self.aliceDbsk,
                     header: b2.header,
@@ -205,7 +205,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: self.aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -226,7 +226,7 @@ extension MessageRatchetTests {
             }
             // Deliver A2 first — never saw A0. Must bootstrap, not throw
             // initialMessageNotReceived.
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: self.bobDBSK,
                 header: a2.header,
@@ -242,7 +242,7 @@ extension MessageRatchetTests {
             #expect(da1 == Data("A1".utf8))
 
             // Bob can reply; Alice decrypts — the pair is a live session.
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: self.bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -254,7 +254,7 @@ extension MessageRatchetTests {
             guard let bobIdentityForReply = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityForReply,
                 sessionSymmetricKey: self.aliceDbsk,
                 header: b0.header,
@@ -283,7 +283,7 @@ extension MessageRatchetTests {
             
             // A->B: A1 establishes direction
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -291,7 +291,7 @@ extension MessageRatchetTests {
             )
             let a1 = try await aliceManager.encrypt(plainText: Data("A1".utf8), sessionId: bobIdentityLatest.id)
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -301,7 +301,7 @@ extension MessageRatchetTests {
             
             // B->A: B1
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -309,7 +309,7 @@ extension MessageRatchetTests {
             )
             let B1 = try await bobManager.encrypt(plainText: Data("B1".utf8), sessionId: aliceIdentityLatest2.id)
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest2,
                 sessionSymmetricKey: aliceDbsk,
                 header: B1.header,
@@ -319,7 +319,7 @@ extension MessageRatchetTests {
             
             // A->B: A2, A3
             guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest3,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -330,7 +330,7 @@ extension MessageRatchetTests {
             
             // B->A: B2, B3
             guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest3,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -341,7 +341,7 @@ extension MessageRatchetTests {
             
             // Deliver interleaved and out of order: A3, B3, A2, B2
             guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest4,
                 sessionSymmetricKey: bobDBSK,
                 header: a3.header,
@@ -350,7 +350,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(a3, sessionId: aliceIdentityLatest4.id) == Data("A3".utf8))
             
             guard let bobIdentityLatest3b = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest3b,
                 sessionSymmetricKey: aliceDbsk,
                 header: b3.header,
@@ -359,7 +359,7 @@ extension MessageRatchetTests {
             #expect(try await aliceManager.decrypt(b3, sessionId: bobIdentityLatest3b.id) == Data("B3".utf8))
             
             guard let aliceIdentityLatest5 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest5,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -368,7 +368,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(a2, sessionId: aliceIdentityLatest5.id) == Data("A2".utf8))
             
             guard let bobIdentityLatest4 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest4,
                 sessionSymmetricKey: aliceDbsk,
                 header: b2.header,
@@ -397,7 +397,7 @@ extension MessageRatchetTests {
             
             // Alice → Bob: start_call (A1)
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -406,7 +406,7 @@ extension MessageRatchetTests {
             let startCall = try await aliceManager.encrypt(plainText: Data("start_call".utf8), sessionId: bobIdentityLatest.id)
             
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: startCall.header,
@@ -416,7 +416,7 @@ extension MessageRatchetTests {
             
             // Bob → Alice: call_answered (B1)
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -425,7 +425,7 @@ extension MessageRatchetTests {
             let callAnswered = try await bobManager.encrypt(plainText: Data("call_answered".utf8), sessionId: aliceIdentityLatest2.id)
             
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest2,
                 sessionSymmetricKey: aliceDbsk,
                 header: callAnswered.header,
@@ -435,7 +435,7 @@ extension MessageRatchetTests {
             
             // Alice → Bob: sdp_offer (A2) and ice_candidate_a (A3)
             guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest3,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -446,7 +446,7 @@ extension MessageRatchetTests {
             
             // Bob → Alice: sdp_answer (B2) and ice_candidate_b (B3)
             guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest3,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -457,7 +457,7 @@ extension MessageRatchetTests {
             
             // Deliver out-of-order per receiver: Bob gets A3 then A2; Alice gets B3 then B2
             guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest4,
                 sessionSymmetricKey: bobDBSK,
                 header: iceCandidateA.header,
@@ -466,7 +466,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(iceCandidateA, sessionId: aliceIdentityLatest4.id) == Data("ice_candidate_a".utf8))
             
             guard let aliceIdentityLatest5 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest5,
                 sessionSymmetricKey: bobDBSK,
                 header: sdpOffer.header,
@@ -475,7 +475,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(sdpOffer, sessionId: aliceIdentityLatest5.id) == Data("sdp_offer".utf8))
             
             guard let bobIdentityLatest3b = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest3b,
                 sessionSymmetricKey: aliceDbsk,
                 header: iceCandidateB.header,
@@ -484,7 +484,7 @@ extension MessageRatchetTests {
             #expect(try await aliceManager.decrypt(iceCandidateB, sessionId: bobIdentityLatest3b.id) == Data("ice_candidate_b".utf8))
             
             guard let bobIdentityLatest4 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest4,
                 sessionSymmetricKey: aliceDbsk,
                 header: sdpAnswer.header,
@@ -513,7 +513,7 @@ extension MessageRatchetTests {
             
             // Alice → Bob: A1 establishes session
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -522,7 +522,7 @@ extension MessageRatchetTests {
             let a1 = try await aliceManager.encrypt(plainText: Data("A1".utf8), sessionId: bobIdentityLatest.id)
             
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -532,7 +532,7 @@ extension MessageRatchetTests {
             
             // Alice sends A2, A3
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest2,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -543,7 +543,7 @@ extension MessageRatchetTests {
             
             // Bob receives OUT OF ORDER: A3 first, then A2 (simulating network reorder)
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 header: a3.header,
@@ -552,7 +552,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(a3, sessionId: aliceIdentityLatest2.id) == Data("A3".utf8))
             
             guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest3,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -562,7 +562,7 @@ extension MessageRatchetTests {
             
             // Re-sync: Bob sends B1; Alice must decrypt (subsequent send re-synchronizes)
             guard let aliceIdentityLatest4 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest4,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -571,7 +571,7 @@ extension MessageRatchetTests {
             let b1 = try await bobManager.encrypt(plainText: Data("B1".utf8), sessionId: aliceIdentityLatest4.id)
             
             guard let bobIdentityLatest3 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest3,
                 sessionSymmetricKey: aliceDbsk,
                 header: b1.header,
@@ -583,7 +583,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest4 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
             let a4 = try await aliceManager.encrypt(plainText: Data("A4".utf8), sessionId: bobIdentityLatest4.id)
             guard let aliceIdentityLatest5 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest5,
                 sessionSymmetricKey: bobDBSK,
                 header: a4.header,
@@ -595,7 +595,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest6 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
             let b2 = try await bobManager.encrypt(plainText: Data("B2".utf8), sessionId: aliceIdentityLatest6.id)
             guard let bobIdentityLatest5 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest5,
                 sessionSymmetricKey: aliceDbsk,
                 header: b2.header,
@@ -624,7 +624,7 @@ extension MessageRatchetTests {
             
             // A1: Alice → Bob
             guard let bobId = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobId,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -632,7 +632,7 @@ extension MessageRatchetTests {
             )
             let a1 = try await aliceManager.encrypt(plainText: Data("A1".utf8), sessionId: bobId.id)
             guard let aliceId = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -642,7 +642,7 @@ extension MessageRatchetTests {
             
             // B1: Bob → Alice
             guard let aliceId2 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceId2,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -650,7 +650,7 @@ extension MessageRatchetTests {
             )
             let b1 = try await bobManager.encrypt(plainText: Data("B1".utf8), sessionId: aliceId2.id)
             guard let bobId2 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobId2,
                 sessionSymmetricKey: aliceDbsk,
                 header: b1.header,
@@ -660,7 +660,7 @@ extension MessageRatchetTests {
             
             // Alice sends A2, A3, A4; Bob will receive A4, A2, A3 (out of order)
             guard let bobId3 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobId3,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -671,7 +671,7 @@ extension MessageRatchetTests {
             let a4 = try await aliceManager.encrypt(plainText: Data("A4".utf8), sessionId: bobId3.id)
             
             guard let aliceId3 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId3,
                 sessionSymmetricKey: bobDBSK,
                 header: a4.header,
@@ -679,7 +679,7 @@ extension MessageRatchetTests {
             )
             #expect(try await bobManager.decrypt(a4, sessionId: aliceId3.id) == Data("A4".utf8))
             guard let aliceId4 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId4,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -687,7 +687,7 @@ extension MessageRatchetTests {
             )
             #expect(try await bobManager.decrypt(a2, sessionId: aliceId4.id) == Data("A2".utf8))
             guard let aliceId5 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId5,
                 sessionSymmetricKey: bobDBSK,
                 header: a3.header,
@@ -699,7 +699,7 @@ extension MessageRatchetTests {
             guard let aliceId6 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
             let b2 = try await bobManager.encrypt(plainText: Data("B2".utf8), sessionId: aliceId6.id)
             guard let bobId4 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobId4,
                 sessionSymmetricKey: aliceDbsk,
                 header: b2.header,
@@ -711,7 +711,7 @@ extension MessageRatchetTests {
             guard let bobId5 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
             let a5 = try await aliceManager.encrypt(plainText: Data("A5".utf8), sessionId: bobId5.id)
             guard let aliceId7 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId7,
                 sessionSymmetricKey: bobDBSK,
                 header: a5.header,
@@ -722,7 +722,7 @@ extension MessageRatchetTests {
             guard let aliceId8 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
             let b3 = try await bobManager.encrypt(plainText: Data("B3".utf8), sessionId: aliceId8.id)
             guard let bobId6 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobId6,
                 sessionSymmetricKey: aliceDbsk,
                 header: b3.header,
@@ -750,7 +750,7 @@ extension MessageRatchetTests {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
             
             guard let bobId = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobId,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -763,7 +763,7 @@ extension MessageRatchetTests {
             let a5 = try await aliceManager.encrypt(plainText: Data("A5".utf8), sessionId: bobId.id)
             
             guard let aliceId = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -773,7 +773,7 @@ extension MessageRatchetTests {
             
             // Deliver out of order: A5, A3, A2, A4 (large gaps)
             guard let aliceId2 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId2,
                 sessionSymmetricKey: bobDBSK,
                 header: a5.header,
@@ -782,7 +782,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(a5, sessionId: aliceId2.id) == Data("A5".utf8))
             
             guard let aliceId3 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId3,
                 sessionSymmetricKey: bobDBSK,
                 header: a3.header,
@@ -791,7 +791,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(a3, sessionId: aliceId3.id) == Data("A3".utf8))
             
             guard let aliceId4 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId4,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -800,7 +800,7 @@ extension MessageRatchetTests {
             #expect(try await bobManager.decrypt(a2, sessionId: aliceId4.id) == Data("A2".utf8))
             
             guard let aliceId5 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId5,
                 sessionSymmetricKey: bobDBSK,
                 header: a4.header,
@@ -810,7 +810,7 @@ extension MessageRatchetTests {
             
             // Re-sync: Bob sends B1; Alice decrypts
             guard let aliceId6 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceId6,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -818,7 +818,7 @@ extension MessageRatchetTests {
             )
             let b1 = try await bobManager.encrypt(plainText: Data("B1".utf8), sessionId: aliceId6.id)
             guard let bobId2 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobId2,
                 sessionSymmetricKey: aliceDbsk,
                 header: b1.header,
@@ -830,7 +830,7 @@ extension MessageRatchetTests {
             guard let bobId3 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
             let a6 = try await aliceManager.encrypt(plainText: Data("A6".utf8), sessionId: bobId3.id)
             guard let aliceId7 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceId7,
                 sessionSymmetricKey: bobDBSK,
                 header: a6.header,
@@ -841,7 +841,7 @@ extension MessageRatchetTests {
             guard let aliceId8 = getSessionIdentity(for: aliceIdentity.id) else { throw TestErrors.identityNotFound }
             let b2 = try await bobManager.encrypt(plainText: Data("B2".utf8), sessionId: aliceId8.id)
             guard let bobId4 = getSessionIdentity(for: bobIdentity.id) else { throw TestErrors.identityNotFound }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobId4,
                 sessionSymmetricKey: aliceDbsk,
                 header: b2.header,
@@ -871,7 +871,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -884,7 +884,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: encrypted.header,
@@ -907,7 +907,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -919,7 +919,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest2,
                 sessionSymmetricKey: aliceDbsk,
                 header: encrypted2.header,
@@ -967,7 +967,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -980,7 +980,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: firstEncrypted.header,
@@ -1004,7 +1004,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -1017,7 +1017,7 @@ extension MessageRatchetTests {
             let firstBackPlaintext = "Message 1 from Bob".data(using: .utf8)!
             let firstBackEncrypted = try await bobManager.encrypt(
                 plainText: firstBackPlaintext, sessionId: aliceIdentityLatest2.id)
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest2,
                 sessionSymmetricKey: aliceDbsk,
                 header: firstBackEncrypted.header,
@@ -1062,7 +1062,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsSender(
+                    try await aliceManager.initiateSession(
                         sessionIdentity: bobIdentityLatest,
                         sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
@@ -1078,7 +1078,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsRecipient(
+                    try await bobManager.respondToSession(
                         sessionIdentity: aliceIdentityLatest,
                         sessionSymmetricKey: self.bobDBSK,
                         header: encrypted.header,
@@ -1093,7 +1093,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsSender(
+                    try await bobManager.initiateSession(
                         sessionIdentity: aliceIdentityLatest2,
                         sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: bundle.alicePublic,
@@ -1109,7 +1109,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsRecipient(
+                    try await aliceManager.respondToSession(
                         sessionIdentity: bobIdentityLatest2,
                         sessionSymmetricKey: self.aliceDbsk,
                         header: encrypted2.header,
@@ -1124,7 +1124,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsSender(
+                    try await aliceManager.initiateSession(
                         sessionIdentity: bobIdentityLatest3,
                         sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
@@ -1140,7 +1140,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsRecipient(
+                    try await bobManager.respondToSession(
                         sessionIdentity: aliceIdentityLatest3,
                         sessionSymmetricKey: self.bobDBSK,
                         header: encrypted3.header,
@@ -1156,7 +1156,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsSender(
+                    try await aliceManager.initiateSession(
                         sessionIdentity: bobIdentityLatest4,
                         sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.alicePublic,
@@ -1172,7 +1172,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsRecipient(
+                    try await bobManager.respondToSession(
                         sessionIdentity: aliceIdentityLatest4,
                         sessionSymmetricKey: self.bobDBSK,
                         header: encrypted4.header,
@@ -1187,7 +1187,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsSender(
+                    try await bobManager.initiateSession(
                         sessionIdentity: aliceIdentityLatest5,
                         sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: bundle.alicePublic,
@@ -1204,7 +1204,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsRecipient(
+                    try await aliceManager.respondToSession(
                         sessionIdentity: bobIdentityLatest5,
                         sessionSymmetricKey: self.aliceDbsk,
                         header: encrypted5.header,
@@ -1220,7 +1220,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsSender(
+                    try await bobManager.initiateSession(
                         sessionIdentity: aliceIdentityLatest6,
                         sessionSymmetricKey: self.bobDBSK,
                         remoteKeys: bundle.alicePublic,
@@ -1237,7 +1237,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsRecipient(
+                    try await aliceManager.respondToSession(
                         sessionIdentity: bobIdentityLatest6,
                         sessionSymmetricKey: self.aliceDbsk,
                         header: encrypted6.header,
@@ -1275,7 +1275,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsSender(
+                    try await aliceManager.initiateSession(
                         sessionIdentity: bobIdentityLatest,
                         sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
@@ -1291,7 +1291,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsSender(
+                    try await aliceManager.initiateSession(
                         sessionIdentity: bobIdentityLatest2,
                         sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
@@ -1310,7 +1310,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await aliceManager.openAsSender(
+                    try await aliceManager.initiateSession(
                         sessionIdentity: bobIdentityLatest3,
                         sessionSymmetricKey: self.aliceDbsk,
                         remoteKeys: bundle.bobPublic,
@@ -1328,7 +1328,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsRecipient(
+                    try await bobManager.respondToSession(
                         sessionIdentity: aliceIdentityLatest,
                         sessionSymmetricKey: self.bobDBSK,
                         header: encrypted3.header,
@@ -1350,7 +1350,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsRecipient(
+                    try await bobManager.respondToSession(
                         sessionIdentity: aliceIdentityLatest2,
                         sessionSymmetricKey: self.bobDBSK,
                         header: encrypted1.header,
@@ -1372,7 +1372,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: Never.self,
                 performing: {
-                    try await bobManager.openAsRecipient(
+                    try await bobManager.respondToSession(
                         sessionIdentity: aliceIdentityLatest3,
                         sessionSymmetricKey: self.bobDBSK,
                         header: encrypted2.header,
@@ -1394,7 +1394,7 @@ extension MessageRatchetTests {
                     else {
                         continue
                     }
-                    try await bobManager.openAsRecipient(
+                    try await bobManager.respondToSession(
                         sessionIdentity: aliceIdentityLatest4,
                         sessionSymmetricKey: bobDBSK,
                         header: stashedMessage.header,
@@ -1431,7 +1431,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             // Initialize Sender
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1453,7 +1453,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            _ = try await bobManager.openAsRecipient(
+            _ = try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: messages.first!.header,
@@ -1488,7 +1488,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1502,7 +1502,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             let firstMessage = messages.removeFirst()
-            _ = try await bobManager.openAsRecipient(
+            _ = try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: firstMessage.header,
@@ -1543,7 +1543,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             // Initialize Sender
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1560,7 +1560,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            _ = try await bobManager.openAsRecipient(
+            _ = try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: messages.first!.header,
@@ -1594,7 +1594,7 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             // Initialize Sender
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1608,7 +1608,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            _ = try await bobManager.openAsRecipient(
+            _ = try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: encrypted.header,
@@ -1641,7 +1641,7 @@ extension MessageRatchetTests {
             }
             
             // Initialize Sender
-            try! await aliceManager.openAsSender(
+            try! await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1653,7 +1653,7 @@ extension MessageRatchetTests {
             let encrypted = try! await aliceManager.encrypt(plainText: originalPlaintext, sessionId: bobIdentityLatest.id)
             
             // Receiver decrypts it
-            _ = try await bobManager.openAsRecipient(
+            _ = try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: encrypted.header,
@@ -1672,7 +1672,7 @@ extension MessageRatchetTests {
                 secondDecryptedPlaintext == secondPlaintext,
                 "Decrypted second plaintext must match.")
             
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -1680,7 +1680,7 @@ extension MessageRatchetTests {
             
             let encrypted2 = try await bobManager.encrypt(plainText: originalPlaintext, sessionId: aliceIdentityLatest.id)
             
-            _ = try await aliceManager.openAsRecipient(
+            _ = try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 header: encrypted2.header,
@@ -1730,7 +1730,7 @@ extension MessageRatchetTests {
             let bobRotatedPublicLongTerm = try X25519PublicKey(
                 id: bobRotatedLongTermId, rotatedRecipientltpk.publicKey.rawRepresentation)
             
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1746,7 +1746,7 @@ extension MessageRatchetTests {
             let encryptedRotated = try await aliceManager.encrypt(
                 plainText: rotatedPlaintext, sessionId: bobIdentityLatest.id)
             
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: encryptedRotated.header,
@@ -1758,7 +1758,7 @@ extension MessageRatchetTests {
                 "Decrypted plaintext must match the original plaintext.")
             
             // Update Sender's Identity
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: .init(
@@ -1776,7 +1776,7 @@ extension MessageRatchetTests {
             let encryptedRotated2 = try await bobManager.encrypt(
                 plainText: rotatedPlaintext2, sessionId: aliceIdentityLatest.id)
             
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 header: encryptedRotated2.header,
@@ -1789,7 +1789,7 @@ extension MessageRatchetTests {
                 "Decrypted second plaintext must match.")
             
             let messages = try await (0...80).asyncMap { i in
-                try await aliceManager.openAsSender(
+                try await aliceManager.initiateSession(
                     sessionIdentity: bobIdentityLatest,
                     sessionSymmetricKey: aliceDbsk,
                     remoteKeys: .init(
@@ -1808,7 +1808,7 @@ extension MessageRatchetTests {
             }
             
             for message in messages {
-                _ = try await bobManager.openAsRecipient(
+                _ = try await bobManager.respondToSession(
                     sessionIdentity: aliceIdentityLatest,
                     sessionSymmetricKey: bobDBSK,
                     header: message.header,
@@ -1850,7 +1850,7 @@ extension MessageRatchetTests {
             await #expect(
                 throws: RatchetError.missingProps.self,
                 performing: {
-                    try await aliceManager.openAsSender(
+                    try await aliceManager.initiateSession(
                         sessionIdentity: aliceIdentity,
                         sessionSymmetricKey: invalidKey,
                         remoteKeys: bundle.bobPublic,
@@ -1861,7 +1861,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1879,7 +1879,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: validMessage.header,
@@ -1919,13 +1919,13 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             
-            try await aliceManager1.openAsSender(
+            try await aliceManager1.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
             
-            try await aliceManager2.openAsSender(
+            try await aliceManager2.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -1944,13 +1944,13 @@ extension MessageRatchetTests {
                 throw TestErrors.identityNotFound
             }
             
-            try await bobManager1.openAsRecipient(
+            try await bobManager1.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: encrypted1.header,
                 localKeys: bundle.bobPrivate)
             
-            try await bobManager2.openAsRecipient(
+            try await bobManager2.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: encrypted2.header,
@@ -1989,7 +1989,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2005,7 +2005,7 @@ extension MessageRatchetTests {
                     plainText: "Message \(i)".data(using: .utf8)!, sessionId: bobIdentityLatest.id)
                 messages.append(message)
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: messages.first!.header,
@@ -2045,7 +2045,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2057,7 +2057,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: aliceToBobMessage.header,
@@ -2070,7 +2070,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -2082,7 +2082,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest2 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityLatest2,
                 sessionSymmetricKey: aliceDbsk,
                 header: bobToAliceMessage.header,
@@ -2115,7 +2115,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2132,7 +2132,7 @@ extension MessageRatchetTests {
                 let message = try await aliceManager.encrypt(plainText: largePayload, sessionId: bobIdentityLatest.id)
                 messages.append(message)
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: messages.first!.header,
@@ -2166,7 +2166,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2178,7 +2178,7 @@ extension MessageRatchetTests {
             // Send initial message
             let initialMessage = try await aliceManager.encrypt(
                 plainText: "Initial".data(using: .utf8)!, sessionId: bobIdentityLatest.id)
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: initialMessage.header,
@@ -2218,7 +2218,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2235,7 +2235,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: messages[0].header,
@@ -2302,7 +2302,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2318,7 +2318,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: m1.header,
@@ -2366,7 +2366,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2379,7 +2379,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: validInitial.header,
@@ -2420,7 +2420,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2433,7 +2433,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: m1.header,
@@ -2477,7 +2477,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2489,7 +2489,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: m1.header,
@@ -2510,7 +2510,7 @@ extension MessageRatchetTests {
                 throw RatchetError.stateUninitialized
             }
 
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: bogusHeader,
@@ -2560,7 +2560,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2578,7 +2578,7 @@ extension MessageRatchetTests {
                 mlKEM: bundle.bobPrivate.mlKEM)
             
             // Loose mode: should not preflight-fail with missingOneTimeKey; decrypt still fails later
-            try await bobManagerLoose.openAsRecipient(
+            try await bobManagerLoose.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -2596,7 +2596,7 @@ extension MessageRatchetTests {
             }
             
             // Strict mode: preflight must fail fast with RatchetError.missingOneTimeKey
-            try await bobManagerStrict.openAsRecipient(
+            try await bobManagerStrict.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -2632,7 +2632,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2643,7 +2643,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -2663,7 +2663,7 @@ extension MessageRatchetTests {
                   let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 header: lateMessage.header,
@@ -2697,7 +2697,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2707,7 +2707,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -2727,7 +2727,7 @@ extension MessageRatchetTests {
                   let aliceIdentityLatest2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest2,
                 sessionSymmetricKey: bobDBSK,
                 header: boundaryMessage.header,
@@ -2739,7 +2739,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest3 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest3,
                 sessionSymmetricKey: bobDBSK,
                 header: sent[0].header,
@@ -2771,7 +2771,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2785,7 +2785,7 @@ extension MessageRatchetTests {
                 guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                     throw TestErrors.identityNotFound
                 }
-                try await bobManager.openAsRecipient(
+                try await bobManager.respondToSession(
                     sessionIdentity: aliceIdentityLatest,
                     sessionSymmetricKey: bobDBSK,
                     header: message.header,
@@ -2841,7 +2841,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2851,7 +2851,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -2866,7 +2866,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForSend = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityForSend,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -2879,7 +2879,7 @@ extension MessageRatchetTests {
             guard let bobIdentityForReceive = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityForReceive,
                 sessionSymmetricKey: aliceDbsk,
                 header: b1.header,
@@ -2893,7 +2893,7 @@ extension MessageRatchetTests {
             guard let bobIdentityForSend2 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityForSend2,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2906,7 +2906,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForReceive2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityForReceive2,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -2920,7 +2920,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForSend3 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityForSend3,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -2930,7 +2930,7 @@ extension MessageRatchetTests {
             guard let bobIdentityForReceive3 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityForReceive3,
                 sessionSymmetricKey: aliceDbsk,
                 header: b2.header,
@@ -2973,7 +2973,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -2986,7 +2986,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -2997,7 +2997,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForSend = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityForSend,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -3007,7 +3007,7 @@ extension MessageRatchetTests {
             guard let bobIdentityForReceive = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityForReceive,
                 sessionSymmetricKey: aliceDbsk,
                 header: b1.header,
@@ -3019,7 +3019,7 @@ extension MessageRatchetTests {
             guard let bobIdentityForSend = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityForSend,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -3029,7 +3029,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForA4 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityForA4,
                 sessionSymmetricKey: bobDBSK,
                 header: a4.header,
@@ -3040,7 +3040,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForA3 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityForA3,
                 sessionSymmetricKey: bobDBSK,
                 header: a3.header,
@@ -3050,7 +3050,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForA2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityForA2,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -3079,7 +3079,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -3098,7 +3098,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -3118,7 +3118,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityForSend = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsSender(
+            try await bobManager.initiateSession(
                 sessionIdentity: aliceIdentityForSend,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -3140,7 +3140,7 @@ extension MessageRatchetTests {
             guard let bobIdentityForReceive = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsRecipient(
+            try await aliceManager.respondToSession(
                 sessionIdentity: bobIdentityForReceive,
                 sessionSymmetricKey: aliceDbsk,
                 header: b1.header,
@@ -3185,7 +3185,7 @@ extension MessageRatchetTests {
             guard let bobForA1 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await firstAliceManager.openAsSender(
+            try await firstAliceManager.initiateSession(
                 sessionIdentity: bobForA1,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -3197,7 +3197,7 @@ extension MessageRatchetTests {
             guard let aliceForA1 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await firstBobManager.openAsRecipient(
+            try await firstBobManager.respondToSession(
                 sessionIdentity: aliceForA1,
                 sessionSymmetricKey: bobDBSK,
                 header: a1.header,
@@ -3209,7 +3209,7 @@ extension MessageRatchetTests {
             guard let aliceForB1 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await firstBobManager.openAsSender(
+            try await firstBobManager.initiateSession(
                 sessionIdentity: aliceForB1,
                 sessionSymmetricKey: bobDBSK,
                 remoteKeys: bundle.alicePublic,
@@ -3221,7 +3221,7 @@ extension MessageRatchetTests {
             guard let bobForB1 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await firstAliceManager.openAsRecipient(
+            try await firstAliceManager.respondToSession(
                 sessionIdentity: bobForB1,
                 sessionSymmetricKey: aliceDbsk,
                 header: b1.header,
@@ -3256,7 +3256,7 @@ extension MessageRatchetTests {
             guard let bobForA2 = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobForA2,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -3268,7 +3268,7 @@ extension MessageRatchetTests {
             guard let aliceForA2 = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceForA2,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -3313,7 +3313,7 @@ extension MessageRatchetTests {
             guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: bobIdentityLatest,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: bundle.bobPublic,
@@ -3331,7 +3331,7 @@ extension MessageRatchetTests {
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: aliceIdentityLatest,
                 sessionSymmetricKey: bobDBSK,
                 header: a2.header,
@@ -3385,12 +3385,12 @@ extension MessageRatchetTests {
                   let secondBob = getSessionIdentity(for: second.bobIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: firstBob,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: first.bundle.bobPublic,
                 localKeys: first.bundle.alicePrivate)
-            try await aliceManager.openAsSender(
+            try await aliceManager.initiateSession(
                 sessionIdentity: secondBob,
                 sessionSymmetricKey: aliceDbsk,
                 remoteKeys: second.bundle.bobPublic,
@@ -3413,7 +3413,7 @@ extension MessageRatchetTests {
                   let secondAlice = getSessionIdentity(for: second.aliceIdentity.id) else {
                 throw TestErrors.identityNotFound
             }
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: secondAlice,
                 sessionSymmetricKey: bobDBSK,
                 header: second1.header,
@@ -3421,7 +3421,7 @@ extension MessageRatchetTests {
             #expect(
                 try await bobManager.decrypt(second1, sessionId: secondAlice.id)
                     == Data("second-1".utf8))
-            try await bobManager.openAsRecipient(
+            try await bobManager.respondToSession(
                 sessionIdentity: firstAlice,
                 sessionSymmetricKey: bobDBSK,
                 header: first1.header,

@@ -110,7 +110,7 @@ let aliceSessionIdentity = try SessionIdentity(
 
 ```swift
 // Alice prepares to send messages to Bob
-try await aliceManager.openAsSender(
+try await aliceManager.initiateSession(
     sessionIdentity: bobSessionIdentity,   // describes the peer (Bob)
     sessionSymmetricKey: sessionKey,
     remoteKeys: RemoteKeys(
@@ -130,7 +130,7 @@ try await aliceManager.openAsSender(
 
 ```swift
 // Bob receives the first message from Alice and binds to its encrypted header
-try await bobManager.openAsRecipient(
+try await bobManager.respondToSession(
     sessionIdentity: aliceSessionIdentity, // describes the peer (Alice)
     sessionSymmetricKey: sessionKey,
     header: encryptedMessage.header,
@@ -146,7 +146,7 @@ try await bobManager.openAsRecipient(
 
 ```swift
 let keyRatchet = KeyRatchet(executor: executor, logger: logger)
-try await keyRatchet.openAsRecipient(
+try await keyRatchet.respondToSession(
     sessionIdentity: aliceSessionIdentity,
     sessionSymmetricKey: sessionKey,
     localKeys: LocalKeys(
@@ -298,10 +298,10 @@ let bobManager = MessageRatchet(executor: executor, logger: logger)
 // Managers can operate concurrently
 try await withThrowingTaskGroup(of: Void.self) { group in
     group.addTask {
-        try await aliceManager.openAsSender(/* ... */)
+        try await aliceManager.initiateSession(/* ... */)
     }
     group.addTask {
-        try await bobManager.openAsRecipient(/* ... */)
+        try await bobManager.respondToSession(/* ... */)
     }
     try await group.waitForAll()
 }

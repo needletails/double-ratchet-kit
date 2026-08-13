@@ -302,7 +302,7 @@ func rotateLongTermKeys() async throws {
     
     // Re-open the session with new keys — the engine detects the key change,
     // performs a PQXDH epoch step, and updates the identity props itself.
-    try await ratchetManager.openAsSender(
+    try await ratchetManager.initiateSession(
         sessionIdentity: sessionIdentity,
         sessionSymmetricKey: sessionKey,
         remoteKeys: remoteKeys,
@@ -315,12 +315,12 @@ func rotateLongTermKeys() async throws {
 
 ### PQXDH Key Exchange
 
-The protocol uses hybrid PQXDH for key exchange. The derivation is internal to the engine — hosts never call it directly. It runs automatically inside `openAsSender` / `openAsRecipient` and epoch (re-key) steps:
+The protocol uses hybrid PQXDH for key exchange. The derivation is internal to the engine — hosts never call it directly. It runs automatically inside `initiateSession` / `respondToSession` and epoch (re-key) steps:
 
 - **Sender side**: X25519 agreements against the recipient's long-term (and optional one-time) public keys are combined with an ML-KEM-1024 encapsulation to the recipient's KEM public key. The secrets are joined through HKDF into the initial root key; the KEM ciphertext rides to the recipient in the first encrypted header.
 - **Receiver side**: the recipient runs the matching X25519 agreements and decapsulates the received ciphertext with its ML-KEM private key, arriving at the same root key.
 
-The only host-visible artifact is the ciphertext: `MessageRatchet` carries it inside `EncryptedHeader.messageCiphertext`, and `KeyRatchet` exposes it via `getCipherText(sessionId:)` for transport to `openAsRecipient(ciphertext:)`.
+The only host-visible artifact is the ciphertext: `MessageRatchet` carries it inside `EncryptedHeader.messageCiphertext`, and `KeyRatchet` exposes it via `getCipherText(sessionId:)` for transport to `respondToSession(ciphertext:)`.
 
 ## Key Validation
 
@@ -420,7 +420,7 @@ let remoteKeys = RemoteKeys(
 )
 
 // Initialize session (the identity describes the peer lane)
-try await ratchetManager.openAsSender(
+try await ratchetManager.initiateSession(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
     remoteKeys: remoteKeys,

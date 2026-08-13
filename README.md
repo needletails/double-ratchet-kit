@@ -53,7 +53,7 @@ The break is names, dead code, and accidental public surface — not crypto.
 - **🔐 Advanced Key Derivation**: `KeyRatchet` with `nextSendKey` and `receiveKey(for:)` for external encryption workflows
 - **⚙️ Configuration Access**: `RatchetConfiguration` fields are now public for inspection
 - **🛡️ OTK Consistency**: Optional strict one-time key validation with `enforceOTKConsistency`
-- **🔄 Alternative Initialization**: New `openAsRecipient` overload in `KeyRatchet` for external key derivation workflows
+- **🔄 Alternative Initialization**: New `respondToSession` overload in `KeyRatchet` for external key derivation workflows
 - **📖 Lifecycle Documentation**: Clear documentation on initialization semantics and state management
 
 ## 🌟 Features
@@ -155,7 +155,7 @@ let aliceSessionIdentity = try SessionIdentity(
 
 ```swift
 // Alice prepares to send messages to Bob
-try await aliceManager.openAsSender(
+try await aliceManager.initiateSession(
     sessionIdentity: bobSessionIdentity,   // describes the peer (Bob)
     sessionSymmetricKey: sessionKey,
     remoteKeys: RemoteKeys(
@@ -182,7 +182,7 @@ let firstMessage = try await aliceManager.encrypt(
 )
 
 // Bob initializes his receiving state using the first header from Alice
-try await bobManager.openAsRecipient(
+try await bobManager.respondToSession(
     sessionIdentity: aliceSessionIdentity, // describes the peer (Alice)
     sessionSymmetricKey: sessionKey,
     header: firstMessage.header,
@@ -270,7 +270,7 @@ For external key derivation workflows using `KeyRatchet`:
 let keyManager = KeyRatchet(executor: executor, logger: logger)
 
 // Initialize receiver with keys and ciphertext (without full message)
-try await keyManager.openAsRecipient(
+try await keyManager.respondToSession(
     sessionIdentity: sessionIdentity,
     sessionSymmetricKey: sessionKey,
     localKeys: localKeys,
@@ -411,7 +411,7 @@ nested encrypted blobs must still decode. Compiling hosts must update names.
 | `DoubleRatchetStateManager` | `MessageRatchet` |
 | `RatchetKeyStateManager` | `KeyRatchet` |
 | `ratchetEncrypt` / `ratchetDecrypt` | `encrypt` / `decrypt` |
-| `senderInitialization` / `recipientInitialization` | `openAsSender` / `openAsRecipient` |
+| `senderInitialization` / `recipientInitialization` | `initiateSession` / `respondToSession` |
 | `deriveMessageKey` / `deriveReceivedMessageKey` | `nextSendKey` / `receiveKey(for:)` |
 | `evictSessionConfiguration` | `discardCachedLane` |
 | `shutdown()` | `flushAndClose()` |
@@ -538,7 +538,7 @@ func updateSessionIdentity(_ identity: SessionIdentity) async throws {
 
 - ✅ **No** changes to encrypt / decrypt signatures in 3.0 (renamed in 4.0)
 - ✅ **No** wire-format changes to `RatchetMessage` or `EncryptedHeader`
-- ✅ **No** changes to `openAsSender` / `openAsRecipient` signatures
+- ✅ **No** changes to `initiateSession` / `respondToSession` signatures
 - ⚠️ On-disk ratchet snapshots taken under 2.x semantics may differ from 3.0.0
   evolution for sessions that were mid-recovery during upgrade — plan a clean
   reestablishment or retest active sessions after upgrading
@@ -550,8 +550,8 @@ Version 2.0.0 introduces session‑explicit APIs and a header‑driven receive i
 ### ⚠️ Breaking Changes
 
 1. **Receiving initialization is now header-based:**
-   - **1.x**: `openAsRecipient(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
-   - **2.0**: `openAsRecipient(sessionIdentity:sessionSymmetricKey:header:localKeys:)`
+   - **1.x**: `respondToSession(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)`
+   - **2.0**: `respondToSession(sessionIdentity:sessionSymmetricKey:header:localKeys:)`
 
 2. **Encrypt/Decrypt require explicit `sessionId`:**
    - **1.x**: `ratchetEncrypt(plainText:)`, `ratchetDecrypt(_:)`
@@ -573,7 +573,7 @@ Version 2.0.0 introduces session‑explicit APIs and a header‑driven receive i
 
 ```swift
 // ❌ Before (1.x)
-try await bobManager.openAsRecipient(
+try await bobManager.respondToSession(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
     remoteKeys: bobRemoteKeysFromAlice,
@@ -584,7 +584,7 @@ try await bobManager.openAsRecipient(
 // First, receive the initial message from Alice
 let firstMessage = // ... receive from network
 
-try await bobManager.openAsRecipient(
+try await bobManager.respondToSession(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
     header: firstMessage.header,  // Use the actual header
@@ -593,7 +593,7 @@ try await bobManager.openAsRecipient(
 
 // ✅ Alternative (2.0) - For external key derivation (requires KeyRatchet)
 let keyManager = KeyRatchet(executor: executor, logger: logger)
-try await keyManager.openAsRecipient(
+try await keyManager.respondToSession(
     sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
     localKeys: bobLocalKeys,
@@ -644,7 +644,7 @@ do {
 ### ✨ New Features in 2.0.0
 
 - **Advanced Key Derivation**: `KeyRatchet` for external encryption workflows
-- **Alternative Initialization**: New `openAsRecipient` overload in `KeyRatchet` for external key derivation
+- **Alternative Initialization**: New `respondToSession` overload in `KeyRatchet` for external key derivation
 - **OTK Consistency**: `setEnforceOTKConsistency(_:)` for strict one-time key validation
 - **Configuration Access**: `RatchetConfiguration` fields are now public for inspection
 - **Enhanced Logging**: `setLogLevel(_:)` for adjustable verbosity
@@ -652,7 +652,7 @@ do {
 
 ### 📌 Migration Notes
 
-- ✅ No changes required to `openAsSender` signatures
+- ✅ No changes required to `initiateSession` signatures
 - ✅ If managing multiple sessions, ensure correct `sessionId` routing
 - ✅ Review error handling to catch new `missingConfiguration` error
 - ✅ Consider using new advanced APIs for custom encryption workflows
@@ -683,8 +683,8 @@ Test coverage is not enforced at 100%. To check coverage, run `swift test --enab
 - `init(executor:logger:ratchetConfiguration:)` - Create manager with optional custom configuration
 
 **Session Management:**
-- `openAsSender(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)` - Initialize sending session
-- `openAsRecipient(sessionIdentity:sessionSymmetricKey:header:localKeys:)` - Initialize receiving session
+- `initiateSession(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)` - Initialize sending session
+- `respondToSession(sessionIdentity:sessionSymmetricKey:header:localKeys:)` - Initialize receiving session
 
 **Message Operations:**
 - `encrypt(plainText:sessionId:)` - Encrypt message
@@ -707,8 +707,8 @@ Test coverage is not enforced at 100%. To check coverage, run `swift test --enab
 - `init(executor:logger:ratchetConfiguration:)` - Create manager with optional custom configuration
 
 **Session Management:**
-- `openAsSender(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)` - Initialize sending session
-- `openAsRecipient(sessionIdentity:sessionSymmetricKey:localKeys:remoteKeys:ciphertext:)` - Initialize receiving session (for external key derivation)
+- `initiateSession(sessionIdentity:sessionSymmetricKey:remoteKeys:localKeys:)` - Initialize sending session
+- `respondToSession(sessionIdentity:sessionSymmetricKey:localKeys:remoteKeys:ciphertext:)` - Initialize receiving session (for external key derivation)
 
 **Advanced Key Derivation:**
 - `nextSendKey(sessionId:)` - Derive key for external encryption (returns `(SymmetricKey, Int)`)
@@ -787,8 +787,8 @@ await ratchetManager.setLogLevel(.debug)
 ### Version History
 
 - **4.0.0** (Current): Swift API clean break — `MessageRatchet` / `KeyRatchet`
-  facades, renamed methods (`encrypt` / `decrypt`, `openAsSender` /
-  `openAsRecipient`, `nextSendKey` / `receiveKey(for:)`, `flushAndClose()`),
+  facades, renamed methods (`encrypt` / `decrypt`, `initiateSession` /
+  `respondToSession`, `nextSendKey` / `receiveKey(for:)`, `flushAndClose()`),
   `RatchetState` made internal (`RatchetSessionStatus` for hosts), dead error
   cases removed, `@_exported` imports removed. Same ratchet behavior, wire
   format, and identity blob as 3.0.0 — no database migration.

@@ -200,7 +200,7 @@ public actor MessageRatchet {
     /// manager.setDelegate(MySessionDelegate())
     ///
     /// // Now session state will be persisted automatically
-    /// try await manager.openAsSender(...)
+    /// try await manager.initiateSession(...)
     /// ```
     ///
     /// - SeeAlso: `SessionIdentityDelegate` protocol for implementation details.
@@ -408,14 +408,14 @@ public actor MessageRatchet {
     ///   - remoteKeys: The recipient's public keys, including long-term, one-time, and MLKEM keys.
     ///   - localKeys: The sender's private keys, including long-term, one-time, and MLKEM keys.
     /// - Throws: An error if the session cannot be initialized (e.g. invalid keys, storage issues).
-    public func openAsSender(
+    public func initiateSession(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         remoteKeys: RemoteKeys,
         localKeys: LocalKeys,
     ) async throws {
         try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
-            try await openAsSenderImpl(
+            try await initiateSessionImpl(
                 sessionIdentity: sessionIdentity,
                 sessionSymmetricKey: sessionSymmetricKey,
                 remoteKeys: remoteKeys,
@@ -423,7 +423,7 @@ public actor MessageRatchet {
         }
     }
     
-    private func openAsSenderImpl(
+    private func initiateSessionImpl(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         remoteKeys: RemoteKeys,
@@ -464,14 +464,14 @@ public actor MessageRatchet {
     ///
     /// - Note: For handling out-of-order messages, you may call this method multiple times with different
     ///   headers. The method will detect key changes and update the ratchet state as needed.
-    public func openAsRecipient(
+    public func respondToSession(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         header: EncryptedHeader,
         localKeys: LocalKeys
     ) async throws {
         try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
-            try await openAsRecipientImpl(
+            try await respondToSessionImpl(
                 sessionIdentity: sessionIdentity,
                 sessionSymmetricKey: sessionSymmetricKey,
                 header: header,
@@ -479,7 +479,7 @@ public actor MessageRatchet {
         }
     }
     
-    private func openAsRecipientImpl(
+    private func respondToSessionImpl(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         header: EncryptedHeader,

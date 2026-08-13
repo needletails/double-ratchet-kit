@@ -25,14 +25,14 @@ await keyRatchet.setDelegate(sessionDelegate)
 ## Session setup
 
 ```swift
-try await keyRatchet.openAsSender(
+try await keyRatchet.initiateSession(
     sessionIdentity: sessionIdentity,
     sessionSymmetricKey: sessionKey,
     remoteKeys: remoteKeys,
     localKeys: localKeys
 )
 
-try await keyRatchet.openAsRecipient(
+try await keyRatchet.respondToSession(
     sessionIdentity: sessionIdentity,
     sessionSymmetricKey: sessionKey,
     localKeys: localKeys,
@@ -41,7 +41,7 @@ try await keyRatchet.openAsRecipient(
 )
 ```
 
-The recipient path bootstraps from PQXDH ciphertext without a full encrypted header. That is the KeyRatchet-only `openAsRecipient` overload — `MessageRatchet` still takes `header:`.
+The recipient path bootstraps from PQXDH ciphertext without a full encrypted header. That is the KeyRatchet-only `respondToSession` overload — `MessageRatchet` still takes `header:`.
 
 ## Key derivation
 

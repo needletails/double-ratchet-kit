@@ -85,14 +85,14 @@ public actor KeyRatchet {
     // MARK: - Session Initialization
     
     /// Initializes a sending session with the provided keys and session identity.
-    public func openAsSender(
+    public func initiateSession(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         remoteKeys: RemoteKeys,
         localKeys: LocalKeys,
     ) async throws {
         try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
-            try await openAsSenderImpl(
+            try await initiateSessionImpl(
                 sessionIdentity: sessionIdentity,
                 sessionSymmetricKey: sessionSymmetricKey,
                 remoteKeys: remoteKeys,
@@ -100,7 +100,7 @@ public actor KeyRatchet {
         }
     }
     
-    private func openAsSenderImpl(
+    private func initiateSessionImpl(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         remoteKeys: RemoteKeys,
@@ -115,7 +115,7 @@ public actor KeyRatchet {
     }
     
     /// Initializes a receiving session for external key derivation workflows.
-    public func openAsRecipient(
+    public func respondToSession(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         localKeys: LocalKeys,
@@ -123,7 +123,7 @@ public actor KeyRatchet {
         ciphertext: Data
     ) async throws {
         try await core.withSessionMutation(sessionId: sessionIdentity.id) { [self] in
-            try await openAsRecipientImpl(
+            try await respondToSessionImpl(
                 sessionIdentity: sessionIdentity,
                 sessionSymmetricKey: sessionSymmetricKey,
                 localKeys: localKeys,
@@ -132,7 +132,7 @@ public actor KeyRatchet {
         }
     }
     
-    private func openAsRecipientImpl(
+    private func respondToSessionImpl(
         sessionIdentity: SessionIdentity,
         sessionSymmetricKey: SymmetricKey,
         localKeys: LocalKeys,
@@ -456,7 +456,7 @@ public actor KeyRatchet {
     
     /// Stores the PQXDH handshake ciphertext in the session state and persists it.
     ///
-    /// Called by `openAsRecipient(ciphertext:)` so the receiving lane can derive the
+    /// Called by `respondToSession(ciphertext:)` so the receiving lane can derive the
     /// root key during the handshake phase.
     ///
     /// - Parameters:

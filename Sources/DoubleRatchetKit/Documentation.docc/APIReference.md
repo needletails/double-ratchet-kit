@@ -43,7 +43,7 @@ public init(
 ##### Session Initialization
 
 ```swift
-public func openAsSender(
+public func initiateSession(
     sessionIdentity: SessionIdentity,
     sessionSymmetricKey: SymmetricKey,
     remoteKeys: RemoteKeys,
@@ -66,7 +66,7 @@ Initialize a session for sending messages.
 **Note:** This method can be called multiple times for the same session to support key rotation scenarios.
 
 ```swift
-public func openAsRecipient(
+public func respondToSession(
     sessionIdentity: SessionIdentity,
     sessionSymmetricKey: SymmetricKey,
     header: EncryptedHeader,
@@ -233,10 +233,10 @@ public actor KeyRatchet
 
 #### Session Initialization
 
-`openAsSender` matches `MessageRatchet`. The recipient path bootstraps from PQXDH ciphertext instead of an encrypted header:
+`initiateSession` matches `MessageRatchet`. The recipient path bootstraps from PQXDH ciphertext instead of an encrypted header:
 
 ```swift
-public func openAsRecipient(
+public func respondToSession(
     sessionIdentity: SessionIdentity,
     sessionSymmetricKey: SymmetricKey,
     localKeys: LocalKeys,
@@ -291,7 +291,7 @@ Derives the next message key for receiving without performing message decryption
 public func getCipherText(sessionId: UUID) async throws -> Data
 ```
 
-Returns the PQXDH handshake ciphertext from the sender's persisted state, for transport to the recipient's `openAsRecipient(ciphertext:)`.
+Returns the PQXDH handshake ciphertext from the sender's persisted state, for transport to the recipient's `respondToSession(ciphertext:)`.
 
 **Warning:** `KeyRatchet` methods should **only be used when NOT encrypting/decrypting via `MessageRatchet.encrypt`/`decrypt`**. Mixing the two façades on the same session causes state inconsistencies and security issues.
 

@@ -42,7 +42,7 @@ public enum CryptoError: Error {
 
 /// This model represents a message and provides an interface for working with encrypted data.
 /// The public interface is for creating local models to be saved to the database as encrypted data.
-public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
+public final class SessionIdentity: SecureModelProtocol, Hashable, @unchecked Sendable {
     public let id: UUID
 
     /// Encrypted payload storage. A `Mutex` guards the bytes because instances
@@ -72,6 +72,18 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(data, forKey: .data)
+    }
+
+    /// Identity-based equality and hashing: two instances are equal when they
+    /// share the same `id`, regardless of the current encrypted payload. This
+    /// gives a stable key for `Set`/`Dictionary` even as the ratchet state
+    /// inside `data` evolves.
+    public static func == (lhs: SessionIdentity, rhs: SessionIdentity) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 
     /// Asynchronously retrieves the decrypted properties, if available.

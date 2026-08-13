@@ -62,7 +62,7 @@ encryption, together with the encoded ratchet header.
 Initialize a session for sending messages:
 
 ```swift
-try await ratchetManager.openAsSender(
+try await ratchetManager.initiateSession(
     sessionIdentity: sessionIdentity,
     sessionSymmetricKey: sessionKey,
     remoteKeys: remoteKeys,
@@ -81,7 +81,7 @@ try await ratchetManager.openAsSender(
 Initialize a session for receiving messages using an encrypted header:
 
 ```swift
-try await ratchetManager.openAsRecipient(
+try await ratchetManager.respondToSession(
     sessionIdentity: sessionIdentity,
     sessionSymmetricKey: sessionKey,
     header: encryptedHeader,
@@ -315,7 +315,7 @@ do {
 } catch RatchetError.missingConfiguration {
     // Session not found - check session ID
 } catch RatchetError.stateUninitialized {
-    // Session not initialized - call openAsSender or openAsRecipient
+    // Session not initialized - call initiateSession or respondToSession
 } catch RatchetError.sendingKeyIsNil {
     // Sending key missing - check session state
 } catch RatchetError.encryptionFailed {
@@ -355,7 +355,7 @@ await aliceManager.setDelegate(aliceSessionDelegate)
 await bobManager.setDelegate(bobSessionDelegate)
 
 // Alice initializes a sending session to Bob
-try await aliceManager.openAsSender(
+try await aliceManager.initiateSession(
     sessionIdentity: bobSessionIdentity,   // identity describing the peer lane
     sessionSymmetricKey: sessionKey,
     remoteKeys: bobRemoteKeys,
@@ -370,7 +370,7 @@ let encryptedMessage = try await aliceManager.encrypt(
 )
 
 // Bob initializes from the received header, then decrypts
-try await bobManager.openAsRecipient(
+try await bobManager.respondToSession(
     sessionIdentity: aliceSessionIdentity,
     sessionSymmetricKey: sessionKey,
     header: encryptedMessage.header,
