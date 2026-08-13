@@ -16,7 +16,7 @@
 import Foundation
 
 /// Errors that can occur during key validation and initialization.
-public enum KeyErrors: Error {
+public enum KeyError: Error {
     /// The key size is invalid for the expected key type.
     case invalidKeySize
 }
@@ -36,14 +36,14 @@ public struct MLKEMPrivateKey: Codable, Sendable, Equatable {
     /// - Parameters
     ///  id: An Identifier for the object
     ///  rawRepresentation: The raw MLKEM private key bytes.
-    /// - Throws: `KeyErrors.invalidKeySize` if the key size is incorrect.
+    /// - Throws: `KeyError.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         let key = try rawRepresentation.decodeMLKem1024()
         guard key.seedRepresentation.count == Int(64) else {
-            throw KeyErrors.invalidKeySize
+            throw KeyError.invalidKeySize
         }
         guard key.integrityCheckedRepresentation.count == Int(96) else {
-            throw KeyErrors.invalidKeySize
+            throw KeyError.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
@@ -65,10 +65,10 @@ public struct MLKEMPublicKey: Codable, Sendable, Equatable, Hashable {
     /// - Parameters
     ///  id: An Identifier for the object
     ///  rawRepresentation: The raw MLKEM public key bytes.
-    /// - Throws: `KeyErrors.invalidKeySize` if the key size is incorrect.
+    /// - Throws: `KeyError.invalidKeySize` if the key size is incorrect.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == Int(1568) else {
-            throw KeyErrors.invalidKeySize
+            throw KeyError.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
@@ -78,7 +78,7 @@ public struct MLKEMPublicKey: Codable, Sendable, Equatable, Hashable {
 /// A representation of a Curve private key with an associated UUID.
 ///
 /// This is useful for identifying specific device keys across sessions.
-public struct CurvePrivateKey: Codable, Sendable, Equatable {
+public struct X25519PrivateKey: Codable, Sendable, Equatable {
     /// A unique identifier for the key (e.g. device or session key).
     public let id: UUID
 
@@ -90,10 +90,10 @@ public struct CurvePrivateKey: Codable, Sendable, Equatable {
     /// - Parameters:
     ///   - id: An optional UUID to tag this key. A new UUID is generated if not provided.
     ///   - rawRepresentation: The raw 32-byte Curve private key data.
-    /// - Throws: `KeyErrors.invalidKeySize` if the key size is not 32 bytes.
+    /// - Throws: `KeyError.invalidKeySize` if the key size is not 32 bytes.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == 32 else {
-            throw KeyErrors.invalidKeySize
+            throw KeyError.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
@@ -101,7 +101,7 @@ public struct CurvePrivateKey: Codable, Sendable, Equatable {
 }
 
 /// A representation of a Curve public key with an associated UUID.
-public struct CurvePublicKey: Codable, Sendable, Hashable {
+public struct X25519PublicKey: Codable, Sendable, Hashable {
     /// A unique identifier for the key.
     public let id: UUID
 
@@ -113,10 +113,10 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
     /// - Parameters:
     ///   - id: An optional UUID to tag this key. A new UUID is generated if not provided.
     ///   - rawRepresentation: The raw 32-byte Curve public key data.
-    /// - Throws: `KeyErrors.invalidKeySize` if the key size is not 32 bytes.
+    /// - Throws: `KeyError.invalidKeySize` if the key size is not 32 bytes.
     public init(id: UUID = UUID(), _ rawRepresentation: Data) throws {
         guard rawRepresentation.count == 32 else {
-            throw KeyErrors.invalidKeySize
+            throw KeyError.invalidKeySize
         }
         self.id = id
         self.rawRepresentation = rawRepresentation
@@ -126,18 +126,18 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
 /// A container for all remote public keys used during session setup.
 public struct RemoteKeys: Sendable {
     /// The remote party's long-term Curve public key.
-    public let longTerm: CurvePublicKey
+    public let longTerm: X25519PublicKey
 
     /// The remote party's one-time Curve public key.
-    public let oneTime: CurvePublicKey?
+    public let oneTime: X25519PublicKey?
 
     /// The remote party's MLKEM public key.
     public let mlKEM: MLKEMPublicKey
 
     /// Initializes a container of remote keys for session initialization.
     public init(
-        longTerm: CurvePublicKey,
-        oneTime: CurvePublicKey?,
+        longTerm: X25519PublicKey,
+        oneTime: X25519PublicKey?,
         mlKEM: MLKEMPublicKey
     ) {
         self.longTerm = longTerm
@@ -149,18 +149,18 @@ public struct RemoteKeys: Sendable {
 /// A container for all local private keys used during session setup.
 public struct LocalKeys: Sendable {
     /// The local party's long-term Curve private key.
-    public let longTerm: CurvePrivateKey
+    public let longTerm: X25519PrivateKey
 
     /// The local party's one-time Curve private key.
-    public let oneTime: CurvePrivateKey?
+    public let oneTime: X25519PrivateKey?
 
     /// The local party's mlKEM private key.
     public let mlKEM: MLKEMPrivateKey
 
     /// Initializes a container of local keys for session initialization.
     public init(
-        longTerm: CurvePrivateKey,
-        oneTime: CurvePrivateKey?,
+        longTerm: X25519PrivateKey,
+        oneTime: X25519PrivateKey?,
         mlKEM: MLKEMPrivateKey
     ) {
         self.longTerm = longTerm

@@ -1,307 +1,75 @@
 # RatchetState
 
-An immutable struct that represents the current state of the Double Ratchet protocol.
+Internal Codable snapshot of a Double Ratchet lane. Nested in `SessionIdentity.UnwrappedProps` under coding key `"h"`. Hosts should use `RatchetSessionStatus` instead of reading this type.
 
 ## Overview
 
-`RatchetState` encapsulates all the cryptographic state needed for the Double Ratchet algorithm, including root keys, chain keys, header keys, message counters, and skipped message keys. The struct is immutable, ensuring thread safety and preventing accidental state corruption.
+`RatchetState` encapsulates all the cryptographic state needed for the Double Ratchet algorithm: PQXDH identity key material, the root key, sending/receiving chain keys, header keys, message counters, skipped message keys, and the per-turn hybrid ratchet keys. The struct is immutable — every mutation returns a new value — ensuring thread safety and preventing accidental state corruption.
+
+In 4.0 the type is **internal**. It remains `Codable` because it is the persisted heart of a session, but hosts never construct, read, or mutate it directly. The engine loads it from the encrypted identity blob, advances it, and persists it back at authenticated success points.
 
 ## Declaration
 
 ```swift
-public struct RatchetState: Codable, Hashable, Sendable
+struct RatchetState: Sendable, Codable  // internal in 4.0; hosts use RatchetSessionStatus
 ```
 
-## Core Properties
+## What It Contains
 
-### Root Key
+Conceptually, a snapshot holds:
 
-The master key derived from the initial PQXDH handshake:
+- **Identity key material** — local private and remote public keys for the PQXDH handshake (long-term, optional one-time, ML-KEM)
+- **Root key** — advanced by two KDF steps on every DH ratchet (epoch)
+- **Chain keys** — separate sending and receiving chains, advanced per message
+- **Header keys** — current and next keys for encrypted headers
+- **Counters** — sent, received, and previous-chain message counts
+- **Skipped message keys** — a bounded list for out-of-order delivery, each entry tagged with the ratchet chain it was derived from
+- **Per-turn hybrid ratchet keys** — Curve25519 and ML-KEM-1024 ratchet key pairs plus the KEM ciphertext for the current sending chain
+- **Suite marker** — records the v4 KDF suite (HKDF-SHA512 root, HMAC-SHA256 chain/message, HKDF-SHA256 header)
 
-```swift
-let rootKey: SymmetricKey
-```
+## Persistence Contract (must not break)
 
-- **Purpose**: Master key for deriving chain keys
-- **Source**: Initial PQXDH key exchange
-- **Updates**: Changed during DH ratchet operations
+The snapshot is what makes existing databases work across releases:
 
-### Chain Keys
+- Encoded with single-character coding keys `"a"`–`"z"`, `"A"`–`"G"`, plus the optional suite marker `"H"`. These keys are **frozen**; renaming a Swift property never changes its coding key.
+- Stored inside the AES-GCM-encrypted `UnwrappedProps` blob (coding key `"h"`), which lives in the SQLite `SessionIdentity` row.
+- Decoding is lenient toward pre-4.0 blobs:
+  - a missing initiator flag (`"E"`) defaults to `false`
+  - skipped-key entries without the chain tag (`"f"`) are pruned on load — they cannot match a v4 frame
+  - a missing suite marker (`"H"`) is treated as the current suite
+- An **unknown** suite marker fails the load loudly instead of silently mis-deriving keys.
+- Blobs written by 4.0 remain readable by 3.0 binaries: the decoder ignores unknown keys, so the added `"H"` entry is skipped on rollback.
 
-Keys used for deriving message keys:
+This is why 3.0.0 conformers upgrade to 4.0 with **no database migration**.
 
-```swift
-let chainKeys: ChainKeys
-```
+## What Hosts Use Instead
 
-The `ChainKeys` struct contains:
-- **`sendingChainKey`**: Key for deriving sending message keys
-- **`receivingChainKey`**: Key for deriving receiving message keys
-
-### Header Keys
-
-Keys used for encrypting and decrypting message headers:
-
-```swift
-let headerKeys: HeaderKeys
-```
-
-The `HeaderKeys` struct contains:
-- **`sendingHeaderKey`**: Key for encrypting outgoing message headers
-- **`receivingHeaderKey`**: Key for decrypting incoming message headers
-
-### Message Counters
-
-Track the number of messages sent and received:
+Read-only session progress is exposed through `RatchetSessionStatus`:
 
 ```swift
-let messageCounters: MessageCounters
-```
+public struct RatchetSessionStatus: Sendable, Equatable {
+    public let sentMessagesCount: Int
+    public let receivedMessagesCount: Int
+    public let sendingHandshakeFinished: Bool
+    public let receivingHandshakeFinished: Bool
+}
 
-The `MessageCounters` struct contains:
-- **`sendingMessageNumber`**: Number of messages sent
-- **`receivingMessageNumber`**: Number of messages received
-
-### Skipped Message Keys
-
-Cache for handling out-of-order message delivery:
-
-```swift
-let skippedMessageKeys: [Int: SymmetricKey]
-```
-
-- **Key**: Message number
-- **Value**: Symmetric key for decrypting the message
-- **Purpose**: Handle messages that arrive out of order
-
-## State Updates
-
-### Immutable Updates
-
-All state updates return a new `RatchetState` instance:
-
-```swift
-// Update sending message number
-let newState = state.updateSendingMessageNumber(state.sendingMessageNumber + 1)
-
-// Update receiving message number
-let newState = state.updateReceivingMessageNumber(state.receivingMessageNumber + 1)
-
-// Add skipped message key
-let newState = state.addSkippedMessageKey(messageNumber: 5, key: messageKey)
-
-// Remove skipped message key
-let newState = state.removeSkippedMessageKey(messageNumber: 5)
-```
-
-### Chain Key Updates
-
-Update chain keys during symmetric ratchet operations:
-
-```swift
-// Update sending chain key
-let newState = state.updateSendingChainKey(newChainKey)
-
-// Update receiving chain key
-let newState = state.updateReceivingChainKey(newChainKey)
-```
-
-### Header Key Updates
-
-Update header keys during key rotation:
-
-```swift
-// Update sending header key
-let newState = state.updateSendingHeaderKey(newHeaderKey)
-
-// Update receiving header key
-let newState = state.updateReceivingHeaderKey(newHeaderKey)
-```
-
-### Root Key Updates
-
-Update root key during DH ratchet operations:
-
-```swift
-// Update root key
-let newState = state.updateRootKey(newRootKey)
-```
-
-## State Transitions
-
-### Initial State
-
-Created from PQXDH handshake:
-
-```swift
-let initialState = RatchetState(
-    rootKey: derivedRootKey,
-    chainKeys: initialChainKeys,
-    headerKeys: initialHeaderKeys,
-    messageCounters: MessageCounters(sending: 0, receiving: 0),
-    skippedMessageKeys: [:]
-)
-```
-
-### Message Processing
-
-State updates during message encryption/decryption:
-
-```swift
-// For sending a message
-let newState = state
-    .updateSendingMessageNumber(state.sendingMessageNumber + 1)
-    .updateSendingChainKey(derivedChainKey)
-
-// For receiving a message
-let newState = state
-    .updateReceivingMessageNumber(state.receivingMessageNumber + 1)
-    .updateReceivingChainKey(derivedChainKey)
-```
-
-### Key Rotation
-
-State updates during DH ratchet:
-
-```swift
-// During DH ratchet
-let newState = state
-    .updateRootKey(newRootKey)
-    .updateSendingChainKey(newSendingChainKey)
-    .updateReceivingChainKey(newReceivingChainKey)
-    .updateSendingHeaderKey(newSendingHeaderKey)
-    .updateReceivingHeaderKey(newReceivingHeaderKey)
-```
-
-## Skipped Message Handling
-
-### Adding Skipped Keys
-
-When a message arrives out of order:
-
-```swift
-// Store key for later decryption
-let newState = state.addSkippedMessageKey(
-    messageNumber: receivedMessageNumber,
-    key: derivedMessageKey
-)
-```
-
-### Using Skipped Keys
-
-When the missing message arrives:
-
-```swift
-// Check if we have a key for this message
-if let skippedKey = state.skippedMessageKeys[messageNumber] {
-    // Decrypt the message
-    let decrypted = try decrypt(message, with: skippedKey)
-    
-    // Remove the used key
-    let newState = state.removeSkippedMessageKey(messageNumber: messageNumber)
+let status = try await ratchetManager.sessionStatus(sessionId: sessionId)
+if status.sendingHandshakeFinished, status.receivedMessagesCount == 0 {
+    // The peer has never answered on this lane.
 }
 ```
 
-### Key Cleanup
+For persistence, implement `SessionIdentityDelegate.updateSessionIdentity(_:)` and store the opaque `SessionIdentity.data` blob; the ratchet state rides inside it untouched.
 
-Periodically clean up old skipped keys:
+## Design Notes
 
-```swift
-// Remove keys older than threshold
-let threshold = state.receivingMessageNumber - 1000
-let newState = state.removeSkippedMessageKeysOlderThan(threshold)
-```
-
-## Performance Considerations
-
-### Immutability Benefits
-
-- **Thread Safety**: No race conditions during state access
-- **Memory Safety**: Prevents accidental state corruption
-- **Debugging**: Easier to track state changes
-- **Testing**: Simpler to test state transitions
-
-### Memory Usage
-
-- **Efficient Updates**: Only changed fields create new instances
-- **Key Caching**: Skipped message keys are cached for performance
-- **Automatic Cleanup**: Old keys are automatically removed
-
-### Optimization
-
-- **Copy-on-Write**: Swift optimizes immutable struct copying
-- **Minimal Allocations**: Only necessary fields are copied
-- **Efficient Storage**: Keys are stored in optimized data structures
-
-## Example Usage
-
-### Creating Initial State
-
-```swift
-// Create initial state from PQXDH handshake
-let rootKey = deriveRootKey(from: pqxdhSecret)
-let chainKeys = deriveChainKeys(from: rootKey)
-let headerKeys = deriveHeaderKeys(from: rootKey)
-
-let initialState = RatchetState(
-    rootKey: rootKey,
-    chainKeys: chainKeys,
-    headerKeys: headerKeys,
-    messageCounters: MessageCounters(sending: 0, receiving: 0),
-    skippedMessageKeys: [:]
-)
-```
-
-### Processing Messages
-
-```swift
-// Send a message
-func sendMessage(_ data: Data, state: RatchetState) -> (RatchetMessage, RatchetState) {
-    let messageKey = deriveMessageKey(from: state.chainKeys.sendingChainKey)
-    let encryptedMessage = try encrypt(data, with: messageKey)
-    
-    let newState = state
-        .updateSendingMessageNumber(state.sendingMessageNumber + 1)
-        .updateSendingChainKey(deriveNextChainKey(from: state.chainKeys.sendingChainKey))
-    
-    return (encryptedMessage, newState)
-}
-
-// Receive a message
-func receiveMessage(_ message: RatchetMessage, state: RatchetState) -> (Data, RatchetState) {
-    let messageKey = deriveMessageKey(from: state.chainKeys.receivingChainKey)
-    let decryptedData = try decrypt(message, with: messageKey)
-    
-    let newState = state
-        .updateReceivingMessageNumber(state.receivingMessageNumber + 1)
-        .updateReceivingChainKey(deriveNextChainKey(from: state.chainKeys.receivingChainKey))
-    
-    return (decryptedData, newState)
-}
-```
-
-### Handling Out-of-Order Messages
-
-```swift
-func handleOutOfOrderMessage(_ message: RatchetMessage, state: RatchetState) -> (Data?, RatchetState) {
-    let messageNumber = extractMessageNumber(from: message)
-    
-    // Check if we have a key for this message
-    if let skippedKey = state.skippedMessageKeys[messageNumber] {
-        let decryptedData = try decrypt(message, with: skippedKey)
-        let newState = state.removeSkippedMessageKey(messageNumber: messageNumber)
-        return (decryptedData, newState)
-    }
-    
-    // Store key for later use
-    let messageKey = deriveMessageKey(from: state.chainKeys.receivingChainKey)
-    let newState = state.addSkippedMessageKey(messageNumber: messageNumber, key: messageKey)
-    return (nil, newState)
-}
-```
+- **Immutability**: every update produces a new snapshot, so a failed decrypt can simply discard its working copy — durable state advances only after authenticated success.
+- **Bounded caches**: skipped message keys are capped by `maxSkippedMessageKeys`, and already-decrypted message numbers are tracked to reject replays without unbounded growth.
+- **Chain-tagged skipped keys**: each skipped key remembers which ratchet chain produced it, so late arrivals from an old chain cannot be confused with the current one.
 
 ## Related Documentation
 
-- <doc:DoubleRatchetStateManager> for the main actor managing ratchet state
-- <doc:SessionIdentity> for session identity management
+- <doc:UsingMessageRatchet> for the main actor managing ratchet state
+- <doc:UsingSessionIdentity> for session identity management
 - <doc:KeyManagement> for key management operations

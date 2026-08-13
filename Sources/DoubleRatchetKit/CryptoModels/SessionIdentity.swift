@@ -28,45 +28,16 @@ public protocol SecureModelProtocol: Codable, Sendable {
     /// - Returns: The decrypted properties.
     func decryptProps(symmetricKey: SymmetricKey) async throws -> Props
 
-    /// Updates the properties with the provided symmetric key.
-    /// - Parameter symmetricKey: The symmetric key used for decryption.
+    /// Updates the properties of the model.
+    /// - Parameter symmetricKey: The symmetric key used for encryption.
     /// - Parameter props: The properties to update.
     /// - Returns: The updated properties, or nil if the update failed.
     func updateProps(symmetricKey: SymmetricKey, props: Props) async throws -> Props?
-
-    func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T
 }
 
 /// Custom error type for encryption-related errors.
 public enum CryptoError: Error {
     case encryptionFailed, decryptionFailed, propsError, messageOutOfOrder
-}
-
-/// Represents the stored identity for an encrypted session.
-public struct _SessionIdentity: Codable, Sendable {
-    public let id: UUID
-    public let secretName: String
-    public let deviceId: UUID
-    public let sessionContextId: Int
-
-    /// Long-term identity key (Curve25519 public key) → **IKB**
-    public let longTermPublicKey: Data
-
-    /// Medium-term signed pre-key (Curve25519 public key) → **SPKB**
-    public let signingPublicKey: Data
-
-    /// Ephemeral one-time pre-key (Curve25519 public key) → **OPKBₙ**
-    public let oneTimePublicKey: CurvePublicKey?
-
-    /// PQ post‑quantum signed pre-key (MLKEM1024) → **PQSPKB**
-    public let mlKEMPublicKey: MLKEMPublicKey
-
-    public var state: RatchetState?
-    public var deviceName: String
-    public var serverTrusted: Bool?
-    public var previousRekey: Date?
-    public var isMasterDevice: Bool
-    public var verifiedIdentity: Bool
 }
 
 /// This model represents a message and provides an interface for working with encrypted data.
@@ -77,7 +48,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     /// Encrypted payload storage. A `Mutex` guards the bytes because instances
     /// legitimately cross actor boundaries (state manager, persistence
     /// delegates): an unsynchronized `var data: Data` raced concurrent
-    /// `updateIdentityProps`/`decryptProps` calls on the copy-on-write buffer's
+    /// `update(_:symmetricKey:)`/`decryptProps` calls on the copy-on-write buffer's
     /// reference counts, corrupting the heap (caught by glibc on Linux).
     private let storage: Mutex<Data>
 
@@ -112,7 +83,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         }
     }
 
-    /// Model class handling encrypted storage of `_SessionIdentity`.
+    /// Model class handling encrypted storage of session identity.
     ///
     /// This struct maps to cryptographic key components and session metadata.
     /// - `longTermPublicKey` → **IKB**
@@ -122,7 +93,9 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     public struct UnwrappedProps: Codable & Sendable {
         public let secretName: String
         public let deviceId: UUID
-        public let sessionContextId: Int
+        /// Mutable so hosts can archive/restore a lane without reconstructing props
+        /// (and without naming the internal ratchet snapshot).
+        public var sessionContextId: Int
 
         /// Identity Key Bundle (long-term public key) → IKB
         public var longTermPublicKey: Data
@@ -131,20 +104,56 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
         public var signingPublicKey: Data
 
         /// One-Time Pre-Key Bundle (optional) → OPKBₙ
-        public var oneTimePublicKey: CurvePublicKey?
+        public var oneTimePublicKey: X25519PublicKey?
 
         /// Post-Quantum KEM Public Key (e.g., Kyber) → PQSPKB
         public var mlKEMPublicKey: MLKEMPublicKey
 
-        /// Ratchet state for forward secrecy
-        public var state: RatchetState?
+        /// Nested ratchet snapshot. Internal: hosts use `hasRatchetState` and the
+        /// `ratchet*` accessors, not this type.
+        var state: RatchetState?
 
-        public let deviceName: String
+        /// Human-readable device name. Mutable for host archive prefixes.
+        public var deviceName: String
         public var serverTrusted: Bool?
         public var previousRekey: Date?
         public var isMasterDevice: Bool
         public var verifiedIdentity: Bool
         public var verificationCode: String?
+
+        /// Whether this blob contains an established ratchet snapshot.
+        public var hasRatchetState: Bool { state != nil }
+
+        /// One-time private key stored in the ratchet snapshot, if any.
+        public var ratchetOneTimePrivateKey: X25519PrivateKey? {
+            state?.localOneTimePrivateKey
+        }
+
+        /// ML-KEM private key stored in the ratchet snapshot, if any.
+        public var ratchetMLKEMPrivateKey: MLKEMPrivateKey? {
+            state?.localMLKEMPrivateKey
+        }
+
+        /// Received-message count from the snapshot (`0` if none).
+        public var ratchetReceivedMessagesCount: Int {
+            state?.receivedMessagesCount ?? 0
+        }
+
+        /// Drops the nested ratchet snapshot. App metadata is left unchanged.
+        public mutating func clearRatchetState() {
+            state = nil
+        }
+
+        /// Copies the nested snapshot from another props value without exposing `RatchetState`.
+        public mutating func copyRatchetState(from other: UnwrappedProps) {
+            state = other.state
+        }
+
+        /// Opaque encoding of the nested snapshot, for equality checks. `nil` if none.
+        public var ratchetSnapshotData: Data? {
+            guard let state else { return nil }
+            return try? BinaryEncoder().encode(state)
+        }
         
         public mutating func setLongTermPublicKey(_ data: Data) {
             self.longTermPublicKey = data
@@ -154,7 +163,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.signingPublicKey = key
         }
         
-        public mutating func setOneTimePublicKey(_ key: CurvePublicKey) {
+        public mutating func setOneTimePublicKey(_ key: X25519PublicKey) {
             self.oneTimePublicKey = key
         }
         
@@ -186,8 +195,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             longTermPublicKey: Data,
             signingPublicKey: Data,
             mlKEMPublicKey: MLKEMPublicKey,
-            oneTimePublicKey: CurvePublicKey?,
-            state: RatchetState? = nil,
+            oneTimePublicKey: X25519PublicKey?,
             deviceName: String,
             serverTrusted: Bool? = nil,
             previousRekey: Date? = nil,
@@ -202,7 +210,7 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
             self.signingPublicKey = signingPublicKey
             self.oneTimePublicKey = oneTimePublicKey
             self.mlKEMPublicKey = mlKEMPublicKey
-            self.state = state
+            self.state = nil
             self.deviceName = deviceName
             self.serverTrusted = serverTrusted
             self.previousRekey = previousRekey
@@ -251,40 +259,17 @@ public final class SessionIdentity: SecureModelProtocol, @unchecked Sendable {
     ///
     /// - Throws: An error if encryption fails.
     public func updateProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws -> UnwrappedProps? {
-        let crypto = NeedleTailCrypto()
-        let data = try BinaryEncoder().encode(props)
-        guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
-            throw CryptoError.encryptionFailed
-        }
-        self.data = encryptedData
+        try await update(props, symmetricKey: symmetricKey)
         return try await decryptProps(symmetricKey: symmetricKey)
     }
 
-    public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws {
+    /// Re-encrypts and stores `props` as the identity blob. Encoding is still `UnwrappedProps` with keys `a`–`n`.
+    public func update(_ props: UnwrappedProps, symmetricKey: SymmetricKey) async throws {
         let crypto = NeedleTailCrypto()
         let data = try BinaryEncoder().encode(props)
         guard let encryptedData = try crypto.encrypt(data: data, symmetricKey: symmetricKey) else {
             throw CryptoError.encryptionFailed
         }
         self.data = encryptedData
-    }
-
-    public func makeDecryptedModel<T: Sendable & Codable>(of _: T.Type, symmetricKey: SymmetricKey) async throws -> T {
-        guard let props = await props(symmetricKey: symmetricKey) else {
-            throw CryptoError.propsError
-        }
-        return _SessionIdentity(
-            id: id,
-            secretName: props.secretName,
-            deviceId: props.deviceId,
-            sessionContextId: props.sessionContextId,
-            longTermPublicKey: props.longTermPublicKey,
-            signingPublicKey: props.signingPublicKey,
-            oneTimePublicKey: props.oneTimePublicKey,
-            mlKEMPublicKey: props.mlKEMPublicKey,
-            deviceName: props.deviceName,
-            isMasterDevice: props.isMasterDevice,
-            verifiedIdentity: props.verifiedIdentity,
-        ) as! T
     }
 }

@@ -8,13 +8,12 @@ This guide walks you through setting up DoubleRatchetKit for secure messaging wi
 
 ## Prerequisites
 
-- **Swift**: 6.1 or later
+- **Swift**: 6.3 or later
 - **Platforms**: macOS 15.0+, iOS 18.0+
-- **Dependencies**: 
-  - `swift-crypto` (3.12.3+)
-  - `needletail-crypto` (1.1.1+)
-  - `needletail-algorithms` (2.0.1+)
-  - `needletail-logger` (3.0.0+)
+- **Dependencies** (resolved automatically):
+  - `needletail-crypto` (1.3.0+)
+  - `needletail-logger` (3.1.5+)
+  - `binary-codable` (1.0.3+)
 
 ## Installation
 
@@ -24,7 +23,7 @@ Add DoubleRatchetKit to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "1.0.0")
+    .package(url: "https://github.com/needletails/double-ratchet-kit.git", from: "4.0.0")
 ]
 ```
 
@@ -44,13 +43,30 @@ import NeedleTailLogger
 
 ### 2. Initialize the Ratchet State Manager
 
+`MessageRatchet` is an actor driven by a `SerialExecutor` you supply. A minimal queue-backed executor looks like this:
+
 ```swift
-// Create a serial executor for the actor
-let executor = //Some Executor
+final class RatchetExecutor: SerialExecutor {
+    private let queue = DispatchQueue(label: "ratchet-executor")
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        queue.async { [weak self] in
+            guard let self else { return }
+            job.runSynchronously(on: asUnownedSerialExecutor())
+        }
+    }
+
+    func asUnownedSerialExecutor() -> UnownedSerialExecutor {
+        UnownedSerialExecutor(ordinary: self)
+    }
+}
+
+let executor = RatchetExecutor()
 let logger = NeedleTailLogger()
 
 // Initialize the ratchet state manager
-let ratchetManager = DoubleRatchetStateManager<SHA256>(
+let ratchetManager = MessageRatchet(
     executor: executor,
     logger: logger
 )
@@ -58,31 +74,32 @@ let ratchetManager = DoubleRatchetStateManager<SHA256>(
 
 ### 3. Set Up Session Identities
 
+A `SessionIdentity` describes the **peer lane**: its props hold the remote party's public keys, and its `id` is the `sessionId` you pass to `encrypt`/`decrypt`. Alice stores an identity describing Bob, and Bob stores one describing Alice:
+
 ```swift
-// Create session identity for Alice
-let aliceSessionId = UUID()
-let aliceProps = SessionIdentity.UnwrappedProps(
-    secretName: "alice_session",
+// On Alice's side: an identity describing Bob
+let bobProps = SessionIdentity.UnwrappedProps(
+    secretName: "bob_session",
     deviceId: UUID(),
     sessionContextId: 1,
-    longTermPublicKey: aliceLongTermPublicKey,
-    signingPublicKey: aliceSigningPublicKey,
-    mlKEMPublicKey: aliceMLKEMPublicKey,
-    oneTimePublicKey: aliceOneTimePublicKey,
-    deviceName: "Alice's iPhone",
+    longTermPublicKey: bobLongTermPublicKey,
+    signingPublicKey: bobSigningPublicKey,
+    mlKEMPublicKey: bobMLKEMPublicKey,
+    oneTimePublicKey: bobOneTimePublicKey,
+    deviceName: "Bob's iPhone",
     isMasterDevice: true
 )
 
-let aliceSessionIdentity = try SessionIdentity(
-    id: aliceSessionId,
-    props: aliceProps,
-    symmetricKey: sessionKey
-)
-
-// Create session identity for Bob (similar structure)
 let bobSessionIdentity = try SessionIdentity(
     id: UUID(),
     props: bobProps,
+    symmetricKey: sessionKey
+)
+
+// On Bob's side: an identity describing Alice (same structure)
+let aliceSessionIdentity = try SessionIdentity(
+    id: UUID(),
+    props: aliceProps,
     symmetricKey: sessionKey
 )
 ```
@@ -93,8 +110,8 @@ let bobSessionIdentity = try SessionIdentity(
 
 ```swift
 // Alice prepares to send messages to Bob
-try await ratchetManager.senderInitialization(
-    sessionIdentity: aliceSessionIdentity,
+try await aliceManager.openAsSender(
+    sessionIdentity: bobSessionIdentity,   // describes the peer (Bob)
     sessionSymmetricKey: sessionKey,
     remoteKeys: RemoteKeys(
         longTerm: bobLongTermPublicKey,
@@ -111,15 +128,12 @@ try await ratchetManager.senderInitialization(
 
 ### Recipient Initialization (Bob)
 
-**Using Encrypted Header (Standard):**
-
 ```swift
-// Bob receives the first message from Alice with an encrypted header
-let encryptedHeader = // ... received from Alice
-try await ratchetManager.recipientInitialization(
-    sessionIdentity: bobSessionIdentity,
+// Bob receives the first message from Alice and binds to its encrypted header
+try await bobManager.openAsRecipient(
+    sessionIdentity: aliceSessionIdentity, // describes the peer (Alice)
     sessionSymmetricKey: sessionKey,
-    header: encryptedHeader,
+    header: encryptedMessage.header,
     localKeys: LocalKeys(
         longTerm: bobLongTermPrivateKey,
         oneTime: bobOneTimePrivateKey,
@@ -128,12 +142,12 @@ try await ratchetManager.recipientInitialization(
 )
 ```
 
-**Alternative Initialization (Advanced):**
+**External key derivation (Advanced):** `KeyRatchet` offers a recipient path that bootstraps from PQXDH ciphertext instead of a header — see <doc:UsingKeyRatchet>:
 
 ```swift
-// For external key derivation workflows
-try await ratchetManager.recipientInitialization(
-    sessionIdentity: bobSessionIdentity,
+let keyRatchet = KeyRatchet(executor: executor, logger: logger)
+try await keyRatchet.openAsRecipient(
+    sessionIdentity: aliceSessionIdentity,
     sessionSymmetricKey: sessionKey,
     localKeys: LocalKeys(
         longTerm: bobLongTermPrivateKey,
@@ -156,9 +170,9 @@ try await ratchetManager.recipientInitialization(
 ```swift
 // Alice encrypts a message
 let plaintext = "Hello, Bob!".data(using: .utf8)!
-let encryptedMessage = try await ratchetManager.ratchetEncrypt(
+let encryptedMessage = try await aliceManager.encrypt(
     plainText: plaintext,
-    sessionId: aliceSessionIdentity.id
+    sessionId: bobSessionIdentity.id
 )
 ```
 
@@ -166,9 +180,9 @@ let encryptedMessage = try await ratchetManager.ratchetEncrypt(
 
 ```swift
 // Bob decrypts the message
-let decryptedMessage = try await ratchetManager.ratchetDecrypt(
+let decryptedMessage = try await bobManager.decrypt(
     encryptedMessage,
-    sessionId: bobSessionIdentity.id
+    sessionId: aliceSessionIdentity.id
 )
 let message = String(data: decryptedMessage, encoding: .utf8)!
 print("Received: \(message)") // "Hello, Bob!"
@@ -182,12 +196,12 @@ Key wrappers are used to identify keys that the recipient needs to reference fro
 
 ```swift
 // Wrapper for Curve25519 keys
-let curvePrivateKey = try CurvePrivateKey(id: UUID(), curve25519PrivateKey.rawRepresentation)
-let curvePublicKey = try CurvePublicKey(id: UUID(), curve25519PublicKey.rawRepresentation)
+let curvePrivateKey = try X25519PrivateKey(id: UUID(), curve25519PrivateKey.rawRepresentation)
+let curvePublicKey = try X25519PublicKey(id: UUID(), curve25519PublicKey.rawRepresentation)
 
-// Wrapper for MLKEM1024 keys
-let kyberPrivateKey = try MLKEMPrivateKey(id: UUID(), MLKEM1024PrivateKey.rawRepresentation)
-let kyberPublicKey = try MLKEMPublicKey(id: UUID(), MLKEM1024PublicKey.rawRepresentation)
+// Wrapper for MLKEM1024 keys (private wraps encode(), public wraps rawRepresentation)
+let kemPrivateKey = try MLKEMPrivateKey(id: UUID(), mlKEM1024PrivateKey.encode())
+let kemPublicKey = try MLKEMPublicKey(id: UUID(), mlKEM1024PublicKey.rawRepresentation)
 ```
 
 ## Session Identity Delegate
@@ -201,7 +215,7 @@ class MySessionDelegate: SessionIdentityDelegate {
         try await storage.save(identity)
     }
     
-    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> CurvePrivateKey? {
+    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> X25519PrivateKey? {
         // Retrieve one-time key from storage
         return try await storage.fetchOneTimeKey(id: id)
     }
@@ -225,32 +239,32 @@ await ratchetManager.setDelegate(MySessionDelegate())
 
 ### Actor Isolation
 
-The `DoubleRatchetStateManager` is implemented as a Swift actor, providing automatic thread safety:
+The `MessageRatchet` is implemented as a Swift actor, providing automatic thread safety:
 
 ```swift
 // All state mutations are automatically serialized
-let ratchetManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
+let ratchetManager = MessageRatchet(executor: executor, logger: logger)
 
 Task {
-    let message1 = try await ratchetManager.ratchetEncrypt(plainText: data1)
-    let message2 = try await ratchetManager.ratchetEncrypt(plainText: data2)
+    let message1 = try await ratchetManager.encrypt(plainText: data1, sessionId: sessionId)
+    let message2 = try await ratchetManager.encrypt(plainText: data2, sessionId: sessionId)
 }
 ```
 
 ### Proper Resource Management
 
-Always call `shutdown()` when done with the ratchet manager:
+Always call `flushAndClose()` when done with the ratchet manager:
 
 ```swift
-// Always call shutdown when done
-try await ratchetManager.shutdown()
+// Always call flushAndClose when done
+try await ratchetManager.flushAndClose()
 ```
 
 ### Error Handling
 
 ```swift
 do {
-    let message = try await ratchetManager.ratchetEncrypt(
+    let message = try await ratchetManager.encrypt(
         plainText: data,
         sessionId: sessionId
     )
@@ -274,21 +288,22 @@ do {
 
 ### Concurrent Session Management
 
-For managing multiple sessions, create separate manager instances:
+A single manager handles many sessions concurrently, keyed by session identity UUID. Each party (device) typically owns one manager:
 
 ```swift
-// Each session should have its own manager instance
-let aliceManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
-let bobManager = DoubleRatchetStateManager<SHA256>(executor: executor, logger: logger)
+// One manager per party
+let aliceManager = MessageRatchet(executor: executor, logger: logger)
+let bobManager = MessageRatchet(executor: executor, logger: logger)
 
-// Each manager can operate concurrently
-await withTaskGroup(of: Void.self) { group in
+// Managers can operate concurrently
+try await withThrowingTaskGroup(of: Void.self) { group in
     group.addTask {
-        try await aliceManager.senderInitialization(/* ... */)
+        try await aliceManager.openAsSender(/* ... */)
     }
     group.addTask {
-        try await bobManager.recipientInitialization(/* ... */)
+        try await bobManager.openAsRecipient(/* ... */)
     }
+    try await group.waitForAll()
 }
 ```
 
