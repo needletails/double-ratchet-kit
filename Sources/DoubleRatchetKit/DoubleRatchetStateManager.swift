@@ -825,16 +825,16 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         }
         
         // Step 2: Construct ratchet header metadata (per-turn ratchet fields ride inside the
-        // encrypted header body, preserving metadata protection).
-        var localRatchetPublicKey: Data?
-        if let ratchetPrivate = state.localRatchetPrivateKey {
-            localRatchetPublicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: ratchetPrivate)
-                .publicKey.rawRepresentation
+        // encrypted header body, preserving metadata protection). Every frame must carry
+        // the sender's current ratchet publics; the KEM ciphertext is absent until a
+        // sending DH step has encapsulated to the peer.
+        guard let ratchetPrivate = state.localRatchetPrivateKey,
+              let ratchetKEMPrivate = state.localRatchetKEMPrivateKey else {
+            throw RatchetError.stateUninitialized
         }
-        var localRatchetKEMPublicKey: Data?
-        if let ratchetKEMPrivate = state.localRatchetKEMPrivateKey {
-            localRatchetKEMPublicKey = try ratchetKEMPrivate.decodeMLKem1024().publicKey.rawRepresentation
-        }
+        let localRatchetPublicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: ratchetPrivate)
+            .publicKey.rawRepresentation
+        let localRatchetKEMPublicKey = try ratchetKEMPrivate.decodeMLKem1024().publicKey.rawRepresentation
         let messageHeader = MessageHeader(
             previousChainLength: state.previousMessagesCount,
             messageNumber: state.sentMessagesCount,
@@ -1047,8 +1047,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         state = await state.updateReceivingNextHeaderKey(newReceivingHeaderKey)
         
         // Skipped-key lookup. The chain tag (sender's per-turn ratchet key) disambiguates
-        // equal message indices across ratchet turns; legacy stashes and legacy frames both
-        // carry nil tags and keep matching each other during the drain.
+        // equal message indices across ratchet turns.
         if let key = state.skippedMessageKeys.first(where: {
             $0.messageIndex == decrypted.messageNumber &&
             $0.remoteLongTermPublicKey == header.remoteLongTermPublicKey &&
@@ -1081,8 +1080,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         // the sender initialization seeds KDF_RK. All mutations stay on the working copy —
         // a mismatched step fails decryption below and is never committed.
         var performedReceivingStep = false
-        if let headerRatchetKey = decrypted.ratchetPublicKey,
-           headerRatchetKey != state.remoteRatchetPublicKey,
+        if decrypted.ratchetPublicKey != state.remoteRatchetPublicKey,
            let headerKEMCiphertext = decrypted.ratchetKEMCiphertext,
            let localRatchetPrivateKey = state.localRatchetPrivateKey,
            let localRatchetKEMPrivateKey = state.localRatchetKEMPrivateKey,
@@ -1090,7 +1088,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             state = try await performReceivingRatchetStep(
                 on: state,
                 header: decrypted,
-                headerRatchetKey: headerRatchetKey,
+                headerRatchetKey: decrypted.ratchetPublicKey,
                 headerKEMCiphertext: headerKEMCiphertext,
                 localRatchetPrivateKey: localRatchetPrivateKey,
                 localRatchetKEMPrivateKey: localRatchetKEMPrivateKey)
@@ -1167,12 +1165,8 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
 
             // Adopt the initiator's per-turn ratchet publics from the bootstrap header:
             // our first reply performs the first full sending ratchet step against them.
-            if let headerRatchetKey = decrypted.ratchetPublicKey {
-                state = await state.updateRemoteRatchetPublicKey(headerRatchetKey)
-            }
-            if let headerRatchetKEMKey = decrypted.ratchetKEMPublicKey {
-                state = await state.updateRemoteRatchetKEMPublicKey(headerRatchetKEMKey)
-            }
+            state = await state.updateRemoteRatchetPublicKey(decrypted.ratchetPublicKey)
+            state = await state.updateRemoteRatchetKEMPublicKey(decrypted.ratchetKEMPublicKey)
 
             // Align counters with the decrypted index so subsequent gap-fill
             // and skipped-key lookups stay consistent with post-handshake commits.
@@ -1436,23 +1430,24 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
             if skippedCount > ratchetConfiguration.maxSkippedMessageKeys {
                 throw RatchetError.maxSkippedHeadersExceeded
             }
-            let oldChainTag = state.remoteRatchetPublicKey
-            for i in state.receivedMessagesCount ..< header.previousChainLength {
-                let messageKey = try await core.symmetricKeyRatchet(from: oldReceivingKey)
-                let nextReceivingKey = try await core.deriveChainKey(
-                    from: oldReceivingKey,
-                    configuration: ratchetConfiguration)
-                if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == oldChainTag })
-                    && !state.alreadyDecryptedMessageNumbers.contains(i) {
-                    state = await state.updateSkippedMessage(skippedMessageKey: SkippedMessageKey(
-                        remoteLongTermPublicKey: state.remoteLongTermPublicKey,
-                        remoteOneTimePublicKey: state.remoteOneTimePublicKey?.rawRepresentation,
-                        remoteMLKEMPublicKey: state.remoteMLKEMPublicKey.rawRepresentation,
-                        messageIndex: i,
-                        messageKey: messageKey,
-                        chainRatchetPublicKey: oldChainTag))
+            if let oldChainTag = state.remoteRatchetPublicKey {
+                for i in state.receivedMessagesCount ..< header.previousChainLength {
+                    let messageKey = try await core.symmetricKeyRatchet(from: oldReceivingKey)
+                    let nextReceivingKey = try await core.deriveChainKey(
+                        from: oldReceivingKey,
+                        configuration: ratchetConfiguration)
+                    if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == oldChainTag })
+                        && !state.alreadyDecryptedMessageNumbers.contains(i) {
+                        state = await state.updateSkippedMessage(skippedMessageKey: SkippedMessageKey(
+                            remoteLongTermPublicKey: state.remoteLongTermPublicKey,
+                            remoteOneTimePublicKey: state.remoteOneTimePublicKey?.rawRepresentation,
+                            remoteMLKEMPublicKey: state.remoteMLKEMPublicKey.rawRepresentation,
+                            messageIndex: i,
+                            messageKey: messageKey,
+                            chainRatchetPublicKey: oldChainTag))
+                    }
+                    oldReceivingKey = nextReceivingKey
                 }
-                oldReceivingKey = nextReceivingKey
             }
         }
         
@@ -1471,9 +1466,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         state = await state.updateRootKey(derived.rootKey)
         state = await state.updateReceivingKey(derived.chainKey)
         state = await state.updateRemoteRatchetPublicKey(headerRatchetKey)
-        if let headerKEMPublicKey = header.ratchetKEMPublicKey {
-            state = await state.updateRemoteRatchetKEMPublicKey(headerKEMPublicKey)
-        }
+        state = await state.updateRemoteRatchetKEMPublicKey(header.ratchetKEMPublicKey)
         state = await state.updateReceivedMessagesCount(0)
         state = await state.resetAlreadyDecryptedMessageNumber()
         // The message-key lane is now on the ratchet; the PQXDH bootstrap lane is subsumed.
@@ -1645,7 +1638,7 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
         let capacity = await max(0, core.defaultRatchetConfiguration.maxSkippedMessageKeys - state.skippedMessageKeys.count)
         let tailLength = min(epochTailWindow, capacity)
         guard tailLength > 0 else { return state }
-        let oldChainTag = state.remoteRatchetPublicKey
+        guard let oldChainTag = state.remoteRatchetPublicKey else { return state }
         for i in state.receivedMessagesCount ..< (state.receivedMessagesCount + tailLength) {
             guard let messageKey = try? await core.symmetricKeyRatchet(from: receivingKey),
                   let nextReceivingKey = try? await core.deriveChainKey(

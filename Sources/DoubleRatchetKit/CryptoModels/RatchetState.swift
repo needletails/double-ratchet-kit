@@ -67,9 +67,8 @@ public struct SkippedMessageKey: Codable, Sendable {
     let messageKey: SymmetricKey
 
     /// The sender's per-turn ratchet public key for the chain this key belongs to.
-    /// Disambiguates equal message indices across ratchet turns. `nil` for keys
-    /// stashed from legacy (pre-ratchet) chains.
-    let chainRatchetPublicKey: Data?
+    /// Disambiguates equal message indices across ratchet turns.
+    let chainRatchetPublicKey: Data
 
     private enum CodingKeys: String, CodingKey, Sendable {
         case remoteLongTermPublicKey = "a"
@@ -86,7 +85,7 @@ public struct SkippedMessageKey: Codable, Sendable {
         remoteMLKEMPublicKey: Data,
         messageIndex: Int,
         messageKey: SymmetricKey,
-        chainRatchetPublicKey: Data? = nil
+        chainRatchetPublicKey: Data
     ) {
         self.remoteLongTermPublicKey = remoteLongTermPublicKey
         self.remoteOneTimePublicKey = remoteOneTimePublicKey
@@ -254,8 +253,9 @@ public struct EncryptedHeader: Sendable, Codable, Hashable {
 /// Represents the header of a message in the Double Ratchet protocol.
 ///
 /// The per-turn hybrid ratchet fields ride inside the *encrypted* header body
-/// (HE variant), preserving metadata protection. They are optional so legacy
-/// in-flight frames (encrypted before the per-turn ratchet shipped) still decode.
+/// (HE variant), preserving metadata protection. Public keys are required on
+/// every frame. The KEM ciphertext is absent until this party has taken a
+/// sending DH step (the initiator's first PQXDH bootstrap chain has none).
 public struct MessageHeader: Sendable, Codable {
     /// The length of the previous message chain.
     public let previousChainLength: Int
@@ -263,16 +263,17 @@ public struct MessageHeader: Sendable, Codable {
     public let messageNumber: Int
 
     /// The sender's current per-turn Curve25519 ratchet public key (32 bytes).
-    public let ratchetPublicKey: Data?
+    public let ratchetPublicKey: Data
 
     /// The sender's current per-turn ML-KEM-1024 ratchet public key (~1.6 KB).
     /// The peer encapsulates to this key on its next sending ratchet step.
-    public let ratchetKEMPublicKey: Data?
+    public let ratchetKEMPublicKey: Data
 
     /// ML-KEM ciphertext encapsulated to the receiver's last advertised ratchet
     /// KEM public key. Rides in every header of the sending chain (not just the
     /// turn boundary) so the receiver can complete the matching receiving step
     /// even when the first message of the chain is lost or reordered.
+    /// `nil` on the initiator's PQXDH bootstrap chain, before any sending DH step.
     public let ratchetKEMCiphertext: Data?
 
     private enum CodingKeys: String, CodingKey, Sendable {
@@ -289,12 +290,12 @@ public struct MessageHeader: Sendable, Codable {
     ///   - messageNumber: The message number of the given message
     ///   - ratchetPublicKey: The sender's per-turn Curve25519 ratchet public key.
     ///   - ratchetKEMPublicKey: The sender's per-turn ML-KEM ratchet public key.
-    ///   - ratchetKEMCiphertext: ML-KEM ciphertext for the receiver (turn boundaries only).
+    ///   - ratchetKEMCiphertext: ML-KEM ciphertext for the receiver, if a sending DH step has run.
     public init(
         previousChainLength: Int,
         messageNumber: Int,
-        ratchetPublicKey: Data? = nil,
-        ratchetKEMPublicKey: Data? = nil,
+        ratchetPublicKey: Data,
+        ratchetKEMPublicKey: Data,
         ratchetKEMCiphertext: Data? = nil
     ) {
         self.previousChainLength = previousChainLength
@@ -302,16 +303,6 @@ public struct MessageHeader: Sendable, Codable {
         self.ratchetPublicKey = ratchetPublicKey
         self.ratchetKEMPublicKey = ratchetKEMPublicKey
         self.ratchetKEMCiphertext = ratchetKEMCiphertext
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        previousChainLength = try container.decode(Int.self, forKey: .previousChainLength)
-        messageNumber = try container.decode(Int.self, forKey: .messageNumber)
-        // Legacy frames lack these keys entirely; treat absence as nil.
-        ratchetPublicKey = try container.decodeIfPresent(Data.self, forKey: .ratchetPublicKey)
-        ratchetKEMPublicKey = try container.decodeIfPresent(Data.self, forKey: .ratchetKEMPublicKey)
-        ratchetKEMCiphertext = try container.decodeIfPresent(Data.self, forKey: .ratchetKEMCiphertext)
     }
 }
 
@@ -488,7 +479,8 @@ public struct RatchetState: Sendable, Codable {
 
     // MARK: - Per-Turn Hybrid Ratchet Properties
     //
-    // All optional so states persisted before the per-turn ratchet shipped still decode.
+    // These stay optional because they are absent until a given ratchet phase
+    // (lifecycle), not because old snapshots omitted them.
 
     /// Per-turn local Curve25519 ratchet private key (raw representation).
     /// Regenerated on every sending ratchet step (first send after a received turn).
@@ -505,9 +497,9 @@ public struct RatchetState: Sendable, Codable {
     /// next sending ratchet step.
     private(set) var remoteRatchetKEMPublicKey: Data?
 
-    /// Whether this party initiated the session (ran PQXDH as sender). `nil` on legacy states;
-    /// treat as unknown. Used only to label bootstrap chains.
-    private(set) var isSessionInitiator: Bool?
+    /// Whether this party initiated the session (ran PQXDH as sender).
+    /// Used only to label bootstrap chains. `false` until `setState` records the role.
+    private(set) var isSessionInitiator: Bool = false
 
     /// The peer ratchet public key the *current sending chain* was keyed against.
     /// A sending ratchet step is due exactly when `remoteRatchetPublicKey` differs from

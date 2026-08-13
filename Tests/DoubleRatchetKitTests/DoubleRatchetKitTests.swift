@@ -4168,26 +4168,44 @@ actor DoubleRatchetStateManagerTests: SessionIdentityDelegate {
         }
     }
 
-    /// Legacy in-flight drain (wire compatibility): frames encoded before the per-turn
-    /// ratchet existed lack the ratchet header keys entirely. Codable omits nil optionals,
-    /// so a header encoded with nil ratchet fields is byte-equivalent to a pre-3.1 frame;
-    /// it must decode with `nil` for the new fields, and full headers must round-trip.
+    /// Pre–per-turn frames omit ratchet public keys. Decode must fail. A bootstrap
+    /// header (publics present, no KEM ciphertext) and a full turn-boundary header
+    /// must still round-trip.
     @Test
-    func testLegacyMessageHeaderDecodesWithoutRatchetFields() async throws {
-        // Legacy-shaped frame: same type, only the original "a"/"b" keys on the wire.
-        let legacyShaped = MessageHeader(previousChainLength: 7, messageNumber: 42)
-        let legacyData = try BinaryEncoder().encode(legacyShaped)
-        let decodedLegacy = try BinaryDecoder().decode(MessageHeader.self, from: legacyData)
-        #expect(decodedLegacy.previousChainLength == 7)
-        #expect(decodedLegacy.messageNumber == 42)
-        #expect(decodedLegacy.ratchetPublicKey == nil, "Legacy frames must decode with nil ratchet fields")
-        #expect(decodedLegacy.ratchetKEMPublicKey == nil)
-        #expect(decodedLegacy.ratchetKEMCiphertext == nil)
+    func testLegacyMessageHeaderRejectsMissingRatchetFields() throws {
+        struct LegacyShapedHeader: Codable {
+            enum CodingKeys: String, CodingKey {
+                case previousChainLength = "a"
+                case messageNumber = "b"
+            }
+            let previousChainLength: Int
+            let messageNumber: Int
+        }
+        let legacyData = try BinaryEncoder().encode(
+            LegacyShapedHeader(previousChainLength: 7, messageNumber: 42))
+        #expect(throws: (any Error).self) {
+            try BinaryDecoder().decode(MessageHeader.self, from: legacyData)
+        }
 
-        // A full turn-boundary header round-trips all hybrid fields intact.
         let curveKey = crypto.generateCurve25519PrivateKey().publicKey.rawRepresentation
         let kemPublic = Data(repeating: 0xAB, count: 1568)
         let kemCiphertext = Data(repeating: 0xCD, count: 1568)
+
+        // Initiator first-send shape: publics required, ciphertext still absent.
+        let bootstrap = MessageHeader(
+            previousChainLength: 0,
+            messageNumber: 0,
+            ratchetPublicKey: curveKey,
+            ratchetKEMPublicKey: kemPublic)
+        let bootstrapData = try BinaryEncoder().encode(bootstrap)
+        let decodedBootstrap = try BinaryDecoder().decode(MessageHeader.self, from: bootstrapData)
+        #expect(decodedBootstrap.ratchetPublicKey == curveKey)
+        #expect(decodedBootstrap.ratchetKEMPublicKey == kemPublic)
+        #expect(decodedBootstrap.ratchetKEMCiphertext == nil)
+        #expect(decodedBootstrap.previousChainLength == 0)
+        #expect(decodedBootstrap.messageNumber == 0)
+
+        // A full turn-boundary header round-trips all hybrid fields intact.
         let full = MessageHeader(
             previousChainLength: 3,
             messageNumber: 0,
