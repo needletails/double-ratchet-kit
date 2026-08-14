@@ -25,8 +25,9 @@ specifications; not wire-compatible with third-party messaging clients. It provi
 
 ### Core Components
 
-- <doc:DoubleRatchetStateManager>
-- <doc:SessionIdentity>
+- <doc:UsingMessageRatchet>
+- <doc:UsingKeyRatchet>
+- <doc:UsingSessionIdentity>
 - <doc:RatchetState>
 - <doc:KeyManagement>
 

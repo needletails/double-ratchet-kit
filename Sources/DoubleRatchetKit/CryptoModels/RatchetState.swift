@@ -16,13 +16,12 @@
 import Crypto
 import Foundation
 
-public typealias RemoteLongTermPublicKey = Data
-public typealias RemoteOneTimePublicKey = CurvePublicKey
-public typealias RemoteMLKEMPublicKey = MLKEMPublicKey
-public typealias LocalLongTermPrivateKey = Data
-public typealias LocalOneTimePrivateKey = CurvePrivateKey
-public typealias LocalMLKEMPrivateKey = MLKEMPrivateKey
-
+typealias RemoteLongTermPublicKey = Data
+typealias RemoteOneTimePublicKey = X25519PublicKey
+typealias RemoteMLKEMPublicKey = MLKEMPublicKey
+typealias LocalLongTermPrivateKey = Data
+typealias LocalOneTimePrivateKey = X25519PrivateKey
+typealias LocalMLKEMPrivateKey = MLKEMPrivateKey
 typealias LocalPrivateKey = Data
 typealias RemotePublicKey = Data
 
@@ -40,9 +39,9 @@ public protocol SessionIdentityDelegate: AnyObject, Sendable {
     /// Fetches a previously stored private one-time Curve25519 key by its unique identifier.
     ///
     /// - Parameter id: The UUID of the one-time key to retrieve.
-    /// - Returns: The corresponding `CurvePrivateKey`.
+    /// - Returns: The corresponding `X25519PrivateKey`.
     /// - Throws: An error if the key could not be found or retrieved.
-    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> CurvePrivateKey?
+    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> X25519PrivateKey?
 
     /// Notifies that a new one-time key should be generated and made available.
     ///
@@ -67,9 +66,8 @@ public struct SkippedMessageKey: Codable, Sendable {
     let messageKey: SymmetricKey
 
     /// The sender's per-turn ratchet public key for the chain this key belongs to.
-    /// Disambiguates equal message indices across ratchet turns. `nil` for keys
-    /// stashed from legacy (pre-ratchet) chains.
-    let chainRatchetPublicKey: Data?
+    /// Disambiguates equal message indices across ratchet turns.
+    let chainRatchetPublicKey: Data
 
     private enum CodingKeys: String, CodingKey, Sendable {
         case remoteLongTermPublicKey = "a"
@@ -86,7 +84,7 @@ public struct SkippedMessageKey: Codable, Sendable {
         remoteMLKEMPublicKey: Data,
         messageIndex: Int,
         messageKey: SymmetricKey,
-        chainRatchetPublicKey: Data? = nil
+        chainRatchetPublicKey: Data
     ) {
         self.remoteLongTermPublicKey = remoteLongTermPublicKey
         self.remoteOneTimePublicKey = remoteOneTimePublicKey
@@ -94,224 +92,6 @@ public struct SkippedMessageKey: Codable, Sendable {
         self.messageIndex = messageIndex
         self.messageKey = messageKey
         self.chainRatchetPublicKey = chainRatchetPublicKey
-    }
-}
-
-/// Represents an encrypted message along with its header in the Double Ratchet protocol.
-public struct RatchetMessage: Codable, Sendable, Hashable {
-    /// The header containing metadata about the message.
-    public let header: EncryptedHeader
-
-    /// The encrypted content of the message.
-    let encryptedData: Data
-
-    private enum CodingKeys: String, CodingKey, Sendable {
-        case header = "a"
-        case encryptedData = "b"
-    }
-
-    /// Initializes a new RatchetMessage with the specified header and encrypted data.
-    /// - Parameters:
-    ///   - header: The header of the encrypted message.
-    ///   - encryptedData: The encrypted content of the message.
-    public init(header: EncryptedHeader, encryptedData: Data) {
-        self.header = header
-        self.encryptedData = encryptedData
-    }
-}
-
-/// Represents the header of an encrypted message in the Double Ratchet protocol.
-public struct EncryptedHeader: Sendable, Codable, Hashable {
-    /// Sender's long-term public key.
-    public let remoteLongTermPublicKey: RemoteLongTermPublicKey // is Foundation Data
-
-    /// Sender's one-time public key.
-    public let remoteOneTimePublicKey: RemoteOneTimePublicKey? // is COdable object with UUID and FOundation data as props
-
-    /// Sender's MLKEM public key used for key agreement.
-    public let remoteMLKEMPublicKey: RemoteMLKEMPublicKey // is COdable object with UUID and FOundation data as props
-
-    /// Header encapsulated ciphertext.
-    public let headerCiphertext: Data
-
-    /// Message encapsulated ciphertext.
-    public let messageCiphertext: Data
-
-    public let oneTimeKeyId: UUID?
-
-    public let mlKEMOneTimeKeyId: UUID?
-
-    /// Encrypted header body
-    public let encrypted: Data
-
-    /// Only exists at runtime after decryption.
-    public private(set) var decrypted: MessageHeader?
-
-    /// Sets the decrypted message header.
-    /// - Parameter decrypted: The decrypted message header to set.
-    public mutating func setDecrypted(_ decrypted: MessageHeader) {
-        self.decrypted = decrypted
-    }
-
-    private enum CodingKeys: String, CodingKey, Sendable {
-        case remoteLongTermPublicKey = "a"
-        case remoteOneTimePublicKey = "b"
-        case remoteMLKEMPublicKey = "c"
-        case headerCiphertext = "d"
-        case messageCiphertext = "e"
-        case oneTimeKeyId = "f"
-        case mlKEMOneTimeKeyId = "g"
-        case encrypted = "h"
-    }
-
-    /// Initializes the EncryptedHeader without a decrypted header (sending case).
-    /// - Parameters:
-    ///   - remoteLongTermPublicKey: The sender's long-term public key.
-    ///   - remoteOneTimePublicKey: The sender's one-time public key.
-    ///   - remoteMLKEMPublicKey: The sender's MLKEM public key.
-    ///   - headerCiphertext: The ciphertext of the header.
-    ///   - messageCiphertext: The ciphertext of the message.
-    ///   - oneTimeKeyId: The One Time Curve Key
-    ///   - mlKEMOneTimeKeyId: The MLKEM Key
-    ///   - encrypted: The encrypted body of the header.
-    public init(
-        remoteLongTermPublicKey: RemoteLongTermPublicKey,
-        remoteOneTimePublicKey: RemoteOneTimePublicKey?,
-        remoteMLKEMPublicKey: RemoteMLKEMPublicKey,
-        headerCiphertext: Data,
-        messageCiphertext: Data,
-        oneTimeKeyId: UUID?,
-        mlKEMOneTimeKeyId: UUID,
-        encrypted: Data
-    ) {
-        self.remoteLongTermPublicKey = remoteLongTermPublicKey
-        self.remoteOneTimePublicKey = remoteOneTimePublicKey
-        self.remoteMLKEMPublicKey = remoteMLKEMPublicKey
-        self.headerCiphertext = headerCiphertext
-        self.messageCiphertext = messageCiphertext
-        self.oneTimeKeyId = oneTimeKeyId
-        self.mlKEMOneTimeKeyId = mlKEMOneTimeKeyId
-        self.encrypted = encrypted
-        decrypted = nil
-    }
-
-    /// Initializes the EncryptedHeader with a decrypted header (receiving case).
-    /// - Parameters:
-    ///   - remoteLongTermPublicKey: The sender's long-term public key.
-    ///   - remoteOneTimePublicKey: The sender's one-time public key.
-    ///   - remoteMLKEMPublicKey: The sender's MLKEM public key.
-    ///   - headerCiphertext: The ciphertext of the header.
-    ///   - messageCiphertext: The ciphertext of the message.
-    ///   - encrypted: The encrypted body of the header.
-    ///   - oneTimeKeyId: The One Time Curve Key
-    ///   - mlKEMOneTimeKeyId: The MLKEM Key
-    ///   - decrypted: The decrypted **MessageHeader**.
-    public init(
-        remoteLongTermPublicKey: RemoteLongTermPublicKey,
-        remoteOneTimePublicKey: RemoteOneTimePublicKey,
-        remoteMLKEMPublicKey: RemoteMLKEMPublicKey,
-        headerCiphertext: Data,
-        messageCiphertext: Data,
-        encrypted: Data,
-        oneTimeKeyId: UUID?,
-        mlKEMOneTimeKeyId: UUID,
-        decrypted: MessageHeader
-    ) {
-        self.remoteLongTermPublicKey = remoteLongTermPublicKey
-        self.remoteOneTimePublicKey = remoteOneTimePublicKey
-        self.remoteMLKEMPublicKey = remoteMLKEMPublicKey
-        self.headerCiphertext = headerCiphertext
-        self.messageCiphertext = messageCiphertext
-        self.encrypted = encrypted
-        self.oneTimeKeyId = oneTimeKeyId
-        self.mlKEMOneTimeKeyId = mlKEMOneTimeKeyId
-        self.decrypted = decrypted
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(remoteLongTermPublicKey)
-        hasher.combine(remoteOneTimePublicKey)
-        hasher.combine(remoteMLKEMPublicKey)
-        hasher.combine(headerCiphertext)
-        hasher.combine(messageCiphertext)
-        hasher.combine(oneTimeKeyId)
-        hasher.combine(mlKEMOneTimeKeyId)
-        hasher.combine(encrypted)
-    }
-
-    public static func == (lhs: EncryptedHeader, rhs: EncryptedHeader) -> Bool {
-        lhs.remoteLongTermPublicKey == rhs.remoteLongTermPublicKey
-            && lhs.remoteOneTimePublicKey == rhs.remoteOneTimePublicKey
-            && lhs.remoteMLKEMPublicKey == rhs.remoteMLKEMPublicKey
-            && lhs.headerCiphertext == rhs.headerCiphertext
-            && lhs.messageCiphertext == rhs.messageCiphertext
-            && lhs.oneTimeKeyId == rhs.oneTimeKeyId
-            && lhs.mlKEMOneTimeKeyId == rhs.mlKEMOneTimeKeyId
-            && lhs.encrypted == rhs.encrypted
-    }
-}
-
-/// Represents the header of a message in the Double Ratchet protocol.
-///
-/// The per-turn hybrid ratchet fields ride inside the *encrypted* header body
-/// (HE variant), preserving metadata protection. They are optional so legacy
-/// in-flight frames (encrypted before the per-turn ratchet shipped) still decode.
-public struct MessageHeader: Sendable, Codable {
-    /// The length of the previous message chain.
-    public let previousChainLength: Int
-
-    public let messageNumber: Int
-
-    /// The sender's current per-turn Curve25519 ratchet public key (32 bytes).
-    public let ratchetPublicKey: Data?
-
-    /// The sender's current per-turn ML-KEM-1024 ratchet public key (~1.6 KB).
-    /// The peer encapsulates to this key on its next sending ratchet step.
-    public let ratchetKEMPublicKey: Data?
-
-    /// ML-KEM ciphertext encapsulated to the receiver's last advertised ratchet
-    /// KEM public key. Rides in every header of the sending chain (not just the
-    /// turn boundary) so the receiver can complete the matching receiving step
-    /// even when the first message of the chain is lost or reordered.
-    public let ratchetKEMCiphertext: Data?
-
-    private enum CodingKeys: String, CodingKey, Sendable {
-        case previousChainLength = "a"
-        case messageNumber = "b"
-        case ratchetPublicKey = "c"
-        case ratchetKEMPublicKey = "d"
-        case ratchetKEMCiphertext = "e"
-    }
-
-    /// Initializes a new MessageHeader with the specified parameters.
-    /// - Parameters:
-    ///   - previousChainLength: The length of the previous message chain.
-    ///   - messageNumber: The message number of the given message
-    ///   - ratchetPublicKey: The sender's per-turn Curve25519 ratchet public key.
-    ///   - ratchetKEMPublicKey: The sender's per-turn ML-KEM ratchet public key.
-    ///   - ratchetKEMCiphertext: ML-KEM ciphertext for the receiver (turn boundaries only).
-    public init(
-        previousChainLength: Int,
-        messageNumber: Int,
-        ratchetPublicKey: Data? = nil,
-        ratchetKEMPublicKey: Data? = nil,
-        ratchetKEMCiphertext: Data? = nil
-    ) {
-        self.previousChainLength = previousChainLength
-        self.messageNumber = messageNumber
-        self.ratchetPublicKey = ratchetPublicKey
-        self.ratchetKEMPublicKey = ratchetKEMPublicKey
-        self.ratchetKEMCiphertext = ratchetKEMCiphertext
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        previousChainLength = try container.decode(Int.self, forKey: .previousChainLength)
-        messageNumber = try container.decode(Int.self, forKey: .messageNumber)
-        // Legacy frames lack these keys entirely; treat absence as nil.
-        ratchetPublicKey = try container.decodeIfPresent(Data.self, forKey: .ratchetPublicKey)
-        ratchetKEMPublicKey = try container.decodeIfPresent(Data.self, forKey: .ratchetKEMPublicKey)
-        ratchetKEMCiphertext = try container.decodeIfPresent(Data.self, forKey: .ratchetKEMCiphertext)
     }
 }
 
@@ -359,7 +139,7 @@ public struct RatchetConfiguration: Sendable, Codable {
 }
 
 /// Represents the state of the Double Ratchet protocol.
-public struct RatchetState: Sendable, Codable {
+struct RatchetState: Sendable, Codable {
     /// Coding keys for encoding and decoding the RatchetState.
     enum CodingKeys: String, CodingKey, Sendable, Codable {
         case localLongTermPrivateKey = "a" // Local long-term private key.
@@ -395,7 +175,11 @@ public struct RatchetState: Sendable, Codable {
         case isSessionInitiator = "E" // Whether this party initiated the session (PQXDH sender).
         case sendingChainRemoteRatchetKey = "F" // Remote ratchet key the current sending chain is keyed against.
         case localRatchetKEMCiphertext = "G" // KEM ciphertext for the current sending chain (rides in every header).
+        case suiteMarker = "H" // Protocol suite marker. Missing on pre-4.0 blobs; treat as current.
     }
+
+    /// v4 production mix: HMAC-SHA256 (chain / message), HKDF-SHA512 (root / PQXDH), HKDF-SHA256 (header).
+    static let currentSuiteMarker = 4
 
     // MARK: - Properties
 
@@ -430,10 +214,20 @@ public struct RatchetState: Sendable, Codable {
     private(set) var receivingKey: SymmetricKey?
 
     /// Count of messages sent.
-    private(set) var sentMessagesCount: Int = 0
+    /// Count of messages sent on this session.
+    ///
+    /// Publicly readable so hosts can distinguish a never-used initiating lane
+    /// (`== 0`) from one that already transmitted frames the peer never answered
+    /// (`> 0` with `receivedMessagesCount == 0`) when deciding whether a stale
+    /// process-lifetime remint is safe.
+    public private(set) var sentMessagesCount: Int = 0
 
     /// Count of messages received.
-    private(set) var receivedMessagesCount: Int = 0
+    ///
+    /// Publicly readable so hosts can distinguish an initiating session the
+    /// peer has answered (> 0) from one whose handshake never completed (== 0)
+    /// when deciding whether a session reset is safe.
+    public private(set) var receivedMessagesCount: Int = 0
 
     /// Count of messages in the previous sending chain.
     private(set) var previousMessagesCount: Int = 0
@@ -478,7 +272,8 @@ public struct RatchetState: Sendable, Codable {
 
     // MARK: - Per-Turn Hybrid Ratchet Properties
     //
-    // All optional so states persisted before the per-turn ratchet shipped still decode.
+    // These stay optional because they are absent until a given ratchet phase
+    // (lifecycle), not because old snapshots omitted them.
 
     /// Per-turn local Curve25519 ratchet private key (raw representation).
     /// Regenerated on every sending ratchet step (first send after a received turn).
@@ -495,9 +290,9 @@ public struct RatchetState: Sendable, Codable {
     /// next sending ratchet step.
     private(set) var remoteRatchetKEMPublicKey: Data?
 
-    /// Whether this party initiated the session (ran PQXDH as sender). `nil` on legacy states;
-    /// treat as unknown. Used only to label bootstrap chains.
-    private(set) var isSessionInitiator: Bool?
+    /// Whether this party initiated the session (ran PQXDH as sender).
+    /// Used only to label bootstrap chains. `false` until `setState` records the role.
+    private(set) var isSessionInitiator: Bool = false
 
     /// The peer ratchet public key the *current sending chain* was keyed against.
     /// A sending ratchet step is due exactly when `remoteRatchetPublicKey` differs from
@@ -509,6 +304,17 @@ public struct RatchetState: Sendable, Codable {
     /// header of the current sending chain so the receiver can complete its receiving
     /// step from any message of the chain, not just the (possibly lost) boundary frame.
     private(set) var localRatchetKEMCiphertext: Data?
+
+    /// Protocol suite marker written on every persist. Absent on pre-4.0 blobs (treated as current).
+    private(set) var suiteMarker: Int = currentSuiteMarker
+
+    var sessionStatus: RatchetSessionStatus {
+        RatchetSessionStatus(
+            sentMessagesCount: sentMessagesCount,
+            receivedMessagesCount: receivedMessagesCount,
+            sendingHandshakeFinished: sendingHandshakeFinished,
+            receivingHandshakeFinished: receivingHandshakeFinished)
+    }
 
     // MARK: - Initializers
 
@@ -570,6 +376,55 @@ public struct RatchetState: Sendable, Codable {
         self.rootKey = rootKey
         self.messageCiphertext = messageCiphertext
         self.sendingKey = sendingKey
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        localLongTermPrivateKey = try container.decode(Data.self, forKey: .localLongTermPrivateKey)
+        localOneTimePrivateKey = try container.decodeIfPresent(X25519PrivateKey.self, forKey: .localOneTimePrivateKey)
+        localMLKEMPrivateKey = try container.decode(MLKEMPrivateKey.self, forKey: .localMLKEMPrivateKey)
+        remoteLongTermPublicKey = try container.decode(Data.self, forKey: .remoteLongTermPublicKey)
+        remoteOneTimePublicKey = try container.decodeIfPresent(X25519PublicKey.self, forKey: .remoteOneTimePublicKey)
+        remoteMLKEMPublicKey = try container.decode(MLKEMPublicKey.self, forKey: .remoteMLKEMPublicKey)
+        messageCiphertext = try container.decodeIfPresent(Data.self, forKey: .messageCiphertext)
+        rootKey = try container.decodeIfPresent(SymmetricKey.self, forKey: .rootKey)
+        sendingKey = try container.decodeIfPresent(SymmetricKey.self, forKey: .sendingKey)
+        receivingKey = try container.decodeIfPresent(SymmetricKey.self, forKey: .receivingKey)
+        sentMessagesCount = try container.decodeIfPresent(Int.self, forKey: .sentMessagesCount) ?? 0
+        receivedMessagesCount = try container.decodeIfPresent(Int.self, forKey: .receivedMessagesCount) ?? 0
+        previousMessagesCount = try container.decodeIfPresent(Int.self, forKey: .previousMessagesCount) ?? 0
+        skippedHeaderMessages = try container.decodeIfPresent([SkippedHeaderMessage].self, forKey: .skippedHeaderMessages) ?? []
+        let rawSkipped = try container.decodeIfPresent([LenientSkippedMessageKey].self, forKey: .skippedMessageKeys) ?? []
+        skippedMessageKeys = rawSkipped.compactMap(\.tagged)
+        headerCiphertext = try container.decodeIfPresent(Data.self, forKey: .headerCiphertext)
+        sendingHeaderKey = try container.decodeIfPresent(SymmetricKey.self, forKey: .sendingHeaderKey)
+        nextSendingHeaderKey = try container.decodeIfPresent(SymmetricKey.self, forKey: .nextSendingHeaderKey)
+        receivingHeaderKey = try container.decodeIfPresent(SymmetricKey.self, forKey: .receivingHeaderKey)
+        nextReceivingHeaderKey = try container.decodeIfPresent(SymmetricKey.self, forKey: .nextReceivingHeaderKey)
+        sendingHandshakeFinished = try container.decodeIfPresent(Bool.self, forKey: .sendingHandshakeFinished) ?? false
+        receivingHandshakeFinished = try container.decodeIfPresent(Bool.self, forKey: .receivingHandshakeFinished) ?? false
+        lastSkippedIndex = try container.decodeIfPresent(Int.self, forKey: .lastSkippedIndex) ?? 0
+        headerIndex = try container.decodeIfPresent(Int.self, forKey: .headerIndex) ?? 0
+        lastDecryptedMessageNumber = try container.decodeIfPresent(Int.self, forKey: .lastDecryptedMessageNumber) ?? 0
+        alreadyDecryptedMessageNumbers = try container.decodeIfPresent(Set<Int>.self, forKey: .alreadyDecryptedMessageNumbers) ?? []
+        localRatchetPrivateKey = try container.decodeIfPresent(Data.self, forKey: .localRatchetPrivateKey)
+        remoteRatchetPublicKey = try container.decodeIfPresent(Data.self, forKey: .remoteRatchetPublicKey)
+        localRatchetKEMPrivateKey = try container.decodeIfPresent(Data.self, forKey: .localRatchetKEMPrivateKey)
+        remoteRatchetKEMPublicKey = try container.decodeIfPresent(Data.self, forKey: .remoteRatchetKEMPublicKey)
+        isSessionInitiator = try container.decodeIfPresent(Bool.self, forKey: .isSessionInitiator) ?? false
+        sendingChainRemoteRatchetKey = try container.decodeIfPresent(Data.self, forKey: .sendingChainRemoteRatchetKey)
+        localRatchetKEMCiphertext = try container.decodeIfPresent(Data.self, forKey: .localRatchetKEMCiphertext)
+        if let marker = try container.decodeIfPresent(Int.self, forKey: .suiteMarker) {
+            guard marker == Self.currentSuiteMarker else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .suiteMarker,
+                    in: container,
+                    debugDescription: "Unknown ratchet suite marker \(marker)")
+            }
+            suiteMarker = marker
+        } else {
+            suiteMarker = Self.currentSuiteMarker
+        }
     }
 
     // MARK: - Methods
@@ -660,7 +515,7 @@ public struct RatchetState: Sendable, Codable {
 
     /// Updates the remote one-time public key.
     /// - Parameter remoteOTPublicKey: The new remote one-time public key.
-    func updateRemoteOneTimePublicKey(_ remoteOneTimePublicKey: CurvePublicKey?) async -> Self {
+    func updateRemoteOneTimePublicKey(_ remoteOneTimePublicKey: X25519PublicKey?) async -> Self {
         var ratchetState = self
         ratchetState.remoteOneTimePublicKey = remoteOneTimePublicKey
         return ratchetState
@@ -700,7 +555,7 @@ public struct RatchetState: Sendable, Codable {
 
     /// Updates the local one-time private key.
     /// - Parameter localOTPrivateKey: The new local one-time private key.
-    func updateLocalOneTimePrivateKey(_ localOTPrivateKey: CurvePrivateKey?) async -> Self {
+    func updateLocalOneTimePrivateKey(_ localOTPrivateKey: X25519PrivateKey?) async -> Self {
         var ratchetState = self
         ratchetState.localOneTimePrivateKey = localOTPrivateKey
         return ratchetState
@@ -919,30 +774,42 @@ struct SkippedHeaderMessage: Codable, Sendable, Equatable {
     let index: Int
 }
 
-// MARK: - RatchetError Enum
+/// Decode-only shape for skipped keys. Entries whose chain tag (`"f"`) is absent
+/// are pre–per-turn stashes and are dropped on load — they cannot match a v4 frame.
+private struct LenientSkippedMessageKey: Codable {
+    let remoteLongTermPublicKey: Data
+    let remoteOneTimePublicKey: Data?
+    let remoteMLKEMPublicKey: Data
+    let messageIndex: Int
+    let messageKey: SymmetricKey
+    let chainRatchetPublicKey: Data?
 
-/// Enum representing possible errors that can occur in the Double Ratchet protocol.
-public enum RatchetError: Error {
-    case missingConfiguration // Configuration is missing.
-    case missingProps // Required properties are missing.
-    case sendingKeyIsNil // Sending key is nil.
-    case receivingKeyIsNil // Receiving key is nil.
-    case headerDataIsNil // Header data is nil.
-    case invalidNonceLength // Nonce length is invalid.
-    case encryptionFailed // Encryption operation failed.
-    case decryptionFailed // Decryption operation failed.
-    case expiredKey // A key has expired.
-    case stateUninitialized // The state is uninitialized.
-    case missingCipherText // Ciphertext is missing.
-    case headerKeysNil // Header keys are nil.
-    case headerEncryptionFailed // Header encryption failed.
-    case headerDecryptFailed // Header decryption failed.
-    case missingNextHeaderKey
-    case missingOneTimeKey // One-time prekey is missing or unavailable.
-    case delegateNotSet // Session identity delegate is not set.
-    case receivingHeaderKeyIsNil
-    case maxSkippedHeadersExceeded
-    case rootKeyIsNil
-    case initialMessageNotReceived
-    case skippedKeysDrained
+    private enum CodingKeys: String, CodingKey {
+        case remoteLongTermPublicKey = "a"
+        case remoteOneTimePublicKey = "b"
+        case remoteMLKEMPublicKey = "c"
+        case messageIndex = "d"
+        case messageKey = "e"
+        case chainRatchetPublicKey = "f"
+    }
+
+    var tagged: SkippedMessageKey? {
+        guard let chainRatchetPublicKey else { return nil }
+        return SkippedMessageKey(
+            remoteLongTermPublicKey: remoteLongTermPublicKey,
+            remoteOneTimePublicKey: remoteOneTimePublicKey,
+            remoteMLKEMPublicKey: remoteMLKEMPublicKey,
+            messageIndex: messageIndex,
+            messageKey: messageKey,
+            chainRatchetPublicKey: chainRatchetPublicKey)
+    }
 }
+
+/// Public view of ratchet progress for a session. Hosts should not reach into `RatchetState`.
+public struct RatchetSessionStatus: Sendable, Equatable {
+    public let sentMessagesCount: Int
+    public let receivedMessagesCount: Int
+    public let sendingHandshakeFinished: Bool
+    public let receivingHandshakeFinished: Bool
+}
+

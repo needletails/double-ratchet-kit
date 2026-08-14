@@ -63,17 +63,17 @@ This hybrid approach ensures security against both classical and quantum attacks
 
 ```swift
 // Remote keys (public keys from the other party)
-struct RemoteKeys {
-    let longTerm: RemoteLongTermPublicKey
-    let oneTime: RemoteOneTimePublicKey?
-    let mlKEM: RemoteMLKEMPublicKey
+public struct RemoteKeys: Sendable {
+    public let longTerm: X25519PublicKey
+    public let oneTime: X25519PublicKey?
+    public let mlKEM: MLKEMPublicKey
 }
 
 // Local keys (private keys for this party)
-struct LocalKeys {
-    let longTerm: LocalLongTermPrivateKey
-    let oneTime: LocalOneTimePrivateKey?
-    let mlKEM: LocalMLKEMPrivateKey
+public struct LocalKeys: Sendable {
+    public let longTerm: X25519PrivateKey
+    public let oneTime: X25519PrivateKey?
+    public let mlKEM: MLKEMPrivateKey
 }
 ```
 
@@ -145,7 +145,7 @@ let encryptedHeader = encrypt(header, with: headerKey)
 DoubleRatchetKit uses Swift actors for thread safety:
 
 ```swift
-public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
+public actor MessageRatchet {
     // All state mutations are serialized through the actor
 }
 ```
@@ -160,17 +160,16 @@ public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable> {
 
 ### Ratchet State
 
-The `RatchetState` struct contains all session information:
+The internal `RatchetState` snapshot (see <doc:RatchetState>) holds all per-session cryptographic state, conceptually:
 
-```swift
-struct RatchetState {
-    let rootKey: SymmetricKey
-    let chainKeys: ChainKeys
-    let headerKeys: HeaderKeys
-    let messageCounters: MessageCounters
-    let skippedMessageKeys: [Int: SymmetricKey]
-}
-```
+- **Root key** — master key advanced on every DH ratchet (epoch) step
+- **Sending / receiving chain keys** — advanced per message
+- **Header keys** — current and next keys for header encryption
+- **Message counters** — sent, received, and previous-chain counts
+- **Skipped message keys** — cached keys for out-of-order delivery, each tagged with the ratchet chain it belongs to
+- **Per-turn hybrid ratchet keys** — Curve25519 and ML-KEM-1024 ratchet key pairs rotated on each sending turn
+
+The type is internal in 4.0. Hosts observe progress through `RatchetSessionStatus` via `sessionStatus(sessionId:)`.
 
 ### State Transitions
 
@@ -191,15 +190,7 @@ The protocol handles messages that arrive out of order:
 
 ### Implementation
 
-```swift
-// Store per-message keys for skipped messages
-var skippedMessageKeys: [Int: SymmetricKey] = [:]
-
-// Retrieve key for specific message number
-if let messageKey = skippedMessageKeys[messageNumber] {
-    // Decrypt message with stored messageKey
-}
-```
+Skipped keys are stored as a bounded list of entries, each carrying the message index, the derived message key, and a tag identifying the ratchet chain it was derived from. On decrypt of a late arrival, the engine looks up the entry matching both the message number and the chain tag, uses the stored key, and removes the entry. The cache is capped by `maxSkippedMessageKeys` to prevent resource-exhaustion attacks.
 
 ## Next Steps
 

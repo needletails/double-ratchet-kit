@@ -10,12 +10,12 @@ DoubleRatchetKit uses a sophisticated key management system that combines classi
 
 ### Classical Keys (Curve25519)
 
-#### CurvePrivateKey
+#### X25519PrivateKey
 
 Wraps Curve25519 private keys with identification:
 
 ```swift
-public struct CurvePrivateKey: Codable, Sendable, Equatable {
+public struct X25519PrivateKey: Codable, Sendable, Equatable {
     public let id: UUID
     public let rawRepresentation: Data
 }
@@ -23,7 +23,7 @@ public struct CurvePrivateKey: Codable, Sendable, Equatable {
 
 **Usage:**
 ```swift
-let curvePrivateKey = try CurvePrivateKey(
+let curvePrivateKey = try X25519PrivateKey(
     id: UUID(), 
     curve25519PrivateKey.rawRepresentation
 )
@@ -31,14 +31,14 @@ let curvePrivateKey = try CurvePrivateKey(
 
 **Validation:**
 - Must be exactly 32 bytes
-- Throws `KeyErrors.invalidKeySize` if invalid
+- Throws `KeyError.invalidKeySize` if invalid
 
-#### CurvePublicKey
+#### X25519PublicKey
 
 Wraps Curve25519 public keys with identification:
 
 ```swift
-public struct CurvePublicKey: Codable, Sendable, Hashable {
+public struct X25519PublicKey: Codable, Sendable, Hashable {
     public let id: UUID
     public let rawRepresentation: Data
 }
@@ -46,7 +46,7 @@ public struct CurvePublicKey: Codable, Sendable, Hashable {
 
 **Usage:**
 ```swift
-let curvePublicKey = try CurvePublicKey(
+let curvePublicKey = try X25519PublicKey(
     id: UUID(), 
     curve25519PublicKey.rawRepresentation
 )
@@ -54,7 +54,7 @@ let curvePublicKey = try CurvePublicKey(
 
 **Validation:**
 - Must be exactly 32 bytes
-- Throws `KeyErrors.invalidKeySize` if invalid
+- Throws `KeyError.invalidKeySize` if invalid
 
 ### Post-Quantum Keys (MLKEM1024)
 
@@ -71,15 +71,15 @@ public struct MLKEMPrivateKey: Codable, Sendable, Equatable {
 
 **Usage:**
 ```swift
-let kyberPrivateKey = try MLKEMPrivateKey(
+let kemPrivateKey = try MLKEMPrivateKey(
     id: UUID(), 
-    MLKEM1024PrivateKey.rawRepresentation
+    mlKEM1024PrivateKey.encode()
 )
 ```
 
 **Validation:**
 - Must be exactly `MLKEM1024PrivateKeyLength` bytes
-- Throws `KeyErrors.invalidKeySize` if invalid
+- Throws `KeyError.invalidKeySize` if invalid
 
 #### MLKEMPublicKey
 
@@ -94,15 +94,15 @@ public struct MLKEMPublicKey: Codable, Sendable, Equatable, Hashable {
 
 **Usage:**
 ```swift
-let kyberPublicKey = try MLKEMPublicKey(
+let kemPublicKey = try MLKEMPublicKey(
     id: UUID(), 
-    MLKEM1024PublicKey.rawRepresentation
+    mlKEM1024PublicKey.rawRepresentation
 )
 ```
 
 **Validation:**
 - Must be exactly `MLKEM1024PublicKeyLength` bytes
-- Throws `KeyErrors.invalidKeySize` if invalid
+- Throws `KeyError.invalidKeySize` if invalid
 
 ## Key Containers
 
@@ -111,10 +111,10 @@ let kyberPublicKey = try MLKEMPublicKey(
 Container for all remote public keys:
 
 ```swift
-public struct RemoteKeys {
-    let longTerm: CurvePublicKey
-    let oneTime: CurvePublicKey?
-    let mlKEM: MLKEMPublicKey
+public struct RemoteKeys: Sendable {
+    public let longTerm: X25519PublicKey
+    public let oneTime: X25519PublicKey?
+    public let mlKEM: MLKEMPublicKey
 }
 ```
 
@@ -132,10 +132,10 @@ let remoteKeys = RemoteKeys(
 Container for all local private keys:
 
 ```swift
-public struct LocalKeys {
-    let longTerm: CurvePrivateKey
-    let oneTime: CurvePrivateKey?
-    let mlKEM: MLKEMPrivateKey
+public struct LocalKeys: Sendable {
+    public let longTerm: X25519PrivateKey
+    public let oneTime: X25519PrivateKey?
+    public let mlKEM: MLKEMPrivateKey
 }
 ```
 
@@ -162,11 +162,11 @@ let privateKey = Curve25519.KeyAgreement.PrivateKey()
 let publicKey = privateKey.publicKey
 
 // Wrap keys
-let curvePrivateKey = try CurvePrivateKey(
+let curvePrivateKey = try X25519PrivateKey(
     id: UUID(), 
     privateKey.rawRepresentation
 )
-let curvePublicKey = try CurvePublicKey(
+let curvePublicKey = try X25519PublicKey(
     id: UUID(), 
     publicKey.rawRepresentation
 )
@@ -175,21 +175,17 @@ let curvePublicKey = try CurvePublicKey(
 #### MLKEM1024 Keys
 
 ```swift
-import SwiftKyber
+import Crypto
 
 // Generate MLKEM1024 key pair
-let privateKey = MLKEM1024.KeyAgreement.PrivateKey()
+let privateKey = try MLKEM1024.PrivateKey()
 let publicKey = privateKey.publicKey
 
-// Wrap keys
-let kyberPrivateKey = try MLKEMPrivateKey(
-    id: UUID(), 
-    privateKey.rawRepresentation
-)
-let kyberPublicKey = try MLKEMPublicKey(
-    id: UUID(), 
-    publicKey.rawRepresentation
-)
+// Wrap keys — the private key wraps its encoded form,
+// the public key wraps its raw representation
+let keyId = UUID()
+let kemPrivateKey = try MLKEMPrivateKey(id: keyId, privateKey.encode())
+let kemPublicKey = try MLKEMPublicKey(id: keyId, publicKey.rawRepresentation)
 ```
 
 ### Key Storage
@@ -230,7 +226,7 @@ class SecureKeyManager: SessionIdentityDelegate {
         try await storage.save(identity)
     }
     
-    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> CurvePrivateKey? {
+    func fetchOneTimePrivateKey(_ id: UUID?) async throws -> X25519PrivateKey? {
         // Retrieve one-time key from secure storage
         guard let id = id else { return nil }
         return try await storage.fetchOneTimeKey(id: id)
@@ -270,7 +266,7 @@ func updateOneTimeKey(remove id: UUID) async {
     let newPrivateKey = Curve25519.KeyAgreement.PrivateKey()
     let newPublicKey = newPrivateKey.publicKey
     
-    let newOneTimeKey = try CurvePrivateKey(
+    let newOneTimeKey = try X25519PrivateKey(
         id: UUID(), 
         newPrivateKey.rawRepresentation
     )
@@ -294,27 +290,19 @@ func rotateLongTermKeys() async throws {
     let newPrivateKey = Curve25519.KeyAgreement.PrivateKey()
     let newPublicKey = newPrivateKey.publicKey
     
-    // Update session identity
-    var props = try await sessionIdentity.props(symmetricKey: sessionKey)
-    props?.longTermPublicKey = newPublicKey.rawRepresentation
-    
-    try await sessionIdentity.updateIdentityProps(
-        symmetricKey: sessionKey,
-        props: props!
-    )
-    
     // Publish new public key
     await publishLongTermPublicKey(newPublicKey.rawRepresentation)
     
     // Update local keys
     let newLocalKeys = LocalKeys(
-        longTerm: try CurvePrivateKey(id: UUID(), newPrivateKey.rawRepresentation),
+        longTerm: try X25519PrivateKey(id: UUID(), newPrivateKey.rawRepresentation),
         oneTime: localKeys.oneTime,
         mlKEM: localKeys.mlKEM
     )
     
-    // Reinitialize session with new keys
-    try await ratchetManager.senderInitialization(
+    // Re-open the session with new keys — the engine detects the key change,
+    // performs a PQXDH epoch step, and updates the identity props itself.
+    try await ratchetManager.initiateSession(
         sessionIdentity: sessionIdentity,
         sessionSymmetricKey: sessionKey,
         remoteKeys: remoteKeys,
@@ -327,38 +315,12 @@ func rotateLongTermKeys() async throws {
 
 ### PQXDH Key Exchange
 
-The protocol uses hybrid PQXDH for key exchange:
+The protocol uses hybrid PQXDH for key exchange. The derivation is internal to the engine — hosts never call it directly. It runs automatically inside `initiateSession` / `respondToSession` and epoch (re-key) steps:
 
-#### Sender Side
+- **Sender side**: X25519 agreements against the recipient's long-term (and optional one-time) public keys are combined with an ML-KEM-1024 encapsulation to the recipient's KEM public key. The secrets are joined through HKDF into the initial root key; the KEM ciphertext rides to the recipient in the first encrypted header.
+- **Receiver side**: the recipient runs the matching X25519 agreements and decapsulates the received ciphertext with its ML-KEM private key, arriving at the same root key.
 
-```swift
-// Derive shared secret using PQXDH
-let cipher = try await derivePQXDHFinalKey(
-    localLongTermPrivateKey: localLongTermPrivateKey,
-    remotePublicLongTermKey: remotePublicLongTermKey,
-    localOneTimePrivateKey: localOneTimePrivateKey,
-    remoteOneTimePublicKey: remoteOneTimePublicKey,
-    remoteMLKEMPublicKey: remoteMLKEMPublicKey
-)
-
-// Use derived symmetric key
-let symmetricKey = cipher.symmetricKey
-let ciphertext = cipher.ciphertext
-```
-
-#### Receiver Side
-
-```swift
-// Derive shared secret from received ciphertext
-let symmetricKey = try await derivePQXDHFinalKeyReceiver(
-    remoteLongTermPublicKey: remoteLongTermPublicKey,
-    remoteOneTimePublicKey: remoteOneTimePublicKey,
-    localLongTermPrivateKey: localLongTermPrivateKey,
-    localOneTimePrivateKey: localOneTimePrivateKey,
-    localMLKEMPrivateKey: localMLKEMPrivateKey,
-    receivedCiphertext: receivedCiphertext
-)
-```
+The only host-visible artifact is the ciphertext: `MessageRatchet` carries it inside `EncryptedHeader.messageCiphertext`, and `KeyRatchet` exposes it via `getCipherText(sessionId:)` for transport to `respondToSession(ciphertext:)`.
 
 ## Key Validation
 
@@ -369,29 +331,18 @@ All keys are automatically validated for correct size:
 ```swift
 // Curve25519 keys must be 32 bytes
 guard rawRepresentation.count == 32 else {
-    throw KeyErrors.invalidKeySize
+    throw KeyError.invalidKeySize
 }
 
 // MLKEM1024 keys must be correct size
 guard rawRepresentation.count == Int(MLKEM1024PublicKeyLength) else {
-    throw KeyErrors.invalidKeySize
+    throw KeyError.invalidKeySize
 }
 ```
 
 ### Format Validation
 
-Keys should be validated for correct format:
-
-```swift
-// Validate Curve25519 public key
-func validateCurve25519PublicKey(_ data: Data) throws -> Bool {
-    guard data.count == 32 else { return false }
-    
-    // Check if point is on curve (simplified)
-    let firstByte = data[0]
-    return (firstByte & 0x80) == 0
-}
-```
+Beyond size, X25519 accepts any 32-byte string as a public key by design; invalid or low-order points surface as key-agreement failures rather than needing up-front point validation. ML-KEM public keys are structurally validated when the underlying `MLKEM1024.PublicKey` is constructed from the raw representation.
 
 ## Security Considerations
 
@@ -444,34 +395,33 @@ func validateCurve25519PublicKey(_ data: Data) throws -> Bool {
 ```swift
 import DoubleRatchetKit
 import Crypto
-import SwiftKyber
 
 // Generate all required keys
 let curvePrivateKey = Curve25519.KeyAgreement.PrivateKey()
 let curvePublicKey = curvePrivateKey.publicKey
 
-let kyberPrivateKey = MLKEM1024.KeyAgreement.PrivateKey()
-let kyberPublicKey = kyberPrivateKey.publicKey
+let kemPrivateKey = try MLKEM1024.PrivateKey()
+let kemPublicKey = kemPrivateKey.publicKey
 
 let oneTimePrivateKey = Curve25519.KeyAgreement.PrivateKey()
 let oneTimePublicKey = oneTimePrivateKey.publicKey
 
 // Wrap keys
 let localKeys = LocalKeys(
-    longTerm: try CurvePrivateKey(id: UUID(), curvePrivateKey.rawRepresentation),
-    oneTime: try CurvePrivateKey(id: UUID(), oneTimePrivateKey.rawRepresentation),
-    mlKEM: try MLKEMPrivateKey(id: UUID(), kyberPrivateKey.rawRepresentation)
+    longTerm: try X25519PrivateKey(id: UUID(), curvePrivateKey.rawRepresentation),
+    oneTime: try X25519PrivateKey(id: UUID(), oneTimePrivateKey.rawRepresentation),
+    mlKEM: try MLKEMPrivateKey(id: UUID(), kemPrivateKey.encode())
 )
 
 let remoteKeys = RemoteKeys(
-    longTerm: try CurvePublicKey(id: UUID(), bobCurvePublicKey.rawRepresentation),
-    oneTime: try CurvePublicKey(id: UUID(), bobOneTimePublicKey.rawRepresentation),
-    mlKEM: try MLKEMPublicKey(id: UUID(), bobKyberPublicKey.rawRepresentation)
+    longTerm: try X25519PublicKey(id: UUID(), bobX25519PublicKey.rawRepresentation),
+    oneTime: try X25519PublicKey(id: UUID(), bobOneTimePublicKey.rawRepresentation),
+    mlKEM: try MLKEMPublicKey(id: UUID(), bobKEMPublicKey.rawRepresentation)
 )
 
-// Initialize session
-try await ratchetManager.senderInitialization(
-    sessionIdentity: sessionIdentity,
+// Initialize session (the identity describes the peer lane)
+try await ratchetManager.initiateSession(
+    sessionIdentity: bobSessionIdentity,
     sessionSymmetricKey: sessionKey,
     remoteKeys: remoteKeys,
     localKeys: localKeys
@@ -480,7 +430,7 @@ try await ratchetManager.senderInitialization(
 
 ## Related Documentation
 
-- <doc:DoubleRatchetStateManager> - Main protocol interface
-- <doc:SessionIdentity> - Session identity management
+- <doc:UsingMessageRatchet> - Main protocol interface
+- <doc:UsingSessionIdentity> - Session identity management
 - <doc:RatchetState> - Session state management
 - <doc:SecurityModel> - Security considerations 

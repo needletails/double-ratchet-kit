@@ -38,8 +38,8 @@ let pastMessages = getPastMessages() // Still encrypted
 ```swift
 // After compromise
 let compromisedState = getCompromisedState()
-// New messages are still secure
-let newMessage = try await ratchetManager.ratchetEncrypt(plainText: data)
+// New messages are still secure once the ratchet advances
+let newMessage = try await ratchetManager.encrypt(plainText: data, sessionId: sessionId)
 ```
 
 ### Post-Quantum Security
@@ -51,15 +51,11 @@ let newMessage = try await ratchetManager.ratchetEncrypt(plainText: data)
 - **MLKEM1024**: Post-quantum key encapsulation mechanism
 - **Future-Proof**: Secure against quantum computers
 
-**Guarantees**:
-```swift
-// Classical security (Curve25519)
-let classicalSecret = Curve25519.KeyAgreement.sharedSecret(...)
-// Quantum resistance (MLKEM1024)
-let quantumSecret = MLKEM1024.KeyAgreement.sharedSecret(...)
-// Combined security
-let finalSecret = classicalSecret + quantumSecret
-```
+**How the hybrid secret is formed** (conceptually):
+
+1. Classical X25519 Diffie-Hellman agreements run against the peer's long-term (and optional one-time) keys.
+2. An ML-KEM-1024 encapsulation to the peer's KEM public key produces a post-quantum shared secret and ciphertext.
+3. The concatenated secrets are fed through HKDF to derive the final PQXDH secret; breaking it requires breaking **both** primitives.
 
 ### Metadata Protection
 
@@ -125,10 +121,13 @@ let finalSecret = classicalSecret + quantumSecret
 - **Assumption**: Block cipher security
 - **Attack**: Requires breaking AES-256
 
-#### SHA-256
-- **Security**: 128-bit collision resistance
-- **Assumption**: Hash function security
-- **Attack**: Requires finding SHA-256 collisions
+#### Hash / KDF Suite (v4)
+- **Root / PQXDH derivation**: HKDF-SHA512
+- **Chain / message key derivation**: HMAC-SHA256
+- **Header key derivation**: HKDF-SHA256
+- **Assumption**: HMAC/HKDF PRF security of the underlying SHA-2 functions
+- The suite is fixed for v4 and recorded via a persisted suite marker; a future
+  change is a data migration, not a type parameter
 
 ### Post-Quantum Cryptography
 
@@ -163,7 +162,7 @@ let finalSecret = classicalSecret + quantumSecret
 
 ### Memory Safety
 - **Swift Safety**: Leverages Swift's memory safety features
-- **Zeroing**: Sensitive data is zeroed after use
+- **Encrypted at Rest**: Session state is stored only as AES-GCM-encrypted blobs
 - **Bounds Checking**: Array and buffer bounds are checked
 
 ### Concurrency Safety

@@ -15,11 +15,12 @@
 //
 
 import Foundation
+import Crypto
 import NeedleTailCrypto
 import NeedleTailLogger
 
 
-actor RatchetStateCore<Hash: HashFunction & Sendable> {
+actor RatchetStateCore {
     
     /// Default configuration for the Double Ratchet protocol.
     var defaultRatchetConfiguration = RatchetConfiguration(
@@ -55,10 +56,15 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         executor.asUnownedSerialExecutor()
     }
     
-    private var logger: NeedleTailLogger
+    var logger: NeedleTailLogger
     
-    /// Tracks whether `shutdown()` has been called.
+    /// Tracks whether `flushAndClose()` has been called.
     private nonisolated(unsafe) var didShutdown = false
+    
+    /// The shared admission and exclusivity point for all session mutations.
+    private let mutationGate = SessionMutationGate()
+    private var shutdownInProgress = false
+    private var shutdownWaiters: [CheckedContinuation<Void, Error>] = []
     
     /// Represents session identity and associated symmetric key for key derivation.
     public struct SessionConfiguration: Sendable {
@@ -84,7 +90,7 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     ///
     /// - SeeAlso: `SessionIdentityDelegate` protocol
     /// - SeeAlso: `setDelegate(_:)` method
-    public weak var delegate: SessionIdentityDelegate?
+    private weak var delegate: SessionIdentityDelegate?
     
     /// When enabled, enforce that one-time prekeys (OTK) are used exactly as indicated by the
     /// incoming header during the initial handshake.
@@ -109,16 +115,11 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
         }
     }
     
-    deinit {
-        precondition(didShutdown, "⛔️ RatchetStateCore was deinitialized without calling shutdown(). ")
-    }
-    
     /// Sets the delegate for session identity management.
     ///
     /// The delegate handles persistence of session identities and one-time key management.
     ///
     /// - Parameter delegate: An object conforming to `SessionIdentityDelegate`.
-    ///   Pass `nil` to remove the current delegate.
     ///
     /// - SeeAlso: `SessionIdentityDelegate` protocol
     public func setDelegate(_ delegate: SessionIdentityDelegate) {
@@ -156,16 +157,51 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     /// - Clears in-memory session configurations
     /// - Marks the core as shut down
     ///
-    /// - Important: This method must be called before the core is deinitialized.
-    ///   If `shutdown()` is not called, the `deinit` will crash with a precondition failure.
+    /// - Important: This method is idempotent. Further session operations after close are unsupported.
     ///
     /// - Throws: An error if session state persistence fails through the delegate.
-    public func shutdown() async throws {
-        for (_, configuration) in sessionConfigurations {
-            try await updateSessionIdentity(configuration: configuration, persist: true)
+    public func flushAndClose() async throws {
+        guard !didShutdown else { return }
+
+        if shutdownInProgress {
+            return try await withCheckedThrowingContinuation { continuation in
+                shutdownWaiters.append(continuation)
+            }
         }
-        sessionConfigurations.removeAll()
-        didShutdown = true
+        shutdownInProgress = true
+
+        do {
+            await mutationGate.closeAndWaitForLeases()
+            for (_, configuration) in sessionConfigurations {
+                try await updateSessionIdentity(configuration: configuration, persist: true)
+            }
+            sessionConfigurations.removeAll()
+            didShutdown = true
+            finishShutdown(with: .success(()))
+        } catch {
+            finishShutdown(with: .failure(error))
+            throw error
+        }
+    }
+    
+    /// Runs a complete session mutation under the core-owned FIFO lease for that session.
+    ///
+    /// This is intentionally only used by public mutation entry points. Internal helpers run
+    /// within the lease their caller already owns and must not acquire it recursively.
+    func withSessionMutation<T: Sendable>(
+        sessionId: UUID,
+        operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        try await mutationGate.withLease(for: sessionId, operation: operation)
+    }
+
+    private func finishShutdown(with result: Result<Void, Error>) {
+        shutdownInProgress = false
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(with: result)
+        }
     }
     
     // MARK: - Private Helper Methods
@@ -326,9 +362,9 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
             props.state = newState
         }
         
-        try await configuration.sessionIdentity.updateIdentityProps(
-            symmetricKey: configuration.sessionSymmetricKey,
-            props: props)
+        try await configuration.sessionIdentity.update(
+            props,
+            symmetricKey: configuration.sessionSymmetricKey)
         
         if persist {
             try await delegate?.updateSessionIdentity(configuration.sessionIdentity)
@@ -417,6 +453,15 @@ actor RatchetStateCore<Hash: HashFunction & Sendable> {
     func setState(for messageType: MessageType, configuration: SessionConfiguration) async throws -> RatchetState {
         switch messageType {
         case let .receiving(keys):
+            if keys.header == nil {
+                return RatchetState(
+                    remoteLongTermPublicKey: keys.remoteLongTermPublicKey,
+                    remoteOneTimePublicKey: keys.remoteOneTimePublicKey,
+                    remoteMLKEMPublicKey: keys.remoteMLKEMPublicKey,
+                    localLongTermPrivateKey: keys.localLongTermPrivateKey,
+                    localOneTimePrivateKey: keys.localOneTimePrivateKey,
+                    localMLKEMPrivateKey: keys.localMLKEMPrivateKey)
+            }
             guard let header = keys.header else {
                 throw RatchetError.missingConfiguration
             }

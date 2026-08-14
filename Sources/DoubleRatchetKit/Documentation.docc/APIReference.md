@@ -8,12 +8,12 @@ This document provides a comprehensive reference for all public APIs in DoubleRa
 
 ## Core Classes
 
-### DoubleRatchetStateManager
+### MessageRatchet
 
 The main actor that manages the cryptographic state for secure messaging.
 
 ```swift
-public actor DoubleRatchetStateManager<Hash: HashFunction & Sendable>
+public actor MessageRatchet
 ```
 
 #### Initialization
@@ -43,7 +43,7 @@ public init(
 ##### Session Initialization
 
 ```swift
-public func senderInitialization(
+public func initiateSession(
     sessionIdentity: SessionIdentity,
     sessionSymmetricKey: SymmetricKey,
     remoteKeys: RemoteKeys,
@@ -66,7 +66,7 @@ Initialize a session for sending messages.
 **Note:** This method can be called multiple times for the same session to support key rotation scenarios.
 
 ```swift
-public func recipientInitialization(
+public func respondToSession(
     sessionIdentity: SessionIdentity,
     sessionSymmetricKey: SymmetricKey,
     header: EncryptedHeader,
@@ -89,34 +89,12 @@ Initialize a session for receiving messages using an encrypted header.
 
 **Note:** This method can be called multiple times with different headers to handle out-of-order message delivery.
 
-```swift
-public func recipientInitialization(
-    sessionIdentity: SessionIdentity,
-    sessionSymmetricKey: SymmetricKey,
-    localKeys: LocalKeys,
-    remoteKeys: RemoteKeys,
-    ciphertext: Data
-) async throws
-```
-
-Alternative initialization method for external key derivation workflows. This method creates a synthetic header from the provided keys and ciphertext.
-
-**Parameters:**
-- `sessionIdentity`: A unique identity used to bind the session cryptographically
-- `sessionSymmetricKey`: A symmetric key used to decrypt or authenticate session metadata
-- `localKeys`: The recipient's private keys
-- `remoteKeys`: The sender's public keys (oneTime is optional)
-- `ciphertext`: The MLKEM ciphertext from the sender's initial handshake
-
-**Throws:**
-- `RatchetError.missingConfiguration`: If session configuration cannot be loaded
-
-**See Also:** `deriveReceivedMessageKey(sessionId:cipherText:)` for external key derivation workflows.
+The KeyRatchet recipient path takes `localKeys`, `remoteKeys`, and `ciphertext` instead of `header`. See <doc:UsingKeyRatchet>.
 
 ##### Message Operations
 
 ```swift
-public func ratchetEncrypt(plainText: Data, sessionId: UUID) async throws -> RatchetMessage
+public func encrypt(plainText: Data, sessionId: UUID) async throws -> RatchetMessage
 ```
 
 Encrypt a plaintext message.
@@ -136,7 +114,7 @@ Encrypt a plaintext message.
 - `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
 
 ```swift
-public func ratchetDecrypt(_ message: RatchetMessage, sessionId: UUID) async throws -> Data
+public func decrypt(_ message: RatchetMessage, sessionId: UUID) async throws -> Data
 ```
 
 Decrypt a received message.
@@ -155,60 +133,6 @@ Decrypt a received message.
 - `RatchetError.expiredKey`: If the message uses an expired key
 - `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
 - `RatchetError.maxSkippedHeadersExceeded`: If too many messages were skipped
-- `RatchetError.skippedKeysDrained`: If skipped message keys have been exhausted
-
-##### Advanced Key Derivation
-
-```swift
-public func deriveMessageKey(sessionId: UUID) async throws -> (SymmetricKey, Int)
-```
-
-Derives the next message key for sending without performing full message encryption. This method is designed for advanced use cases where you want to handle encryption externally while the SDK manages ratchet key derivation.
-
-**Parameters:**
-- `sessionId`: The UUID of the session to derive the key for
-
-**Returns:** A tuple containing:
-  - The derived symmetric key for encrypting the next message
-  - The message number (0-based index) for this message
-
-**Throws:**
-- `RatchetError.missingConfiguration`: If the session is not found
-- `RatchetError.stateUninitialized`: If the session state is not initialized
-- `RatchetError.sendingKeyIsNil`: If the sending key is missing
-- `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
-
-**Important:** This method advances the ratchet state. Each call derives a new key and increments the message counter. Do not call this method multiple times for the same message.
-
-**Warning:** This method is available in `RatchetKeyStateManager`, not `DoubleRatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
-
-**See Also:** `deriveReceivedMessageKey(sessionId:cipherText:)` for the receiving side equivalent.
-
-```swift
-public func deriveReceivedMessageKey(sessionId: UUID, cipherText: Data) async throws -> (SymmetricKey, Int)
-```
-
-Derives the next message key for receiving without performing full message decryption. This method is designed for advanced use cases where you want to handle decryption externally while the SDK manages ratchet key derivation.
-
-**Parameters:**
-- `sessionId`: The UUID of the session to derive the key for
-- `cipherText`: The MLKEM ciphertext. Used during handshake to derive root key if needed. After handshake, this parameter is not used but required for signature consistency.
-
-**Returns:** A tuple containing:
-  - The derived symmetric key for decrypting the next message
-  - The message number (0-based index) for this message
-
-**Throws:**
-- `RatchetError.missingConfiguration`: If the session is not found
-- `RatchetError.stateUninitialized`: If the session state is not initialized
-- `RatchetError.receivingKeyIsNil`: If the receiving key is missing
-- `RatchetError.rootKeyIsNil`: If the root key is missing when needed
-
-**Important:** This method advances the ratchet state. Each call derives a new key. Do not call this method multiple times for the same message.
-
-**Warning:** This method is available in `RatchetKeyStateManager`, not `DoubleRatchetStateManager`. It should **only be used when NOT encrypting/decrypting messages via `ratchetEncrypt`/`ratchetDecrypt`**. These methods (`deriveMessageKey`, `deriveReceivedMessageKey`, `getSentMessageNumber`, `getReceivedMessageNumber`, `setCipherText`, `getCipherText`) are designed for external key derivation workflows. Do not mix these methods with the standard encryption/decryption API, as this may cause state inconsistencies and security issues.
-
-**See Also:** `deriveMessageKey(sessionId:)` for the sending side equivalent.
 
 ##### Session Management
 
@@ -219,7 +143,7 @@ public func setDelegate(_ delegate: SessionIdentityDelegate) async
 Set a delegate for session identity management.
 
 **Parameters:**
-- `delegate`: An object conforming to `SessionIdentityDelegate`. Pass `nil` to remove the current delegate.
+- `delegate`: An object conforming to `SessionIdentityDelegate`
 
 **Delegate Responsibilities:**
 - Persisting session identities to storage via `updateSessionIdentity(_:)`
@@ -228,11 +152,8 @@ Set a delegate for session identity management.
 
 **Important:** The delegate should be set before calling initialization methods if you want session state to be persisted automatically.
 
-**Parameters:**
-- `delegate`: An object conforming to `SessionIdentityDelegate`
-
 ```swift
-public func setEnforceOTKConsistency(_ value: Bool)
+public func setEnforceOTKConsistency(_ value: Bool) async
 ```
 
 Enable or disable strict one-time-prekey (OTK) consistency enforcement.
@@ -263,7 +184,19 @@ Set the logging level for the ratchet state manager.
 **Note:** The default log level is `.trace`. Adjust this in production to reduce logging overhead.
 
 ```swift
-public func shutdown() async throws
+public func sessionStatus(sessionId: UUID) async throws -> RatchetSessionStatus
+```
+
+Read-only sent/received counts and handshake phase. Replaces the deleted counter getters. Hosts should not reach into `RatchetState`.
+
+```swift
+public func discardCachedLane(_ id: UUID) async
+```
+
+Drops the in-memory cached lane after the caller rolls back a persisted `SessionIdentity`.
+
+```swift
+public func flushAndClose() async throws
 ```
 
 Shuts down the ratchet state manager and persists all session states.
@@ -274,8 +207,8 @@ Shuts down the ratchet state manager and persists all session states.
 - Marks the manager as shut down
 
 **Important:**
-- The manager cannot be used after `shutdown()` is called
-- If `shutdown()` is not called, the `deinit` will crash with a precondition failure
+- The manager cannot be used after `flushAndClose()` is called
+- `flushAndClose()` is idempotent; further session operations after close are unsupported
 - This method is safe to call multiple times (idempotent after first call)
 
 **Throws:** An error if session state persistence fails through the delegate.
@@ -288,25 +221,79 @@ public nonisolated var unownedExecutor: UnownedSerialExecutor
 
 Returns the executor used for non-isolated tasks. Provides access to the underlying `SerialExecutor` for coordination with the actor's executor.
 
-```swift
-public private(set) var sessionConfigurations: [UUID: SessionConfiguration]
-```
+**Note:** Session configurations, the delegate, and the OTK consistency flag are intentionally not exposed as public properties. Use `setDelegate(_:)`, `setEnforceOTKConsistency(_:)`, and `sessionStatus(sessionId:)` instead.
 
-All known session configurations keyed by session identity UUID. Read-only property containing all active session configurations managed by this ratchet state manager.
+### KeyRatchet
 
-**Note:** The `SessionConfiguration` struct is public for type inspection only. Its properties are intentionally internal to prevent direct mutation, which could break the internal state management of the ratchet state manager. Use the public API methods to manage sessions rather than modifying configurations directly.
+The façade for external key derivation. Same engine and lifecycle methods as `MessageRatchet` (`setDelegate`, `setEnforceOTKConsistency`, `setLogLevel`, `sessionStatus`, `flushAndClose`), but it derives keys instead of producing `RatchetMessage` frames. Do not mix the two façades on one session. See <doc:UsingKeyRatchet> for usage.
 
 ```swift
-public weak var delegate: SessionIdentityDelegate?
+public actor KeyRatchet
 ```
 
-The delegate for session identity management. Handles persistence of session identities and one-time key management. Set using `setDelegate(_:)` method.
+#### Session Initialization
+
+`initiateSession` matches `MessageRatchet`. The recipient path bootstraps from PQXDH ciphertext instead of an encrypted header:
 
 ```swift
-public var enforceOTKConsistency: Bool
+public func respondToSession(
+    sessionIdentity: SessionIdentity,
+    sessionSymmetricKey: SymmetricKey,
+    localKeys: LocalKeys,
+    remoteKeys: RemoteKeys,
+    ciphertext: Data
+) async throws
 ```
 
-When enabled, enforces that one-time prekeys (OTK) are used exactly as indicated by the incoming header during the initial handshake. See `setEnforceOTKConsistency(_:)` for details.
+#### Key Derivation
+
+```swift
+public func nextSendKey(sessionId: UUID) async throws -> (SymmetricKey, Int)
+```
+
+Derives the next message key for sending without performing message encryption. The host encrypts with its own AEAD while the SDK manages ratchet key derivation.
+
+**Returns:** A tuple containing:
+  - The derived symmetric key for encrypting the next message
+  - The message number (0-based index) for this message
+
+**Throws:**
+- `RatchetError.missingConfiguration`: If the session is not found
+- `RatchetError.stateUninitialized`: If the session state is not initialized
+- `RatchetError.sendingKeyIsNil`: If the sending key is missing
+- `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
+
+**Important:** This method advances the ratchet state. Each call derives a new key and increments the message counter. Do not call this method multiple times for the same message.
+
+```swift
+public func receiveKey(for sessionId: UUID, cipherText: Data) async throws -> (SymmetricKey, Int)
+```
+
+Derives the next message key for receiving without performing message decryption.
+
+**Parameters:**
+- `sessionId`: The UUID of the session to derive the key for
+- `cipherText`: The MLKEM ciphertext. Used during handshake to derive the root key if needed. After handshake, this parameter is not used but required for signature consistency.
+
+**Returns:** A tuple containing:
+  - The derived symmetric key for decrypting the next message
+  - The message number (0-based index) for this message
+
+**Throws:**
+- `RatchetError.missingConfiguration`: If the session is not found
+- `RatchetError.stateUninitialized`: If the session state is not initialized
+- `RatchetError.receivingKeyIsNil`: If the receiving key is missing
+- `RatchetError.rootKeyIsNil`: If the root key is missing when needed
+
+**Important:** This method advances the ratchet state. Each call derives a new key. Do not call this method multiple times for the same message.
+
+```swift
+public func getCipherText(sessionId: UUID) async throws -> Data
+```
+
+Returns the PQXDH handshake ciphertext from the sender's persisted state, for transport to the recipient's `respondToSession(ciphertext:)`.
+
+**Warning:** `KeyRatchet` methods should **only be used when NOT encrypting/decrypting via `MessageRatchet.encrypt`/`decrypt`**. Mixing the two façades on the same session causes state inconsistencies and security issues.
 
 ## Protocols
 
@@ -327,7 +314,7 @@ func updateSessionIdentity(_ identity: SessionIdentity) async throws
 Updates the stored session identity.
 
 ```swift
-func fetchOneTimePrivateKey(_ id: UUID?) async throws -> CurvePrivateKey?
+func fetchOneTimePrivateKey(_ id: UUID?) async throws -> X25519PrivateKey?
 ```
 
 Fetches a previously stored private one-time Curve25519 key by its unique identifier.
@@ -340,12 +327,12 @@ Notifies that a new one-time key should be generated and made available.
 
 ## Key Types
 
-### CurvePrivateKey
+### X25519PrivateKey
 
 Wraps Curve25519 private keys with identification.
 
 ```swift
-public struct CurvePrivateKey: Codable, Sendable, Equatable
+public struct X25519PrivateKey: Codable, Sendable, Equatable
 ```
 
 #### Properties
@@ -365,14 +352,14 @@ public init(id: UUID = UUID(), _ rawRepresentation: Data) throws
 - `id`: An optional UUID to tag this key
 - `rawRepresentation`: The raw 32-byte Curve private key data
 
-**Throws:** `KeyErrors.invalidKeySize` if the key size is not 32 bytes
+**Throws:** `KeyError.invalidKeySize` if the key size is not 32 bytes
 
-### CurvePublicKey
+### X25519PublicKey
 
 Wraps Curve25519 public keys with identification.
 
 ```swift
-public struct CurvePublicKey: Codable, Sendable, Hashable
+public struct X25519PublicKey: Codable, Sendable, Hashable
 ```
 
 #### Properties
@@ -392,7 +379,7 @@ public init(id: UUID = UUID(), _ rawRepresentation: Data) throws
 - `id`: An optional UUID to tag this key
 - `rawRepresentation`: The raw 32-byte Curve public key data
 
-**Throws:** `KeyErrors.invalidKeySize` if the key size is not 32 bytes
+**Throws:** `KeyError.invalidKeySize` if the key size is not 32 bytes
 
 ### MLKEMPrivateKey
 
@@ -419,7 +406,7 @@ public init(id: UUID = UUID(), _ rawRepresentation: Data) throws
 - `id`: An optional UUID to tag this key
 - `rawRepresentation`: The raw MLKEM private key bytes
 
-**Throws:** `KeyErrors.invalidKeySize` if the key size is incorrect
+**Throws:** `KeyError.invalidKeySize` if the key size is incorrect
 
 ### MLKEMPublicKey
 
@@ -446,7 +433,7 @@ public init(id: UUID = UUID(), _ rawRepresentation: Data) throws
 - `id`: An optional UUID to tag this key
 - `rawRepresentation`: The raw MLKEM public key bytes
 
-**Throws:** `KeyErrors.invalidKeySize` if the key size is incorrect
+**Throws:** `KeyError.invalidKeySize` if the key size is incorrect
 
 ## Key Containers
 
@@ -461,17 +448,17 @@ public struct RemoteKeys
 #### Properties
 
 ```swift
-let longTerm: CurvePublicKey
-let oneTime: CurvePublicKey?
-let mlKEM: MLKEMPublicKey
+public let longTerm: X25519PublicKey
+public let oneTime: X25519PublicKey?
+public let mlKEM: MLKEMPublicKey
 ```
 
 #### Initialization
 
 ```swift
 public init(
-    longTerm: CurvePublicKey,
-    oneTime: CurvePublicKey?,
+    longTerm: X25519PublicKey,
+    oneTime: X25519PublicKey?,
     mlKEM: MLKEMPublicKey
 )
 ```
@@ -487,17 +474,17 @@ public struct LocalKeys
 #### Properties
 
 ```swift
-let longTerm: CurvePrivateKey
-let oneTime: CurvePrivateKey?
-let mlKEM: MLKEMPrivateKey
+public let longTerm: X25519PrivateKey
+public let oneTime: X25519PrivateKey?
+public let mlKEM: MLKEMPrivateKey
 ```
 
 #### Initialization
 
 ```swift
 public init(
-    longTerm: CurvePrivateKey,
-    oneTime: CurvePrivateKey?,
+    longTerm: X25519PrivateKey,
+    oneTime: X25519PrivateKey?,
     mlKEM: MLKEMPrivateKey
 )
 ```
@@ -558,10 +545,10 @@ public func updateProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async
 Updates the properties and returns the updated decrypted properties.
 
 ```swift
-public func updateIdentityProps(symmetricKey: SymmetricKey, props: UnwrappedProps) async throws
+public func update(_ props: UnwrappedProps, symmetricKey: SymmetricKey) async throws
 ```
 
-Updates the properties without returning the decrypted result.
+Re-encrypts and stores `props`. Encoding is still `UnwrappedProps` with keys `a`–`n`.
 
 ### UnwrappedProps
 
@@ -576,19 +563,25 @@ public struct UnwrappedProps: Codable & Sendable
 ```swift
 public let secretName: String
 public let deviceId: UUID
-public let sessionContextId: Int
+public var sessionContextId: Int
 public var longTermPublicKey: Data
-public let signingPublicKey: Data
-public let oneTimePublicKey: CurvePublicKey?
+public var signingPublicKey: Data
+public var oneTimePublicKey: X25519PublicKey?
 public var mlKEMPublicKey: MLKEMPublicKey
-public var state: RatchetState?
-public let deviceName: String
+public var deviceName: String
 public var serverTrusted: Bool?
 public var previousRekey: Date?
 public var isMasterDevice: Bool
 public var verifiedIdentity: Bool
 public var verificationCode: String?
+public var hasRatchetState: Bool
+public var ratchetOneTimePrivateKey: X25519PrivateKey?
+public var ratchetMLKEMPrivateKey: MLKEMPrivateKey?
+public var ratchetReceivedMessagesCount: Int
+public mutating func clearRatchetState()
 ```
+
+The nested ratchet snapshot (coding key `"h"`) is internal. Mutate `deviceName` / `sessionContextId` on a decoded props value and `update` it to archive a lane — the snapshot rides along. Use `sessionStatus(sessionId:)` for live session progress.
 
 ## Message Types
 
@@ -604,13 +597,13 @@ public struct RatchetMessage: Codable, Sendable, Hashable
 
 ```swift
 public let header: EncryptedHeader
-let encryptedData: Data
+public let ciphertext: Data
 ```
 
 #### Initialization
 
 ```swift
-public init(header: EncryptedHeader, encryptedData: Data)
+public init(header: EncryptedHeader, ciphertext: Data)
 ```
 
 ### EncryptedHeader
@@ -624,9 +617,9 @@ public struct EncryptedHeader: Sendable, Codable, Hashable
 #### Properties
 
 ```swift
-public let remoteLongTermPublicKey: RemoteLongTermPublicKey
-public let remoteOneTimePublicKey: RemoteOneTimePublicKey?
-public let remoteMLKEMPublicKey: RemoteMLKEMPublicKey
+public let remoteLongTermPublicKey: Data
+public let remoteOneTimePublicKey: X25519PublicKey?
+public let remoteMLKEMPublicKey: MLKEMPublicKey
 public let headerCiphertext: Data
 public let messageCiphertext: Data
 public let oneTimeKeyId: UUID?
@@ -635,17 +628,11 @@ public let encrypted: Data
 public private(set) var decrypted: MessageHeader?
 ```
 
-#### Methods
-
-```swift
-public mutating func setDecrypted(_ decrypted: MessageHeader)
-```
-
-Sets the decrypted message header.
+`decrypted` only exists at runtime after decryption; it is set internally by the decrypt path and never serialized.
 
 ### MessageHeader
 
-Represents the header of a message.
+Represents the plaintext header of a message. The per-turn hybrid ratchet fields ride inside the *encrypted* header body, preserving metadata protection.
 
 ```swift
 public struct MessageHeader: Sendable, Codable
@@ -656,12 +643,21 @@ public struct MessageHeader: Sendable, Codable
 ```swift
 public let previousChainLength: Int
 public let messageNumber: Int
+public let ratchetPublicKey: Data          // per-turn Curve25519 ratchet public key
+public let ratchetKEMPublicKey: Data       // per-turn ML-KEM-1024 ratchet public key
+public let ratchetKEMCiphertext: Data?     // nil on the initiator's PQXDH bootstrap chain
 ```
 
 #### Initialization
 
 ```swift
-public init(previousChainLength: Int, messageNumber: Int)
+public init(
+    previousChainLength: Int,
+    messageNumber: Int,
+    ratchetPublicKey: Data,
+    ratchetKEMPublicKey: Data,
+    ratchetKEMCiphertext: Data? = nil
+)
 ```
 
 ## Configuration
@@ -715,40 +711,27 @@ let defaultRatchetConfiguration = RatchetConfiguration(
 
 ### RatchetState
 
-Represents the state of the Double Ratchet protocol.
+Internal Codable snapshot nested in `UnwrappedProps.state` (coding key `"h"`). Hosts should not reach into it; use `RatchetSessionStatus`. See <doc:RatchetState> for the persistence invariants.
 
 ```swift
-public struct RatchetState: Sendable, Codable
+struct RatchetState: Sendable, Codable  // internal in 4.0
 ```
 
-#### Key Properties
+### RatchetSessionStatus
+
+The public, read-only view of a session's progress, returned by `sessionStatus(sessionId:)` on both façades.
 
 ```swift
-private(set) public var localLongTermPrivateKey: LocalLongTermPrivateKey
-private(set) public var localOneTimePrivateKey: LocalOneTimePrivateKey?
-private(set) public var localMLKEMPrivateKey: LocalMLKEMPrivateKey
-private(set) public var remoteLongTermPublicKey: RemoteLongTermPublicKey
-private(set) public var remoteOneTimePublicKey: RemoteOneTimePublicKey?
-private(set) public var remoteMLKEMPublicKey: RemoteMLKEMPublicKey
-private(set) var rootKey: SymmetricKey?
-private(set) var sendingKey: SymmetricKey?
-private(set) var receivingKey: SymmetricKey?
-private(set) var sentMessagesCount: Int
-private(set) var receivedMessagesCount: Int
-private(set) var sendingHandshakeFinished: Bool
-private(set) var receivingHandshakeFinished: Bool
+public struct RatchetSessionStatus: Sendable, Equatable
 ```
 
-#### State Update Methods
+#### Properties
 
 ```swift
-func updateRootKey(_ rootKey: SymmetricKey) async -> Self
-func updateSendingKey(_ sendingKey: SymmetricKey) async -> Self
-func updateReceivingKey(_ receivingKey: SymmetricKey) async -> Self
-func incrementSentMessagesCount() async -> Self
-func incrementReceivedMessagesCount() async -> Self
-func updateSendingHandshakeFinished(_ finished: Bool) async -> Self
-func updateReceivingHandshakeFinished(_ finished: Bool) async -> Self
+public let sentMessagesCount: Int
+public let receivedMessagesCount: Int
+public let sendingHandshakeFinished: Bool
+public let receivingHandshakeFinished: Bool
 ```
 
 ## Error Types
@@ -758,42 +741,38 @@ func updateReceivingHandshakeFinished(_ finished: Bool) async -> Self
 Enum representing possible errors in the Double Ratchet protocol.
 
 ```swift
-public enum RatchetError: Error
+public enum RatchetError: Error, Equatable
 ```
 
 #### Error Cases
 
 ```swift
 case missingConfiguration        // Session configuration is missing
-case missingProps                 // Session properties are missing
+case missingProps                // Session properties are missing
 case sendingKeyIsNil             // Sending key is missing
 case receivingKeyIsNil           // Receiving key is missing
-case headerDataIsNil             // Header data is missing
-case invalidNonceLength          // Nonce length is invalid
 case encryptionFailed            // Encryption operation failed
 case decryptionFailed            // Decryption operation failed
 case expiredKey                  // Message uses an expired key
 case stateUninitialized          // Session state is not initialized
-case missingCipherText          // Ciphertext is missing
+case missingCipherText           // Ciphertext is missing
 case headerKeysNil               // Header keys are missing
 case headerEncryptionFailed      // Header encryption failed
 case headerDecryptFailed         // Header decryption failed
-case missingNextHeaderKey        // Next header key is missing
-case missingOneTimeKey          // One-time prekey is missing or unavailable
-case delegateNotSet             // Session identity delegate is not set
-case receivingHeaderKeyIsNil    // Receiving header key is missing
-case maxSkippedHeadersExceeded  // Maximum number of skipped headers exceeded
+case missingOneTimeKey           // One-time prekey is missing or unavailable
+case receivingHeaderKeyIsNil     // Receiving header key is missing
+case maxSkippedHeadersExceeded   // Maximum number of skipped headers exceeded
 case rootKeyIsNil                // Root key is missing
-case initialMessageNotReceived  // Initial message has not been received
-case skippedKeysDrained         // Skipped message keys have been exhausted
 ```
 
-### KeyErrors
+Cases that could never be thrown (`missingNextHeaderKey`, `delegateNotSet`, `initialMessageNotReceived`, `skippedKeysDrained`) were deleted in 4.0.
+
+### KeyError
 
 Errors that can occur during key validation and initialization.
 
 ```swift
-public enum KeyErrors: Error
+public enum KeyError: Error
 ```
 
 #### Error Cases
@@ -819,17 +798,6 @@ case propsError          // Error accessing session properties
 case messageOutOfOrder   // Message received out of order
 ```
 
-## Type Aliases
-
-```swift
-public typealias RemoteLongTermPublicKey = Data
-public typealias RemoteOneTimePublicKey = CurvePublicKey
-public typealias RemoteMLKEMPublicKey = MLKEMPublicKey
-public typealias LocalLongTermPrivateKey = Data
-public typealias LocalOneTimePrivateKey = CurvePrivateKey
-public typealias LocalMLKEMPrivateKey = MLKEMPrivateKey
-```
-
 ## Extensions
 
 ### SecureModelProtocol
@@ -851,25 +819,11 @@ associatedtype Props: Codable & Sendable
 ```swift
 func decryptProps(symmetricKey: SymmetricKey) async throws -> Props
 func updateProps(symmetricKey: SymmetricKey, props: Props) async throws -> Props?
-func makeDecryptedModel<T: Sendable & Codable>(of: T.Type, symmetricKey: SymmetricKey) async throws -> T
 ```
-
-## Internal Types
-
-### SessionConfiguration
-
-Represents session identity and associated symmetric key for key derivation. This is an internal implementation detail exposed for inspection only.
-
-```swift
-public struct SessionConfiguration: Sendable
-```
-
-**Note:** This struct is public for type inspection only. Its properties are intentionally internal to prevent direct mutation, which could break the internal state management of the ratchet state manager. Use the public API methods to manage sessions rather than modifying configurations directly.
-
-**Access:** Available through the `sessionConfigurations` property on `DoubleRatchetStateManager`.
 
 ## Related Documentation
 
-- <doc:DoubleRatchetStateManager> - Main protocol interface
-- <doc:SessionIdentity> - Session identity management
+- <doc:UsingMessageRatchet> - Integrated encrypt/decrypt façade
+- <doc:UsingKeyRatchet> - External key derivation façade
+- <doc:UsingSessionIdentity> - Session identity management
 - <doc:KeyManagement> - Cryptographic key handling 
