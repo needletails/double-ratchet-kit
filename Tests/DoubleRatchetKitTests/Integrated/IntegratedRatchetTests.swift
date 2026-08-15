@@ -1931,13 +1931,23 @@ extension MessageRatchetTests {
                 remoteKeys: bundle.bobPublic,
                 localKeys: bundle.alicePrivate)
             
-            // Send messages concurrently from both managers
-            async let message1 = aliceManager1.encrypt(
-                plainText: "Message from Alice1".data(using: .utf8)!, sessionId: bobIdentityLatest.id)
-            async let message2 = aliceManager2.encrypt(
-                plainText: "Message from Alice2".data(using: .utf8)!, sessionId: bobIdentityLatest.id)
-            
-            let (encrypted1, encrypted2) = try await (message1, message2)
+            // Send messages concurrently from both managers. Unstructured tasks
+            // instead of `async let` on purpose: async-let children allocate
+            // their frames on the parent task's bump allocator, and when both
+            // children interleave on the shared serial TestableExecutor their
+            // slabs can be freed out of LIFO order, which the Linux runtime
+            // traps ("freed pointer was not the last allocation"). Unstructured
+            // tasks own their allocators and keep the same concurrency coverage.
+            let send1 = Task {
+                try await aliceManager1.encrypt(
+                    plainText: Data("Message from Alice1".utf8), sessionId: bobIdentityLatest.id)
+            }
+            let send2 = Task {
+                try await aliceManager2.encrypt(
+                    plainText: Data("Message from Alice2".utf8), sessionId: bobIdentityLatest.id)
+            }
+            let encrypted1 = try await send1.value
+            let encrypted2 = try await send2.value
             
             // Bob managers should be able to decrypt messages from respective Alice managers
             guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {

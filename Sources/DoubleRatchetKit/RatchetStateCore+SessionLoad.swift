@@ -60,8 +60,14 @@ extension RatchetStateCore {
                         currentProps.setOneTimePublicKey(key)
                     }
                     currentProps.setMLKEMPublicKey(keys.remoteMLKEMPublicKey)
+                    // Retired one-time keys (4.1) stay retired through host-driven
+                    // epochs: the host's cached props re-supply the stale keys, and
+                    // re-injecting them would re-cite/re-embed material the lane
+                    // has already discarded.
+                    let localRetired = state.localOneTimeKeyRetired
+                    let remoteRetired = state.remoteOneTimeKeyRetired
                     currentProps.state = await currentProps.state?.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
-                    currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
+                    currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(remoteRetired ? nil : keys.remoteOneTimePublicKey)
                     currentProps.state = await currentProps.state?.updateRemoteMLKEMPublicKey(keys.remoteMLKEMPublicKey)
                     currentProps.longTermPublicKey = keys.remoteLongTermPublicKey
                     currentProps.oneTimePublicKey = keys.remoteOneTimePublicKey
@@ -70,7 +76,7 @@ extension RatchetStateCore {
                     currentProps.state = try await diffieHellmanRatchet(
                         localKeys: LocalKeys(
                             longTerm: .init(keys.localLongTermPrivateKey),
-                            oneTime: keys.localOneTimePrivateKey,
+                            oneTime: localRetired ? nil : keys.localOneTimePrivateKey,
                             mlKEM: keys.localMLKEMPrivateKey),
                         configuration: configuration)
                 } else if epochOnSendingKeyChange {
@@ -102,7 +108,9 @@ extension RatchetStateCore {
                         let localChanged = localKeysChanged(state: state, keys: keys)
                         if remoteChanged || localChanged {
                             currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
-                            currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
+                            // Keep a retired local OTK (4.1) out of state even when
+                            // the host re-supplies it.
+                            currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(state.localOneTimeKeyRetired ? nil : keys.localOneTimePrivateKey)
                             currentProps.state = await currentProps.state?.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
                         }
                     } else {
@@ -137,14 +145,18 @@ extension RatchetStateCore {
                             props.setOneTimePublicKey(key)
                         }
                         props.setMLKEMPublicKey(keys.remoteMLKEMPublicKey)
+                        // Retired one-time keys (4.1) stay retired through
+                        // host-driven epochs (see cached branch above).
+                        let localRetired = state.localOneTimeKeyRetired
+                        let remoteRetired = state.remoteOneTimeKeyRetired
                         state = await state.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
-                        state = await state.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
+                        state = await state.updateRemoteOneTimePublicKey(remoteRetired ? nil : keys.remoteOneTimePublicKey)
                         state = await state.updateRemoteMLKEMPublicKey(keys.remoteMLKEMPublicKey)
                         configuration.state = state
                         state = try await diffieHellmanRatchet(
                             localKeys: LocalKeys(
                                 longTerm: .init(keys.localLongTermPrivateKey),
-                                oneTime: keys.localOneTimePrivateKey,
+                                oneTime: localRetired ? nil : keys.localOneTimePrivateKey,
                                 mlKEM: keys.localMLKEMPrivateKey),
                             configuration: configuration)
                     } else if epochOnSendingKeyChange,
@@ -169,14 +181,18 @@ extension RatchetStateCore {
                         let localChanged = localKeysChanged(state: state, keys: keys)
                         if remoteChanged || localChanged {
                             state = await state.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
-                            state = await state.updateLocalOneTimePrivateKey(keys.localOneTimePrivateKey)
+                            // Keep a retired local OTK (4.1) out of state even when
+                            // the host re-supplies it.
+                            state = await state.updateLocalOneTimePrivateKey(state.localOneTimeKeyRetired ? nil : keys.localOneTimePrivateKey)
                             state = await state.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
                         }
                     } else {
                         if state.remoteLongTermPublicKey != keys.remoteLongTermPublicKey {
                             state = await state.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
                         }
-                        if state.remoteOneTimePublicKey != keys.remoteOneTimePublicKey {
+                        // A retired remote OTK (4.1) is never re-injected from
+                        // host-supplied keys.
+                        if !state.remoteOneTimeKeyRetired, state.remoteOneTimePublicKey != keys.remoteOneTimePublicKey {
                             state = await state.updateRemoteOneTimePublicKey(keys.remoteOneTimePublicKey)
                         }
                         if state.remoteMLKEMPublicKey != keys.remoteMLKEMPublicKey {
@@ -244,6 +260,10 @@ extension RatchetStateCore {
             state = await state.updateRemoteLongTermPublicKey(header.remoteLongTermPublicKey)
             state = await state.updateRemoteOneTimePublicKey(header.remoteOneTimePublicKey)
             state = await state.updateRemoteMLKEMPublicKey(header.remoteMLKEMPublicKey)
+            // An epoch header carrying a one-time key re-arms the peer's lane (4.1).
+            if header.remoteOneTimePublicKey != nil, state.remoteOneTimeKeyRetired {
+                state = await state.updateRemoteOneTimeKeyRetired(false)
+            }
 
             let pqxdhSecret = try await derivePQXDHFinalKeyReceiver(
                 remoteLongTermPublicKey: state.remoteLongTermPublicKey,
@@ -265,6 +285,10 @@ extension RatchetStateCore {
             state = await state.updateLocalLongTermPrivateKey(localKeys.longTerm.rawRepresentation)
             state = await state.updateLocalOneTimePrivateKey(localKeys.oneTime)
             state = await state.updateLocalMLKEMPrivateKey(localKeys.mlKEM)
+            // A sender-driven epoch with a fresh one-time key re-arms our lane (4.1).
+            if localKeys.oneTime != nil, state.localOneTimeKeyRetired {
+                state = await state.updateLocalOneTimeKeyRetired(false)
+            }
 
             let cipher = try await derivePQXDHFinalKey(
                 localLongTermPrivateKey: state.localLongTermPrivateKey,
@@ -294,7 +318,9 @@ extension RatchetStateCore {
             logger.log(level: .trace, message: "Sending long term key has changed")
             return true
         }
-        if state.localOneTimePrivateKey != keys.localOneTimePrivateKey {
+        // Once our OTK is retired (4.1) the host keeps re-supplying the original
+        // key; that nil-vs-key diff must not fire an unmirrored epoch re-key.
+        if !state.localOneTimeKeyRetired, state.localOneTimePrivateKey != keys.localOneTimePrivateKey {
             logger.log(level: .trace, message: "Sending one time key has changed")
             return true
         }
@@ -310,7 +336,8 @@ extension RatchetStateCore {
             logger.log(level: .trace, message: "Local long term key has changed")
             return true
         }
-        if state.localOneTimePrivateKey?.id != keys.localOneTimePrivateKey?.id {
+        // Retired local OTK (4.1): ignore the host's re-supplied key.
+        if !state.localOneTimeKeyRetired, state.localOneTimePrivateKey?.id != keys.localOneTimePrivateKey?.id {
             logger.log(level: .trace, message: "Local one time key has changed")
             return true
         }
