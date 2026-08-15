@@ -2,7 +2,7 @@
 
 A Swift implementation of the **Double Ratchet Algorithm** with **Post-Quantum X3DH (PQXDH)** integration, providing asynchronous forward secrecy and post-compromise security for secure messaging applications.
 
-[![Swift](https://img.shields.io/badge/Swift-6.1+-orange.svg)](https://swift.org)
+[![Swift](https://img.shields.io/badge/Swift-6.3+-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-iOS%2018%2B%20%7C%20macOS%2015%2B%20%7C%20Linux%20%7C%20Android-blue.svg)](https://developer.apple.com)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-4.0.0-green.svg)](https://github.com/needletails/double-ratchet-kit/releases)
