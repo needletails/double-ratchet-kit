@@ -592,7 +592,8 @@ public actor MessageRatchet {
             messageNumber: state.sentMessagesCount,
             ratchetPublicKey: localRatchetPublicKey,
             ratchetKEMPublicKey: localRatchetKEMPublicKey,
-            ratchetKEMCiphertext: state.localRatchetKEMCiphertext)
+            ratchetKEMCiphertext: state.localRatchetKEMCiphertext,
+            supportsOneTimeKeyRetirement: true)
         
         if !state.sendingHandshakeFinished {
             // Optional enforcement: if the peer advertised an OTK in state but we don't have
@@ -626,6 +627,24 @@ public actor MessageRatchet {
                 configuration: core.defaultRatchetConfiguration)
             
             state = await state.updateSendingHeaderKey(newSendingHeaderKey)
+        }
+        
+        // OTK retirement (4.1): once both handshake directions have finished and
+        // the peer has advertised retirement support, drop our bootstrap OTK from
+        // state so headers stop embedding its public half. The peer adopts the
+        // nil transition without an epoch re-key and stops citing our key id,
+        // which lets the host delete the retained private half (deferred
+        // consumption). Gating on the advertisement keeps 4.0 peers — which
+        // would misread the transition as an identity re-key — on 4.0 behavior.
+        if state.sendingHandshakeFinished,
+           state.receivingHandshakeFinished,
+           state.peerSupportsOneTimeKeyRetirement,
+           state.localOneTimePrivateKey != nil {
+            state = await state.updateLocalOneTimePrivateKey(nil)
+            // Sticky: host re-initializations re-supply the original key; without
+            // this flag the merge would see nil -> key as a sending-key change and
+            // fire an unmirrored epoch re-key, diverging the chains.
+            state = await state.updateLocalOneTimeKeyRetired(true)
         }
         
         // Step 5: Reconstruct local public keys to embed into the header.
@@ -731,8 +750,11 @@ public actor MessageRatchet {
         // OTK consistency preflight: If header signals an OTK, ensure we have the matching local
         // private key available (hydrate via delegate if possible). If header omits OTK, proceed
         // without contributing any local OTK (no failure when enforcement is off).
+        // Skipped once our key is retired (4.1): post-retirement chain frames may
+        // still cite the old id in flight, but chain decrypts never need the
+        // private half, and hydrating it would resurrect header embedding.
         if let otkId = message.header.oneTimeKeyId {
-            if state.localOneTimePrivateKey == nil {
+            if state.localOneTimePrivateKey == nil, !state.localOneTimeKeyRetired {
                 if let fetched = try await delegate?.fetchOneTimePrivateKey(otkId) {
                     state = await state.updateLocalOneTimePrivateKey(fetched)
                     configuration.state = state
@@ -740,6 +762,26 @@ public actor MessageRatchet {
                     throw RatchetError.missingOneTimeKey
                 }
             }
+        }
+        
+        // OTK retirement (4.1): a peer that finished both handshakes and saw our
+        // retirement advertisement stops embedding its bootstrap OTK. Adopt the
+        // nil without an epoch re-key — the peer's chains did not re-key, so
+        // treating this as an identity change would diverge them. Deployed 4.0
+        // hosts never emit this transition (they never clear the state copy),
+        // so handling it unconditionally is safe. Identity re-keys always come
+        // with a changed long-term or ML-KEM key and still take the epoch path.
+        if state.receivingHandshakeFinished,
+           state.remoteOneTimePublicKey != nil,
+           message.header.remoteOneTimePublicKey == nil,
+           state.remoteLongTermPublicKey == message.header.remoteLongTermPublicKey,
+           state.remoteMLKEMPublicKey == message.header.remoteMLKEMPublicKey {
+            state = await state.updateRemoteOneTimePublicKey(nil)
+            // Sticky: host merges re-supply the stale remote key from cached props;
+            // without this flag an epoch would re-inject it and re-cite a key the
+            // peer has already discarded.
+            state = await state.updateRemoteOneTimeKeyRetired(true)
+            configuration.state = state
         }
         
         if await core.hasReceivingKeyChanges(state: state, header: message.header) {
@@ -789,6 +831,12 @@ public actor MessageRatchet {
         // Ensure header was successfully decrypted before continuing.
         guard let decrypted = header.decrypted else {
             throw RatchetError.headerDecryptFailed
+        }
+        
+        // Record the peer's OTK retirement advertisement (authenticated: it rides
+        // inside the AEAD-protected header body). Sticky for the lane's lifetime.
+        if decrypted.supportsOneTimeKeyRetirement == true, !state.peerSupportsOneTimeKeyRetirement {
+            state = await state.updatePeerSupportsOneTimeKeyRetirement(true)
         }
         
         // After handshake, advance next receiving header key by ratcheting it forward.
@@ -910,10 +958,11 @@ public actor MessageRatchet {
             )
 
             // If an OTK was used for this initial message and enforcement is enabled,
-            // consume it via delegate and clear it from state only after auth succeeds.
+            // notify the delegate only after auth succeeds. The state copy is kept:
+            // the key participates in header PQXDH and epoch re-keys until the
+            // retirement gate in encrypt removes it at a protocol-safe point.
             if await core.enforceOTKConsistency, let otkId = message.header.oneTimeKeyId {
                 await delegate?.updateOneTimeKey(remove: otkId)
-                state = await state.updateLocalOneTimePrivateKey(nil)
             }
 
             // Adopt the initiator's per-turn ratchet publics from the bootstrap header:
@@ -944,10 +993,10 @@ public actor MessageRatchet {
                 usingMessageKey: messageKey,
                 messageNumber: decrypted.messageNumber)
             // A receiving ratchet step that completed the initial handshake still owes the
-            // one-time-key consumption the bootstrap branch would have performed.
+            // one-time-key consumption notification the bootstrap branch would have
+            // performed. The state copy is kept until the retirement gate removes it.
             if performedReceivingStep, await core.enforceOTKConsistency, let otkId = message.header.oneTimeKeyId {
                 await delegate?.updateOneTimeKey(remove: otkId)
-                state = await state.updateLocalOneTimePrivateKey(nil)
             }
             // Commit prepared state and finalize message bookkeeping. We commit once per successfully
             // decrypted message to ensure counters/indices remain consistent with the derived keys.
@@ -1050,10 +1099,10 @@ public actor MessageRatchet {
                 associatedData: payloadAAD)
             
             // If an OTK was used for this initial message and enforcement is enabled,
-            // consume it via delegate and clear it from state to prevent reuse.
+            // notify the delegate. The state copy is kept until the retirement gate
+            // in encrypt removes it at a protocol-safe point.
             if await core.enforceOTKConsistency, let otkId = decodedMessage.ratchetMessage.header.oneTimeKeyId {
                 await delegate?.updateOneTimeKey(remove: otkId)
-                state = await state.updateLocalOneTimePrivateKey(nil)
             }
             
             // Increment count of received messages.

@@ -176,6 +176,9 @@ struct RatchetState: Sendable, Codable {
         case sendingChainRemoteRatchetKey = "F" // Remote ratchet key the current sending chain is keyed against.
         case localRatchetKEMCiphertext = "G" // KEM ciphertext for the current sending chain (rides in every header).
         case suiteMarker = "H" // Protocol suite marker. Missing on pre-4.0 blobs; treat as current.
+        case peerSupportsOneTimeKeyRetirement = "I" // Peer advertised OTK retirement (4.1). Missing on older blobs; treat as false.
+        case localOneTimeKeyRetired = "J" // Our bootstrap OTK retired (4.1). Missing on older blobs; treat as false.
+        case remoteOneTimeKeyRetired = "K" // Peer's bootstrap OTK retired (4.1). Missing on older blobs; treat as false.
     }
 
     /// v4 production mix: HMAC-SHA256 (chain / message), HKDF-SHA512 (root / PQXDH), HKDF-SHA256 (header).
@@ -308,6 +311,24 @@ struct RatchetState: Sendable, Codable {
     /// Protocol suite marker written on every persist. Absent on pre-4.0 blobs (treated as current).
     private(set) var suiteMarker: Int = currentSuiteMarker
 
+    /// Whether the peer has advertised one-time-key retirement support (4.1)
+    /// in a decrypted header. Once `true`, our bootstrap OTK is dropped from
+    /// state at the first encrypt after both handshakes finish, so headers
+    /// stop embedding it. Absent on older blobs (treated as `false`).
+    private(set) var peerSupportsOneTimeKeyRetirement: Bool = false
+
+    /// Our bootstrap OTK has been retired (4.1): dropped from state and no
+    /// longer embedded in headers. Sticky across host re-initializations so a
+    /// re-supplied stale key cannot resurrect embedding (which would look like
+    /// an unmirrored re-key to the peer). Reset only by a genuine DH epoch
+    /// that re-arms a local one-time key.
+    private(set) var localOneTimeKeyRetired: Bool = false
+
+    /// The peer retired its bootstrap OTK (4.1): adopted as nil without an
+    /// epoch. Sticky so host merges cannot re-inject a stale remote key;
+    /// reset when an epoch header re-arms a remote one-time key.
+    private(set) var remoteOneTimeKeyRetired: Bool = false
+
     var sessionStatus: RatchetSessionStatus {
         RatchetSessionStatus(
             sentMessagesCount: sentMessagesCount,
@@ -425,6 +446,9 @@ struct RatchetState: Sendable, Codable {
         } else {
             suiteMarker = Self.currentSuiteMarker
         }
+        peerSupportsOneTimeKeyRetirement = try container.decodeIfPresent(Bool.self, forKey: .peerSupportsOneTimeKeyRetirement) ?? false
+        localOneTimeKeyRetired = try container.decodeIfPresent(Bool.self, forKey: .localOneTimeKeyRetired) ?? false
+        remoteOneTimeKeyRetired = try container.decodeIfPresent(Bool.self, forKey: .remoteOneTimeKeyRetired) ?? false
     }
 
     // MARK: - Methods
@@ -765,6 +789,27 @@ struct RatchetState: Sendable, Codable {
     func updateLocalRatchetKEMCiphertext(_ ciphertext: Data?) async -> Self {
         var ratchetState = self
         ratchetState.localRatchetKEMCiphertext = ciphertext
+        return ratchetState
+    }
+
+    /// Records that the peer advertised one-time-key retirement support (4.1).
+    func updatePeerSupportsOneTimeKeyRetirement(_ value: Bool) async -> Self {
+        var ratchetState = self
+        ratchetState.peerSupportsOneTimeKeyRetirement = value
+        return ratchetState
+    }
+
+    /// Records that our bootstrap OTK has been retired (4.1).
+    func updateLocalOneTimeKeyRetired(_ value: Bool) async -> Self {
+        var ratchetState = self
+        ratchetState.localOneTimeKeyRetired = value
+        return ratchetState
+    }
+
+    /// Records that the peer's bootstrap OTK has been retired (4.1).
+    func updateRemoteOneTimeKeyRetired(_ value: Bool) async -> Self {
+        var ratchetState = self
+        ratchetState.remoteOneTimeKeyRetired = value
         return ratchetState
     }
 }

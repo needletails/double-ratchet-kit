@@ -173,12 +173,21 @@ public struct MessageHeader: Sendable, Codable {
     /// `nil` on the initiator's PQXDH bootstrap chain, before any sending DH step.
     public let ratchetKEMCiphertext: Data?
 
+    /// Advertises one-time-key retirement support (4.1). Riding inside the
+    /// AEAD-protected header body, so it is authenticated and invisible on the
+    /// wire. Additive optional: 4.0 decoders ignore the key, and frames from
+    /// 4.0 senders decode as `nil`. A peer only stops embedding its bootstrap
+    /// OTK after the other side has advertised this capability, which keeps
+    /// mixed-version lanes on 4.0 behavior.
+    public let supportsOneTimeKeyRetirement: Bool?
+
     private enum CodingKeys: String, CodingKey, Sendable {
         case previousChainLength = "a"
         case messageNumber = "b"
         case ratchetPublicKey = "c"
         case ratchetKEMPublicKey = "d"
         case ratchetKEMCiphertext = "e"
+        case supportsOneTimeKeyRetirement = "f"
     }
 
     /// Initializes a new MessageHeader with the specified parameters.
@@ -188,17 +197,20 @@ public struct MessageHeader: Sendable, Codable {
     ///   - ratchetPublicKey: The sender's per-turn Curve25519 ratchet public key.
     ///   - ratchetKEMPublicKey: The sender's per-turn ML-KEM ratchet public key.
     ///   - ratchetKEMCiphertext: ML-KEM ciphertext for the receiver, if a sending DH step has run.
+    ///   - supportsOneTimeKeyRetirement: Advertises OTK retirement support (4.1); `nil` on 4.0 frames.
     public init(
         previousChainLength: Int,
         messageNumber: Int,
         ratchetPublicKey: Data,
         ratchetKEMPublicKey: Data,
-        ratchetKEMCiphertext: Data? = nil
+        ratchetKEMCiphertext: Data? = nil,
+        supportsOneTimeKeyRetirement: Bool? = nil
     ) {
         self.previousChainLength = previousChainLength
         self.messageNumber = messageNumber
         self.ratchetPublicKey = ratchetPublicKey
         self.ratchetKEMPublicKey = ratchetKEMPublicKey
         self.ratchetKEMCiphertext = ratchetKEMCiphertext
+        self.supportsOneTimeKeyRetirement = supportsOneTimeKeyRetirement
     }
 }
