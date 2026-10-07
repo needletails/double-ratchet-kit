@@ -1,4 +1,4 @@
-// swift-tools-version: 6.3
+// swift-tools-version: 6.4
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -6,8 +6,8 @@ import PackageDescription
 let package = Package(
     name: "double-ratchet-kit",
     platforms: [
-        .macOS(.v15),
-        .iOS(.v18),
+        .iOS("26.0"),
+        .macOS("26.0"),
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
@@ -17,7 +17,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/needletails/needletail-crypto.git", from: "1.3.0"),
+        .package(url: "git@github.com:needletails/needletail-crypto.git", branch: "migrate/away-from-needletails-swift-crypto"),
         .package(url: "https://github.com/needletails/needletail-logger.git", from: "3.1.5"),
         .package(url: "https://github.com/needletails/binary-codable.git", from: "1.0.3")
     ],
