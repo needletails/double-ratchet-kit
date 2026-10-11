@@ -116,12 +116,36 @@ jobs:
           brew install skiptools/skip/skip
           skip version
 
+      - name: Install Swiftly 1.2.0 (macOS)
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SWIFTLY_PKG="$RUNNER_TEMP/swiftly-1.2.0.pkg"
+          curl -fsSL https://download.swift.org/swiftly/darwin/swiftly-1.2.0.pkg -o "$SWIFTLY_PKG"
+          echo "a1b48692b00ea6902957423473c87bee7c7f3e18c015a4a09317102f6820b987  $SWIFTLY_PKG" | shasum -a 256 --check
+          installer -pkg "$SWIFTLY_PKG" -target CurrentUserHomeDirectory
+          "$HOME/.swiftly/bin/swiftly" init --assume-yes --no-modify-profile --skip-install
+          echo "$HOME/.swiftly/bin" >> "$GITHUB_PATH"
+          SWIFTLY_VERSION=$("$HOME/.swiftly/bin/swiftly" --version)
+          echo "Swiftly $SWIFTLY_VERSION"
+          [[ "$SWIFTLY_VERSION" == "1.2.0" ]]
+
       - name: Install Swift Android SDK (macOS)
         if: ${{ runner.os == 'macOS' }}
         shell: bash
         run: |
           set -euo pipefail
-          printf 'y\n' | skip android sdk install
+          # skip android sdk install downloads the host toolchain with `swiftly install`.
+          # Swiftly 1.2.0 is the release that requests swift-6.4.0-RELEASE; older
+          # swiftly builds the missing swift-6.4-RELEASE pkg URL. Homebrew's swiftly
+          # from `brew install skip` is that older build, so it must not win PATH.
+          export PATH="$HOME/.swiftly/bin:$PATH"
+          hash -r
+          SWIFTLY_VERSION=$(swiftly --version)
+          echo "Using $(command -v swiftly) ($SWIFTLY_VERSION)"
+          [[ "$SWIFTLY_VERSION" == "1.2.0" ]]
+          printf 'y\n' | skip android sdk install --version 6.4.0 --swift-version 6.4.0
 
       - name: Cache Swift packages
         uses: actions/cache@v4
