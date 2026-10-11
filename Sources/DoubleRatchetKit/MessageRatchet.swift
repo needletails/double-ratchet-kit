@@ -738,6 +738,13 @@ public actor MessageRatchet {
         }
     }
     
+    /// Whether this frame's decrypt derives from PQXDH (bootstrap handshake or
+    /// epoch re-key), the only paths that consume our one-time private key.
+    private func oneTimeKeyRequiredForDecrypt(state: RatchetState, header: EncryptedHeader) async throws -> Bool {
+        if !state.receivingHandshakeFinished { return true }
+        return await core.hasReceivingKeyChanges(state: state, header: header)
+    }
+
     private func decryptImpl(_ message: RatchetMessage, sessionId: UUID) async throws -> Data {
         logger.log(level: .trace, message: "Ratchet decrypt started")
         
@@ -758,7 +765,11 @@ public actor MessageRatchet {
                 if let fetched = try await delegate?.fetchOneTimePrivateKey(otkId) {
                     state = await state.updateLocalOneTimePrivateKey(fetched)
                     configuration.state = state
-                } else if await core.enforceOTKConsistency {
+                } else if await core.enforceOTKConsistency,
+                          try await oneTimeKeyRequiredForDecrypt(state: state, header: message.header) {
+                    // The private half only feeds PQXDH: the bootstrap handshake and
+                    // epoch re-keys. A chain frame on an established lane that still
+                    // cites a stale id decrypts without it.
                     throw RatchetError.missingOneTimeKey
                 }
             }

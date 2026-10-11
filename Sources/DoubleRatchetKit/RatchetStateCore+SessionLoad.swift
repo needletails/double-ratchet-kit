@@ -63,11 +63,13 @@ extension RatchetStateCore {
                     // Retired one-time keys (4.1) stay retired through host-driven
                     // epochs: the host's cached props re-supply the stale keys, and
                     // re-injecting them would re-cite/re-embed material the lane
-                    // has already discarded.
+                    // has already discarded. The same holds for a lane that never
+                    // held the peer's OTK: a host epoch may refresh a key the lane
+                    // already cites, never introduce one the peer has no state for.
                     let localRetired = state.localOneTimeKeyRetired
-                    let remoteRetired = state.remoteOneTimeKeyRetired
+                    let remoteOneTime = hostEpochRemoteOneTimePublicKey(state: state, keys: keys)
                     currentProps.state = await currentProps.state?.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
-                    currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(remoteRetired ? nil : keys.remoteOneTimePublicKey)
+                    currentProps.state = await currentProps.state?.updateRemoteOneTimePublicKey(remoteOneTime)
                     currentProps.state = await currentProps.state?.updateRemoteMLKEMPublicKey(keys.remoteMLKEMPublicKey)
                     currentProps.longTermPublicKey = keys.remoteLongTermPublicKey
                     currentProps.oneTimePublicKey = keys.remoteOneTimePublicKey
@@ -145,12 +147,12 @@ extension RatchetStateCore {
                             props.setOneTimePublicKey(key)
                         }
                         props.setMLKEMPublicKey(keys.remoteMLKEMPublicKey)
-                        // Retired one-time keys (4.1) stay retired through
+                        // Retired or never-held one-time keys (4.1) stay out of
                         // host-driven epochs (see cached branch above).
                         let localRetired = state.localOneTimeKeyRetired
-                        let remoteRetired = state.remoteOneTimeKeyRetired
+                        let remoteOneTime = hostEpochRemoteOneTimePublicKey(state: state, keys: keys)
                         state = await state.updateRemoteLongTermPublicKey(keys.remoteLongTermPublicKey)
-                        state = await state.updateRemoteOneTimePublicKey(remoteRetired ? nil : keys.remoteOneTimePublicKey)
+                        state = await state.updateRemoteOneTimePublicKey(remoteOneTime)
                         state = await state.updateRemoteMLKEMPublicKey(keys.remoteMLKEMPublicKey)
                         configuration.state = state
                         state = try await diffieHellmanRatchet(
@@ -257,12 +259,17 @@ extension RatchetStateCore {
 
         if let header {
             logger.log(level: .trace, message: "Updating remote public keys from header")
+            let heldRemoteOneTimeKey = state.remoteOneTimePublicKey != nil
             state = await state.updateRemoteLongTermPublicKey(header.remoteLongTermPublicKey)
             state = await state.updateRemoteOneTimePublicKey(header.remoteOneTimePublicKey)
             state = await state.updateRemoteMLKEMPublicKey(header.remoteMLKEMPublicKey)
-            // An epoch header carrying a one-time key re-arms the peer's lane (4.1).
+            // An epoch header carrying a one-time key re-arms the peer's lane (4.1);
+            // one that drops a key the lane held retires it, like the chain-frame
+            // adoption path, so host epochs never re-inject the cached copy.
             if header.remoteOneTimePublicKey != nil, state.remoteOneTimeKeyRetired {
                 state = await state.updateRemoteOneTimeKeyRetired(false)
+            } else if header.remoteOneTimePublicKey == nil, heldRemoteOneTimeKey, !state.remoteOneTimeKeyRetired {
+                state = await state.updateRemoteOneTimeKeyRetired(true)
             }
 
             let pqxdhSecret = try await derivePQXDHFinalKeyReceiver(
@@ -311,6 +318,16 @@ extension RatchetStateCore {
             try await updateSessionIdentity(configuration: configuration)
         }
         return state
+    }
+
+    /// Remote one-time key a host-driven epoch may carry. Bootstrap OTKs enter a
+    /// lane only through a header (lane creation or a peer re-arm); the host's
+    /// cached copy can refresh a key the lane already cites but never introduce
+    /// one on a lane that is retired or never held it, since the peer has no
+    /// state copy to decrypt against.
+    private func hostEpochRemoteOneTimePublicKey(state: RatchetState, keys: EncryptionKeys) -> X25519PublicKey? {
+        guard !state.remoteOneTimeKeyRetired, state.remoteOneTimePublicKey != nil else { return nil }
+        return keys.remoteOneTimePublicKey
     }
 
     private func sendingKeysChanged(state: RatchetState, keys: EncryptionKeys) -> Bool {
