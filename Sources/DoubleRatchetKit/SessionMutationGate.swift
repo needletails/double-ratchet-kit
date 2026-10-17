@@ -59,6 +59,19 @@ actor SessionMutationGate {
                 )
             }
         } onCancel: {
+            // The handler runs synchronously on the cancelling thread, outside actor isolation,
+            // so removing the waiter has to hop back onto the actor. This is safe:
+            // - No data race: only Sendable values are captured, and the queue is touched only
+            //   inside `cancelWaiter`, on the actor.
+            // - No lost cancellation: if the task is already cancelled, this handler runs before
+            //   the operation, but the hop cannot run until `acquire` suspends, and by then the
+            //   waiter is queued.
+            // - No double resume: `release`, `closeAndWaitForLeases` and `cancelWaiter` each
+            //   remove a waiter before resuming it, so whichever runs first wins. If `release`
+            //   wins, `withLease` sees the cancellation in `Task.checkCancellation()` and passes
+            //   the lease on.
+            // - Bounded cost: the handler fires at most once per waiter, so it spawns at most one
+            //   task per queued acquire.
             Task {
                 await self.cancelWaiter(waiterID, for: sessionId)
             }
@@ -77,6 +90,11 @@ actor SessionMutationGate {
             waiters[sessionId] = queue
         }
         waiter.continuation.resume(throwing: CancellationError())
+    }
+
+    /// Number of acquirers suspended behind the active lease for `sessionId`. Used by tests.
+    func queuedWaiterCount(for sessionId: UUID) -> Int {
+        waiters[sessionId]?.count ?? 0
     }
 
     private func release(_ sessionId: UUID) {

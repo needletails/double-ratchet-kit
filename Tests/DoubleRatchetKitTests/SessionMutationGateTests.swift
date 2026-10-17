@@ -41,7 +41,7 @@ struct SessionMutationGateTests {
         #expect(await probe.maximumConcurrentLeases == 2)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func queuedMutationCancelsWithoutReceivingLease() async throws {
         let gate = SessionMutationGate()
         let probe = LeaseProbe()
@@ -60,14 +60,34 @@ struct SessionMutationGateTests {
                 await probe.enter()
             }
         }
+        // Cancel only once the acquirer is suspended in the waiter queue, so the cancellation
+        // handler (not the up-front `Task.checkCancellation()`) is what rejects it.
+        while await gate.queuedWaiterCount(for: sessionID) == 0 {
+            await Task.yield()
+        }
         queued.cancel()
-        await probe.releaseAll()
 
-        try await active.value
+        // The active lease is still held, so only the cancellation handler can dequeue the
+        // waiter. Bound the wait: `queued.value` cannot be interrupted, so a regression would
+        // otherwise hang instead of failing.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await gate.queuedWaiterCount(for: sessionID) > 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        try #require(await gate.queuedWaiterCount(for: sessionID) == 0)
         await #expect(throws: CancellationError.self) {
             try await queued.value
         }
+
+        await probe.releaseAll()
+        try await active.value
         #expect(await probe.entryCount == 1)
+
+        // The cancelled waiter must not have leaked the lease.
+        try await gate.withLease(for: sessionID) {
+            await probe.enter()
+        }
+        #expect(await probe.entryCount == 2)
     }
 
     @Test
