@@ -1807,6 +1807,25 @@ extension MessageRatchetTests {
         }
     }
 
+    /// A host tells whether two rows of an epoch sit on the same receiving chain through
+    /// `ratchetRemotePublicKey`, and reads the same value from a live lane's status.
+    @Test
+    func testRemoteRatchetKeyNamesTheReceivingChain() async throws {
+        try await withPreEncryptedLane(frames: 2) { lane in
+            try await deliver([0], on: lane)
+
+            let status = try await lane.bobManager.sessionStatus(sessionId: lane.sessionId)
+            guard var props = await getSessionIdentity(for: lane.sessionId)?.props(symmetricKey: bobDBSK) else {
+                throw TestErrors.identityNotFound
+            }
+            #expect(status.remoteRatchetPublicKey != nil)
+            #expect(props.ratchetRemotePublicKey == status.remoteRatchetPublicKey)
+
+            props.clearRatchetState()
+            #expect(props.ratchetRemotePublicKey == nil)
+        }
+    }
+
     @Test
     func serializationAndResumingRatchet() async throws {
         let aliceManager = MessageRatchet(executor: executor, ratchetConfiguration: testableRatchetConfiguration)

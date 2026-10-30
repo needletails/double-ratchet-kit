@@ -334,7 +334,8 @@ struct RatchetState: Sendable, Codable {
             sentMessagesCount: sentMessagesCount,
             receivedMessagesCount: receivedMessagesCount,
             sendingHandshakeFinished: sendingHandshakeFinished,
-            receivingHandshakeFinished: receivingHandshakeFinished)
+            receivingHandshakeFinished: receivingHandshakeFinished,
+            remoteRatchetPublicKey: remoteRatchetPublicKey)
     }
 
     // MARK: - Initializers
@@ -855,5 +856,8 @@ public struct RatchetSessionStatus: Sendable, Equatable {
     public let receivedMessagesCount: Int
     public let sendingHandshakeFinished: Bool
     public let receivingHandshakeFinished: Bool
+    /// The peer's per-turn ratchet key: names the receiving chain `receivedMessagesCount`
+    /// counts on, so two counts compare only when this matches.
+    public let remoteRatchetPublicKey: Data?
 }
 

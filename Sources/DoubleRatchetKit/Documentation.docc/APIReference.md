@@ -579,6 +579,7 @@ public var ratchetOneTimePrivateKey: X25519PrivateKey?
 public var ratchetMLKEMPrivateKey: MLKEMPrivateKey?
 public var ratchetReceivedMessagesCount: Int
 public var ratchetEpochDigest: Data?
+public var ratchetRemotePublicKey: Data?
 public mutating func clearRatchetState()
 ```
 
@@ -733,6 +734,7 @@ public let sentMessagesCount: Int
 public let receivedMessagesCount: Int
 public let sendingHandshakeFinished: Bool
 public let receivingHandshakeFinished: Bool
+public let remoteRatchetPublicKey: Data?
 ```
 
 ## Error Types

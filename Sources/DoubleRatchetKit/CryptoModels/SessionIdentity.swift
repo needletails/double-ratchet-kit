@@ -159,6 +159,12 @@ public final class SessionIdentity: SecureModelProtocol, Hashable, @unchecked Se
             state?.messageCiphertext.map(EncryptedHeader.epochDigest(of:))
         }
 
+        /// The peer's per-turn ratchet key from the snapshot: the receiving chain
+        /// `ratchetReceivedMessagesCount` counts on. `nil` before a frame set one.
+        public var ratchetRemotePublicKey: Data? {
+            state?.remoteRatchetPublicKey
+        }
+
         /// Drops the nested ratchet snapshot. App metadata is left unchanged.
         public mutating func clearRatchetState() {
             state = nil
