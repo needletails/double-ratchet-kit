@@ -1580,6 +1580,215 @@ extension MessageRatchetTests {
         }
     }
 
+    // MARK: - Header Gaps
+
+    private struct PreEncryptedLane {
+        let bobManager: MessageRatchet
+        let bobKeys: LocalKeys
+        let sessionId: UUID
+        let messages: [RatchetMessage]
+    }
+
+    /// Runs `body` with Alice's pre-encrypted `frames`; Bob opens the lane on frame `openingFrame`
+    /// and has decrypted nothing yet.
+    private func withPreEncryptedLane(
+        frames count: Int,
+        openingFrame: Int = 0,
+        _ body: (PreEncryptedLane) async throws -> Void
+    ) async throws {
+        let aliceManager = MessageRatchet(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await aliceManager.setDelegate(self)
+        let bobManager = MessageRatchet(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
+        await bobManager.setDelegate(self)
+
+        do {
+            let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
+
+            guard let bobIdentityLatest = getSessionIdentity(for: bobIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await aliceManager.initiateSession(
+                sessionIdentity: bobIdentityLatest,
+                sessionSymmetricKey: aliceDbsk,
+                remoteKeys: bundle.bobPublic,
+                localKeys: bundle.alicePrivate)
+
+            var messages: [RatchetMessage] = []
+            for i in 0..<count {
+                messages.append(try await aliceManager.encrypt(
+                    plainText: Data("Message \(i)".utf8),
+                    sessionId: bobIdentityLatest.id))
+            }
+
+            guard let aliceIdentityLatest = getSessionIdentity(for: aliceIdentity.id) else {
+                throw TestErrors.identityNotFound
+            }
+            try await bobManager.respondToSession(
+                sessionIdentity: aliceIdentityLatest,
+                sessionSymmetricKey: bobDBSK,
+                header: messages[openingFrame].header,
+                localKeys: bundle.bobPrivate)
+
+            try await body(PreEncryptedLane(
+                bobManager: bobManager,
+                bobKeys: bundle.bobPrivate,
+                sessionId: aliceIdentityLatest.id,
+                messages: messages))
+
+            try await aliceManager.flushAndClose()
+            try await bobManager.flushAndClose()
+        } catch {
+            try? await aliceManager.flushAndClose()
+            try? await bobManager.flushAndClose()
+            throw error
+        }
+    }
+
+    /// Delivers `frames` in the given order, naming the frame that failed.
+    private func deliver(_ frames: some Sequence<Int>, on lane: PreEncryptedLane) async throws {
+        for frame in frames {
+            do {
+                let plaintext = try await lane.bobManager.decrypt(lane.messages[frame], sessionId: lane.sessionId)
+                #expect(plaintext == Data("Message \(frame)".utf8))
+            } catch {
+                Issue.record("Frame \(frame) failed: \(error)")
+                throw error
+            }
+        }
+    }
+
+    private func bobState(sessionId: UUID) async throws -> RatchetState {
+        guard let identity = getSessionIdentity(for: sessionId),
+              let state = await identity.props(symmetricKey: bobDBSK)?.state else {
+            throw TestErrors.identityNotFound
+        }
+        return state
+    }
+
+    /// Rewrites Bob's row as one persisted before the scan kept used keys out of the stash: a
+    /// non-zero `headerIndex` and `count` entries that match no frame.
+    private func craftStaleStash(
+        count: Int,
+        lane: PreEncryptedLane,
+        nextFrame: Int
+    ) async throws -> [SkippedHeaderMessage] {
+        guard let identity = getSessionIdentity(for: lane.sessionId),
+              var props = await identity.props(symmetricKey: bobDBSK),
+              var state = props.state else {
+            throw TestErrors.identityNotFound
+        }
+        var stale: [SkippedHeaderMessage] = []
+        for _ in 0..<count {
+            state = await state.incrementSkippedHeaderIndex()
+            let entry = SkippedHeaderMessage(chainKey: SymmetricKey(size: .bits256), index: state.headerIndex)
+            state = await state.updateSkippedHeaderMessage(entry)
+            stale.append(entry)
+        }
+        props.state = state
+        try await identity.update(props, symmetricKey: bobDBSK)
+        try await lane.bobManager.respondToSession(
+            sessionIdentity: identity,
+            sessionSymmetricKey: bobDBSK,
+            header: lane.messages[nextFrame].header,
+            localKeys: lane.bobKeys)
+        return stale
+    }
+
+    /// The logged shape of master lane 2824A981: frames 23 and 24 never arrive and every later
+    /// frame is in order. Each of those frames used to stash its predecessor's used header key,
+    /// so the stash filled and frame 124 failed with `maxSkippedHeadersExceeded`.
+    @Test
+    func testLaneSurvivesHeaderGapPastTheSkipCap() async throws {
+        try await withPreEncryptedLane(frames: 200) { lane in
+            try await deliver(Array(0..<23) + Array(25..<200), on: lane)
+
+            // Only the two frames that never arrived are still owed a key.
+            let state = try await bobState(sessionId: lane.sessionId)
+            #expect(state.skippedHeaderMessages.count == 2)
+        }
+    }
+
+    /// A late frame consumes its stashed key without moving the chain, so the next in-order
+    /// frame still finds its key.
+    @Test
+    func testLateFrameAfterGapDoesNotLoseNextHeaderKey() async throws {
+        try await withPreEncryptedLane(frames: 6) { lane in
+            try await deliver([0, 2, 3, 1, 4, 5], on: lane)
+
+            let state = try await bobState(sessionId: lane.sessionId)
+            #expect(state.skippedHeaderMessages.isEmpty)
+        }
+    }
+
+    /// A row that already filled its stash with used keys recovers on its next frame, without a
+    /// lane reset. The stale entries stay until later gaps evict them.
+    @Test
+    func testRowHoldingFullStaleStashRecovers() async throws {
+        try await withPreEncryptedLane(frames: 30) { lane in
+            try await deliver(0..<23, on: lane)
+            let stale = try await craftStaleStash(
+                count: testableRatchetConfiguration.maxSkippedMessageKeys,
+                lane: lane,
+                nextFrame: 23)
+
+            try await deliver(23..<30, on: lane)
+
+            let state = try await bobState(sessionId: lane.sessionId)
+            #expect(state.skippedHeaderMessages == stale)
+        }
+    }
+
+    /// The stash bound is FIFO: a row at the cap that takes a new gap drops its oldest entries,
+    /// keeps the stash at the cap and still decrypts the frame and the late frames behind it.
+    @Test
+    func testRowAtStashCapTakingNewGapStaysAtCapAndDecrypts() async throws {
+        try await withPreEncryptedLane(frames: 30) { lane in
+            try await deliver(0..<23, on: lane)
+            let stale = try await craftStaleStash(
+                count: testableRatchetConfiguration.maxSkippedMessageKeys,
+                lane: lane,
+                nextFrame: 25)
+
+            try await deliver([25], on: lane)
+
+            let atCap = try await bobState(sessionId: lane.sessionId)
+            #expect(atCap.skippedHeaderMessages.count == testableRatchetConfiguration.maxSkippedMessageKeys)
+            #expect(Array(atCap.skippedHeaderMessages.prefix(stale.count - 2)) == Array(stale.dropFirst(2)))
+
+            try await deliver([24, 23, 26, 27], on: lane)
+
+            let drained = try await bobState(sessionId: lane.sessionId)
+            #expect(drained.skippedHeaderMessages == Array(stale.dropFirst(2)))
+        }
+    }
+
+    /// The scan does not retain the newest used key, so a replay of the newest frame runs out of
+    /// scan steps and leaves the lane as it was, with or without a past gap.
+    @Test(arguments: [[0, 1, 2], [0, 2]])
+    func testReplayOfNewestFrameFailsTheScanAndLeavesTheLaneOpen(delivered: [Int]) async throws {
+        try await withPreEncryptedLane(frames: 4) { lane in
+            try await deliver(delivered, on: lane)
+
+            await #expect(throws: RatchetError.maxSkippedHeadersExceeded) {
+                _ = try await lane.bobManager.decrypt(lane.messages[2], sessionId: lane.sessionId)
+            }
+
+            try await deliver([3], on: lane)
+        }
+    }
+
+    /// A blank lane opened at frame 7 stashes the keys of frames 0-6 and must then behave like
+    /// any other lane: used keys stay out of the stash past the cap.
+    @Test
+    func testBlankOpenedMidChainSurvivesPastTheSkipCap() async throws {
+        try await withPreEncryptedLane(frames: 158, openingFrame: 7) { lane in
+            try await deliver(7..<158, on: lane)
+
+            let state = try await bobState(sessionId: lane.sessionId)
+            #expect(state.skippedHeaderMessages.count == 7)
+        }
+    }
+
     @Test
     func serializationAndResumingRatchet() async throws {
         let aliceManager = MessageRatchet(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
@@ -2278,9 +2487,10 @@ extension MessageRatchetTests {
             // Now let's test the state synchronization failure scenario
             // Create a corrupted message that will cause decryption to fail
             // This simulates what would happen if the state was wrong and derived wrong keys
+            let message8 = messages[7] // Index 7 = message 8
             let corruptedMessage = RatchetMessage(
-                header: message7.header,
-                ciphertext: Data(repeating: 0x42, count: message7.ciphertext.count) // Corrupted data
+                header: message8.header,
+                ciphertext: Data(repeating: 0x42, count: message8.ciphertext.count) // Corrupted data
             )
             
             // This should fail with CryptoKitError because the encrypted data is corrupted

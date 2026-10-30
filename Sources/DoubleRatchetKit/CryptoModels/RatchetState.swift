@@ -508,13 +508,6 @@ struct RatchetState: Sendable, Codable {
         return ratchetState
     }
 
-    /// Resets the skipped-header index for a fresh receiving chain (per-turn ratchet step).
-    func resetHeaderIndex() async -> Self {
-        var ratchetState = self
-        ratchetState.headerIndex = 0
-        return ratchetState
-    }
-
     /// Increments the count of received messages by one.
     func incrementReceivedMessagesCount() async -> Self {
         var ratchetState = self
@@ -699,9 +692,15 @@ struct RatchetState: Sendable, Codable {
         return ratchetState
     }
 
-    func removeAllSkippedHeaderMessage() async -> Self {
+    /// Drops the first `count` entries from `skippedHeaderMessages`.
+    /// - Parameter count: Number of oldest entries to remove.
+    /// - Returns: A new `RatchetState` with those entries removed.
+    func removeFirstSkippedHeaderMessages(count: Int) async -> Self {
+        guard count > 0 else {
+            return self
+        }
         var ratchetState = self
-        ratchetState.skippedHeaderMessages.removeAll()
+        ratchetState.skippedHeaderMessages = Array(skippedHeaderMessages.dropFirst(count))
         return ratchetState
     }
 
