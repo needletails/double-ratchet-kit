@@ -578,6 +578,9 @@ public var hasRatchetState: Bool
 public var ratchetOneTimePrivateKey: X25519PrivateKey?
 public var ratchetMLKEMPrivateKey: MLKEMPrivateKey?
 public var ratchetReceivedMessagesCount: Int
+public var ratchetSentMessagesCount: Int
+public var ratchetSkippedHeaderCount: Int
+public var ratchetEpochDigest: Data?
 public mutating func clearRatchetState()
 ```
 

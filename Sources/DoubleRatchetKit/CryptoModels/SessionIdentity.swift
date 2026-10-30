@@ -151,6 +151,24 @@ public final class SessionIdentity: SecureModelProtocol, Hashable, @unchecked Se
             state?.receivedMessagesCount ?? 0
         }
 
+        /// Sent-message count from the snapshot (`0` if none).
+        public var ratchetSentMessagesCount: Int {
+            state?.sentMessagesCount ?? 0
+        }
+
+        /// Header keys stashed for frames that have not arrived (`0` if none).
+        public var ratchetSkippedHeaderCount: Int {
+            state?.skippedHeaderMessages.count ?? 0
+        }
+
+        /// Digest of the epoch this snapshot holds, comparable with
+        /// `EncryptedHeader.ratchetEpochDigest`. `nil` before the snapshot has one. A
+        /// sender-driven re-key replaces it while the peer's in-flight frames still carry
+        /// the old epoch, so a mismatch does not prove this row cannot open a frame.
+        public var ratchetEpochDigest: Data? {
+            state?.messageCiphertext.map(EncryptedHeader.epochDigest(of:))
+        }
+
         /// Drops the nested ratchet snapshot. App metadata is left unchanged.
         public mutating func clearRatchetState() {
             state = nil
