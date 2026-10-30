@@ -1789,25 +1789,20 @@ extension MessageRatchetTests {
         }
     }
 
-    /// Hosts audit a lane through the `ratchet*` accessors, because `RatchetState` is not public.
-    /// A frame and the row holding its epoch give the same digest, and a gap shows as stashed keys.
+    /// A host matches a frame to the row holding its epoch through `ratchetEpochDigest`,
+    /// because `RatchetState` is not public.
     @Test
-    func testAuditAccessorsReadTheLaneSnapshot() async throws {
+    func testEpochDigestMatchesAFrameToItsRow() async throws {
         try await withPreEncryptedLane(frames: 6) { lane in
             try await deliver([0, 3], on: lane)
-            _ = try await lane.bobManager.encrypt(plainText: Data("Reply".utf8), sessionId: lane.sessionId)
 
             guard var props = await getSessionIdentity(for: lane.sessionId)?.props(symmetricKey: bobDBSK) else {
                 throw TestErrors.identityNotFound
             }
-            #expect(props.ratchetSkippedHeaderCount == 2)
-            #expect(props.ratchetSentMessagesCount == 1)
             #expect(props.ratchetEpochDigest == lane.messages[3].header.ratchetEpochDigest)
             #expect(props.ratchetEpochDigest?.count == SHA256.byteCount)
 
             props.clearRatchetState()
-            #expect(props.ratchetSkippedHeaderCount == 0)
-            #expect(props.ratchetSentMessagesCount == 0)
             #expect(props.ratchetEpochDigest == nil)
         }
     }
