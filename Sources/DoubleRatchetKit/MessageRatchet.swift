@@ -795,7 +795,9 @@ public actor MessageRatchet {
             configuration.state = state
         }
         
+        var stateBeforeEpoch: RatchetState?
         if await core.hasReceivingKeyChanges(state: state, header: message.header) {
+            stateBeforeEpoch = state
             configuration.state = state
             state = try await core.diffieHellmanRatchet(
                 header: message.header,
@@ -863,6 +865,11 @@ public actor MessageRatchet {
                 ratchetMessage: message,
                 usingMessageKey: key.messageKey,
                 messageNumber: decrypted.messageNumber)
+            // A stashed key opened it, so this frame is older than our state and the keys it
+            // carries are older than ours, not new ones: the epoch they set off never happened.
+            if let stateBeforeEpoch {
+                state = await stateBeforeEpoch.setSkippedHeaderMessages(state.skippedHeaderMessages)
+            }
             state = await state.removeSkippedMessage(key)
             state = await markAlreadyDecrypted(
                 decrypted.messageNumber,

@@ -17,13 +17,67 @@ import BinaryCodable
 import Testing
 @testable import DoubleRatchetKit
 
+/// One lane as its two hosts drive it: each side re-initializes the session before every send
+/// and every receive.
+private struct HostedLane: Sendable {
+    let tests: MessageRatchetTests
+    let aliceManager: MessageRatchet
+    let bobManager: MessageRatchet
+    let aliceIdentity: SessionIdentity
+    let bobIdentity: SessionIdentity
+    let bundle: MessageRatchetTests.KeyBundle
+
+    func aliceSend(_ text: String, localKeys: LocalKeys? = nil) async throws -> RatchetMessage {
+        guard let identity = await tests.getSessionIdentity(for: bobIdentity.id) else {
+            throw MessageRatchetTests.TestErrors.identityNotFound
+        }
+        try await aliceManager.initiateSession(
+            sessionIdentity: identity,
+            sessionSymmetricKey: tests.aliceDbsk,
+            remoteKeys: bundle.bobPublic,
+            localKeys: localKeys ?? bundle.alicePrivate)
+        return try await aliceManager.encrypt(plainText: Data(text.utf8), sessionId: identity.id)
+    }
+
+    func bobReceive(_ message: RatchetMessage) async throws -> Data {
+        guard let identity = await tests.getSessionIdentity(for: aliceIdentity.id) else {
+            throw MessageRatchetTests.TestErrors.identityNotFound
+        }
+        try await bobManager.respondToSession(
+            sessionIdentity: identity,
+            sessionSymmetricKey: tests.bobDBSK,
+            header: message.header,
+            localKeys: bundle.bobPrivate)
+        return try await bobManager.decrypt(message, sessionId: identity.id)
+    }
+
+    func bobSend(_ text: String) async throws -> RatchetMessage {
+        guard let identity = await tests.getSessionIdentity(for: aliceIdentity.id) else {
+            throw MessageRatchetTests.TestErrors.identityNotFound
+        }
+        try await bobManager.initiateSession(
+            sessionIdentity: identity,
+            sessionSymmetricKey: tests.bobDBSK,
+            remoteKeys: bundle.alicePublic,
+            localKeys: bundle.bobPrivate)
+        return try await bobManager.encrypt(plainText: Data(text.utf8), sessionId: identity.id)
+    }
+
+    func aliceReceive(_ message: RatchetMessage, localKeys: LocalKeys? = nil) async throws -> Data {
+        guard let identity = await tests.getSessionIdentity(for: bobIdentity.id) else {
+            throw MessageRatchetTests.TestErrors.identityNotFound
+        }
+        try await aliceManager.respondToSession(
+            sessionIdentity: identity,
+            sessionSymmetricKey: tests.aliceDbsk,
+            header: message.header,
+            localKeys: localKeys ?? bundle.alicePrivate)
+        return try await aliceManager.decrypt(message, sessionId: identity.id)
+    }
+}
+
 extension MessageRatchetTests {
-    /// Two 4.1 peers converge on OTK retirement: after both handshake
-    /// directions finish and each side has seen the other's advertisement,
-    /// headers stop embedding the bootstrap OTK public half and stop citing
-    /// the peer's OTK id — without diverging the chains.
-    @Test
-    func testOneTimeKeyRetirementConvergence() async throws {
+    private func withHostedLane(_ body: (HostedLane) async throws -> Void) async throws {
         let aliceManager = MessageRatchet(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
         await aliceManager.setDelegate(self)
         let bobManager = MessageRatchet(executor: executor, ratchetConfiguration: testableRatchetConfiguration)
@@ -31,110 +85,124 @@ extension MessageRatchetTests {
 
         do {
             let (aliceIdentity, bobIdentity, bundle) = try await createKeys()
-
-            func aliceSend(_ text: String) async throws -> RatchetMessage {
-                guard let identity = getSessionIdentity(for: bobIdentity.id) else {
-                    throw TestErrors.identityNotFound
-                }
-                try await aliceManager.initiateSession(
-                    sessionIdentity: identity,
-                    sessionSymmetricKey: aliceDbsk,
-                    remoteKeys: bundle.bobPublic,
-                    localKeys: bundle.alicePrivate)
-                return try await aliceManager.encrypt(plainText: Data(text.utf8), sessionId: identity.id)
-            }
-
-            func bobReceive(_ message: RatchetMessage) async throws -> Data {
-                guard let identity = getSessionIdentity(for: aliceIdentity.id) else {
-                    throw TestErrors.identityNotFound
-                }
-                try await bobManager.respondToSession(
-                    sessionIdentity: identity,
-                    sessionSymmetricKey: bobDBSK,
-                    header: message.header,
-                    localKeys: bundle.bobPrivate)
-                return try await bobManager.decrypt(message, sessionId: identity.id)
-            }
-
-            func bobSend(_ text: String) async throws -> RatchetMessage {
-                guard let identity = getSessionIdentity(for: aliceIdentity.id) else {
-                    throw TestErrors.identityNotFound
-                }
-                try await bobManager.initiateSession(
-                    sessionIdentity: identity,
-                    sessionSymmetricKey: bobDBSK,
-                    remoteKeys: bundle.alicePublic,
-                    localKeys: bundle.bobPrivate)
-                return try await bobManager.encrypt(plainText: Data(text.utf8), sessionId: identity.id)
-            }
-
-            func aliceReceive(_ message: RatchetMessage) async throws -> Data {
-                guard let identity = getSessionIdentity(for: bobIdentity.id) else {
-                    throw TestErrors.identityNotFound
-                }
-                try await aliceManager.respondToSession(
-                    sessionIdentity: identity,
-                    sessionSymmetricKey: aliceDbsk,
-                    header: message.header,
-                    localKeys: bundle.alicePrivate)
-                return try await aliceManager.decrypt(message, sessionId: identity.id)
-            }
-
-            // Bootstrap frame: embeds Alice's OTK and cites Bob's OTK id.
-            let a1 = try await aliceSend("A1")
-            #expect(a1.header.remoteOneTimePublicKey != nil)
-            #expect(a1.header.oneTimeKeyId != nil)
-            #expect(try await bobReceive(a1) == Data("A1".utf8))
-
-            // Bob's first reply: his sending handshake is still open at the
-            // retirement gate, so he still embeds his OTK and cites Alice's.
-            let b1 = try await bobSend("B1")
-            #expect(b1.header.remoteOneTimePublicKey != nil)
-            #expect(b1.header.oneTimeKeyId != nil)
-            #expect(try await aliceReceive(b1) == Data("B1".utf8))
-
-            // Alice has now finished both handshakes and seen Bob's
-            // advertisement: she retires her OTK (embed nil) but still cites
-            // Bob's OTK id, since he has not retired yet.
-            let a2 = try await aliceSend("A2")
-            #expect(a2.header.remoteOneTimePublicKey == nil)
-            #expect(a2.header.oneTimeKeyId != nil)
-            #expect(try await bobReceive(a2) == Data("A2".utf8))
-
-            // Bob adopted Alice's retirement and retires his own key: nothing
-            // embedded, nothing cited.
-            let b2 = try await bobSend("B2")
-            #expect(b2.header.remoteOneTimePublicKey == nil)
-            #expect(b2.header.oneTimeKeyId == nil)
-            #expect(try await aliceReceive(b2) == Data("B2".utf8))
-
-            // Fully converged: no OTK material in either direction, and the
-            // lane keeps working across further host re-initializations.
-            let a3 = try await aliceSend("A3")
-            #expect(a3.header.remoteOneTimePublicKey == nil)
-            #expect(a3.header.oneTimeKeyId == nil)
-            #expect(try await bobReceive(a3) == Data("A3".utf8))
-
-            let b3 = try await bobSend("B3")
-            #expect(b3.header.remoteOneTimePublicKey == nil)
-            #expect(b3.header.oneTimeKeyId == nil)
-            #expect(try await aliceReceive(b3) == Data("B3".utf8))
-
-            for round in 0 ..< 5 {
-                let a = try await aliceSend("A-extra-\(round)")
-                #expect(a.header.remoteOneTimePublicKey == nil)
-                #expect(try await bobReceive(a) == Data("A-extra-\(round)".utf8))
-                let b = try await bobSend("B-extra-\(round)")
-                #expect(b.header.remoteOneTimePublicKey == nil)
-                #expect(try await aliceReceive(b) == Data("B-extra-\(round)".utf8))
-            }
-
+            try await body(HostedLane(
+                tests: self,
+                aliceManager: aliceManager,
+                bobManager: bobManager,
+                aliceIdentity: aliceIdentity,
+                bobIdentity: bobIdentity,
+                bundle: bundle))
             try await aliceManager.flushAndClose()
             try await bobManager.flushAndClose()
         } catch {
             try? await aliceManager.flushAndClose()
             try? await bobManager.flushAndClose()
             throw error
+        }
+    }
+
+    /// Two 4.1 peers converge on OTK retirement: after both handshake
+    /// directions finish and each side has seen the other's advertisement,
+    /// headers stop embedding the bootstrap OTK public half and stop citing
+    /// the peer's OTK id — without diverging the chains.
+    @Test
+    func testOneTimeKeyRetirementConvergence() async throws {
+        try await withHostedLane { lane in
+            // Bootstrap frame: embeds Alice's OTK and cites Bob's OTK id.
+            let a1 = try await lane.aliceSend("A1")
+            #expect(a1.header.remoteOneTimePublicKey != nil)
+            #expect(a1.header.oneTimeKeyId != nil)
+            #expect(try await lane.bobReceive(a1) == Data("A1".utf8))
+
+            // Bob's first reply: his sending handshake is still open at the
+            // retirement gate, so he still embeds his OTK and cites Alice's.
+            let b1 = try await lane.bobSend("B1")
+            #expect(b1.header.remoteOneTimePublicKey != nil)
+            #expect(b1.header.oneTimeKeyId != nil)
+            #expect(try await lane.aliceReceive(b1) == Data("B1".utf8))
+
+            // Alice has now finished both handshakes and seen Bob's
+            // advertisement: she retires her OTK (embed nil) but still cites
+            // Bob's OTK id, since he has not retired yet.
+            let a2 = try await lane.aliceSend("A2")
+            #expect(a2.header.remoteOneTimePublicKey == nil)
+            #expect(a2.header.oneTimeKeyId != nil)
+            #expect(try await lane.bobReceive(a2) == Data("A2".utf8))
+
+            // Bob adopted Alice's retirement and retires his own key: nothing
+            // embedded, nothing cited.
+            let b2 = try await lane.bobSend("B2")
+            #expect(b2.header.remoteOneTimePublicKey == nil)
+            #expect(b2.header.oneTimeKeyId == nil)
+            #expect(try await lane.aliceReceive(b2) == Data("B2".utf8))
+
+            // Fully converged: no OTK material in either direction, and the
+            // lane keeps working across further host re-initializations.
+            let a3 = try await lane.aliceSend("A3")
+            #expect(a3.header.remoteOneTimePublicKey == nil)
+            #expect(a3.header.oneTimeKeyId == nil)
+            #expect(try await lane.bobReceive(a3) == Data("A3".utf8))
+
+            let b3 = try await lane.bobSend("B3")
+            #expect(b3.header.remoteOneTimePublicKey == nil)
+            #expect(b3.header.oneTimeKeyId == nil)
+            #expect(try await lane.aliceReceive(b3) == Data("B3".utf8))
+
+            for round in 0 ..< 5 {
+                let a = try await lane.aliceSend("A-extra-\(round)")
+                #expect(a.header.remoteOneTimePublicKey == nil)
+                #expect(try await lane.bobReceive(a) == Data("A-extra-\(round)".utf8))
+                let b = try await lane.bobSend("B-extra-\(round)")
+                #expect(b.header.remoteOneTimePublicKey == nil)
+                #expect(try await lane.aliceReceive(b) == Data("B-extra-\(round)".utf8))
+            }
+        }
+    }
+
+    /// F3, Alice's first frame after Bob's reply, retires her one-time key and overtakes F2,
+    /// which still embeds it. F2 reads as a key change but opens from the old chain's stash.
+    /// Committing that epoch left Bob on a root Alice never saw, so his next frame failed on
+    /// her with `maxSkippedHeadersExceeded`.
+    @Test
+    func testFrameOvertakenByOneTimeKeyRetirementKeepsTheLane() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("F1")) == Data("F1".utf8))
+            let f2 = try await lane.aliceSend("F2")
+            #expect(try await lane.aliceReceive(lane.bobSend("R1")) == Data("R1".utf8))
+            let f3 = try await lane.aliceSend("F3")
+            #expect(f2.header.remoteOneTimePublicKey != nil)
+            #expect(f3.header.remoteOneTimePublicKey == nil)
+
+            #expect(try await lane.bobReceive(f3) == Data("F3".utf8))
+            #expect(try await lane.bobReceive(f2) == Data("F2".utf8))
+
+            #expect(try await lane.aliceReceive(lane.bobSend("R2")) == Data("R2".utf8))
+            #expect(try await lane.bobReceive(lane.aliceSend("F4")) == Data("F4".utf8))
+        }
+    }
+
+    /// A genuine epoch overtakes the frame before it. That frame's old keys read as a second
+    /// key change and it opens from the epoch's stash of the old chain, but the epoch Bob
+    /// already holds is the one that stands.
+    @Test
+    func testFrameOvertakenByAnEpochKeepsTheEpoch() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A1")) == Data("A1".utf8))
+            let late = try await lane.aliceSend("late")
+            let rotated = crypto.generateCurve25519PrivateKey()
+            let rotatedKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), rotated.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            let epoch = try await lane.aliceSend("epoch", localKeys: rotatedKeys)
+
+            #expect(try await lane.bobReceive(epoch) == Data("epoch".utf8))
+            #expect(try await lane.bobReceive(late) == Data("late".utf8))
+
+            let reply = try await lane.bobSend("reply")
+            #expect(try await lane.aliceReceive(reply, localKeys: rotatedKeys) == Data("reply".utf8))
+            let next = try await lane.aliceSend("next", localKeys: rotatedKeys)
+            #expect(try await lane.bobReceive(next) == Data("next".utf8))
         }
     }
 

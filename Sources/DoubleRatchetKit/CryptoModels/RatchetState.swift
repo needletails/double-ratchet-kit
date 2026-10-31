@@ -693,6 +693,12 @@ struct RatchetState: Sendable, Codable {
         return ratchetState
     }
 
+    func setSkippedHeaderMessages(_ messages: [SkippedHeaderMessage]) async -> Self {
+        var ratchetState = self
+        ratchetState.skippedHeaderMessages = messages
+        return ratchetState
+    }
+
     /// Drops the first `count` entries from `skippedHeaderMessages`.
     /// - Parameter count: Number of oldest entries to remove.
     /// - Returns: A new `RatchetState` with those entries removed.
