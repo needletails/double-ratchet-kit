@@ -721,7 +721,6 @@ public actor MessageRatchet {
     ///   - `RatchetError.stateUninitialized` if the ratchet session state is missing.
     ///   - `RatchetError.headerDecryptFailed` if the header cannot be decrypted correctly.
     ///   - `RatchetError.decryptionFailed` if payload decryption fails.
-    ///   - `RatchetError.expiredKey` if the message uses an expired key (replay or out-of-order).
     ///   - `RatchetError.missingOneTimeKey` if OTK consistency is enforced and the key is missing.
     ///   - `RatchetError.maxSkippedHeadersExceeded` if too many messages were skipped.
     ///   - Other errors from cryptographic operations and key derivations.
@@ -851,21 +850,19 @@ public actor MessageRatchet {
         state = await state.updateReceivingNextHeaderKey(newReceivingHeaderKey)
         
         // Skipped-key lookup. The chain tag (sender's per-turn ratchet key) disambiguates
-        // equal message indices across ratchet turns.
-        if let key = state.skippedMessageKeys.first(where: {
-            $0.messageIndex == decrypted.messageNumber &&
-            $0.remoteLongTermPublicKey == header.remoteLongTermPublicKey &&
-            $0.remoteMLKEMPublicKey == header.remoteMLKEMPublicKey.rawRepresentation &&
-            $0.chainRatchetPublicKey == decrypted.ratchetPublicKey
-        }) {
+        // equal message indices across ratchet turns, but a sender epoch keeps its ratchet key,
+        // so entries can share it across chains. Only the key that opens the frame is its key;
+        // with none, the frame carries on to its chain.
+        for key in state.skippedMessageKeys where
+            key.messageIndex == decrypted.messageNumber &&
+            key.remoteLongTermPublicKey == header.remoteLongTermPublicKey &&
+            key.remoteMLKEMPublicKey == header.remoteMLKEMPublicKey.rawRepresentation &&
+            key.chainRatchetPublicKey == decrypted.ratchetPublicKey {
             logger.log(level: .trace, message: "Trying skipped message key index \(key.messageIndex)")
-            if let oneTimeKey = key.remoteOneTimePublicKey, oneTimeKey != header.remoteOneTimePublicKey?.rawRepresentation {
-                throw RatchetError.expiredKey
-            }
-            let plaintext = try await processFoundMessage(
+            guard let plaintext = try? await processFoundMessage(
                 ratchetMessage: message,
                 usingMessageKey: key.messageKey,
-                messageNumber: decrypted.messageNumber)
+                messageNumber: decrypted.messageNumber) else { continue }
             // A stashed key opened it, so this frame is older than our state and the keys it
             // carries are older than ours, not new ones: the change they read as never happened.
             if let stateBeforeKeyChange {

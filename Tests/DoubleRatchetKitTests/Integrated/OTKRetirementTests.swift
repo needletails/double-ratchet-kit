@@ -390,6 +390,49 @@ extension MessageRatchetTests {
         }
     }
 
+    /// An epoch that changes only the one-time key leaves the tail looking like the new chain
+    /// but for that key. E1 and E2 hit the tail entries, which threw `expiredKey`.
+    @Test
+    func testOneTimeKeyEpochOpensPastTheOldChainsTail() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A0")) == Data("A0".utf8))
+            let alice = lane.bundle.alicePrivate
+            let fresh = crypto.generateCurve25519PrivateKey()
+            let freshKeys = try LocalKeys(
+                longTerm: alice.longTerm,
+                oneTime: X25519PrivateKey(id: UUID(), fresh.rawRepresentation),
+                mlKEM: alice.mlKEM)
+            let e0 = try await lane.aliceSend("E0", localKeys: freshKeys)
+            let e1 = try await lane.aliceSend("E1", localKeys: freshKeys)
+            let e2 = try await lane.aliceSend("E2", localKeys: freshKeys)
+
+            #expect(try await lane.bobReceive(e0) == Data("E0".utf8))
+            #expect(try await lane.bobReceive(e2) == Data("E2".utf8))
+            #expect(try await lane.bobReceive(e1) == Data("E1".utf8))
+        }
+    }
+
+    /// With no one-time key on the old chain the tail entries carry nothing to tell them from
+    /// the epoch's chain, so E2, the first frame on the tail's first index, took the wrong key.
+    @Test
+    func testEpochToAFirstOneTimeKeyOpensPastTheOldChainsTail() async throws {
+        try await withHostedLane { lane in
+            let alice = lane.bundle.alicePrivate
+            let noOneTimeKey = LocalKeys(longTerm: alice.longTerm, oneTime: nil, mlKEM: alice.mlKEM)
+            let n0 = try await lane.aliceSend("N0", localKeys: noOneTimeKey)
+            let n1 = try await lane.aliceSend("N1", localKeys: noOneTimeKey)
+            #expect(try await lane.bobReceive(n0) == Data("N0".utf8))
+            #expect(try await lane.bobReceive(n1) == Data("N1".utf8))
+
+            let e0 = try await lane.aliceSend("E0", localKeys: alice)
+            let e1 = try await lane.aliceSend("E1", localKeys: alice)
+            let e2 = try await lane.aliceSend("E2", localKeys: alice)
+            #expect(try await lane.bobReceive(e0) == Data("E0".utf8))
+            #expect(try await lane.bobReceive(e1) == Data("E1".utf8))
+            #expect(try await lane.bobReceive(e2) == Data("E2".utf8))
+        }
+    }
+
     /// The retirement advertisement is an additive optional: a header without
     /// it (what a 4.0 sender emits — the nil optional is omitted from the
     /// encoding) decodes as nil, and a 4.1 header round-trips the flag.

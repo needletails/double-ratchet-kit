@@ -130,7 +130,6 @@ Decrypt a received message.
 - `RatchetError.stateUninitialized`: If the session state is not initialized
 - `RatchetError.decryptionFailed`: If decryption fails
 - `RatchetError.headerDecryptFailed`: If header decryption fails
-- `RatchetError.expiredKey`: If the message uses an expired key
 - `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
 - `RatchetError.maxSkippedHeadersExceeded`: If too many messages were skipped
 

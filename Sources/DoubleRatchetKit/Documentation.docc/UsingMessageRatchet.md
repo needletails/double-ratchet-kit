@@ -144,7 +144,6 @@ let decryptedMessage = try await ratchetManager.decrypt(
 - `RatchetError.stateUninitialized`: If the session state is not initialized
 - `RatchetError.decryptionFailed`: If decryption fails
 - `RatchetError.headerDecryptFailed`: If header decryption fails
-- `RatchetError.expiredKey`: If the message uses an expired key
 - `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
 - `RatchetError.maxSkippedHeadersExceeded`: If too many messages were skipped
 
@@ -328,8 +327,6 @@ do {
     // Decryption operation failed
 } catch RatchetError.headerDecryptFailed {
     // Header decryption failed
-} catch RatchetError.expiredKey {
-    // Message uses an expired key
 } catch RatchetError.maxSkippedHeadersExceeded {
     // Too many messages were skipped
 } catch {
