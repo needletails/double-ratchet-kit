@@ -782,11 +782,13 @@ public actor MessageRatchet {
         // hosts never emit this transition (they never clear the state copy),
         // so handling it unconditionally is safe. Identity re-keys always come
         // with a changed long-term or ML-KEM key and still take the epoch path.
+        var stateBeforeKeyChange: RatchetState?
         if state.receivingHandshakeFinished,
            state.remoteOneTimePublicKey != nil,
            message.header.remoteOneTimePublicKey == nil,
            state.remoteLongTermPublicKey == message.header.remoteLongTermPublicKey,
            state.remoteMLKEMPublicKey == message.header.remoteMLKEMPublicKey {
+            stateBeforeKeyChange = state
             state = await state.updateRemoteOneTimePublicKey(nil)
             // Sticky: host merges re-supply the stale remote key from cached props;
             // without this flag an epoch would re-inject it and re-cite a key the
@@ -795,9 +797,8 @@ public actor MessageRatchet {
             configuration.state = state
         }
         
-        var stateBeforeEpoch: RatchetState?
         if await core.hasReceivingKeyChanges(state: state, header: message.header) {
-            stateBeforeEpoch = state
+            stateBeforeKeyChange = state
             configuration.state = state
             state = try await core.diffieHellmanRatchet(
                 header: message.header,
@@ -866,13 +867,13 @@ public actor MessageRatchet {
                 usingMessageKey: key.messageKey,
                 messageNumber: decrypted.messageNumber)
             // A stashed key opened it, so this frame is older than our state and the keys it
-            // carries are older than ours, not new ones: the epoch they set off never happened.
-            if let stateBeforeEpoch {
+            // carries are older than ours, not new ones: the change they read as never happened.
+            if let stateBeforeKeyChange {
                 // Keep the working stash only if the frame consumed an entry from it. A scan that
                 // opened this header would leave used keys there and trim live ones.
-                let held = stateBeforeEpoch.skippedHeaderMessages
+                let held = stateBeforeKeyChange.skippedHeaderMessages
                 let left = state.skippedHeaderMessages
-                state = await stateBeforeEpoch.setSkippedHeaderMessages(left.count < held.count ? left : held)
+                state = await stateBeforeKeyChange.setSkippedHeaderMessages(left.count < held.count ? left : held)
             }
             let stashedKeys = state.skippedMessageKeys.count
             state = await state.removeSkippedMessage(key)

@@ -296,6 +296,34 @@ extension MessageRatchetTests {
         }
     }
 
+    /// A lane with no one-time key takes one in a genuine epoch, then a frame from before it
+    /// arrives with none. That reads as the peer retiring the key, but the frame opens from the
+    /// stash, so it is older than the row and the key stands. Adopting the nil left E1 reading
+    /// as a key change and Bob's reply failed on Alice.
+    @Test
+    func testFrameOvertakenByANewOneTimeKeyKeepsTheKey() async throws {
+        try await withHostedLane { lane in
+            let alice = lane.bundle.alicePrivate
+            let noOneTimeKey = LocalKeys(longTerm: alice.longTerm, oneTime: nil, mlKEM: alice.mlKEM)
+            let n0 = try await lane.aliceSend("N0", localKeys: noOneTimeKey)
+            let n1 = try await lane.aliceSend("N1", localKeys: noOneTimeKey)
+            let n2 = try await lane.aliceSend("N2", localKeys: noOneTimeKey)
+            let e0 = try await lane.aliceSend("E0", localKeys: alice)
+            let e1 = try await lane.aliceSend("E1", localKeys: alice)
+            #expect(n1.header.remoteOneTimePublicKey == nil)
+            #expect(e0.header.remoteOneTimePublicKey != nil)
+
+            #expect(try await lane.bobReceive(n0) == Data("N0".utf8))
+            #expect(try await lane.bobReceive(n2) == Data("N2".utf8))
+            #expect(try await lane.bobReceive(e0) == Data("E0".utf8))
+            #expect(try await lane.bobReceive(n1) == Data("N1".utf8))
+            #expect(try await lane.bobReceive(e1) == Data("E1".utf8))
+
+            #expect(try await lane.aliceReceive(lane.bobSend("R")) == Data("R".utf8))
+            #expect(try await lane.bobReceive(lane.aliceSend("A")) == Data("A".utf8))
+        }
+    }
+
     /// The retirement advertisement is an additive optional: a header without
     /// it (what a 4.0 sender emits — the nil optional is omitted from the
     /// encoding) decodes as nil, and a 4.1 header round-trips the flag.
