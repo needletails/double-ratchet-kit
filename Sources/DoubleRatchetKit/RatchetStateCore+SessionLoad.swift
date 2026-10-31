@@ -437,8 +437,7 @@ extension RatchetStateCore {
                     configuration: defaultRatchetConfiguration) else {
                 break
             }
-            if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == oldChainTag })
-                && !state.alreadyDecryptedMessageNumbers.contains(i) {
+            if !state.alreadyDecryptedMessageNumbers.contains(i) {
                 state = await state.updateSkippedMessage(skippedMessageKey: SkippedMessageKey(
                     remoteLongTermPublicKey: state.remoteLongTermPublicKey,
                     remoteOneTimePublicKey: state.remoteOneTimePublicKey?.rawRepresentation,

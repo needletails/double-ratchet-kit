@@ -1076,7 +1076,7 @@ public actor MessageRatchet {
                     messageKey: messageKey,
                     chainRatchetPublicKey: chainTag)
                 
-                if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == chainTag }) && !state.alreadyDecryptedMessageNumbers.contains(i) {
+                if !state.alreadyDecryptedMessageNumbers.contains(i) {
                     state = await state.updateSkippedMessage(skippedMessageKey: skipped)
                 }
                 state = await state.updateSkippedMessageIndex(i)
@@ -1254,8 +1254,7 @@ public actor MessageRatchet {
                     let nextReceivingKey = try await core.deriveChainKey(
                         from: oldReceivingKey,
                         configuration: ratchetConfiguration)
-                    if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == oldChainTag })
-                        && !state.alreadyDecryptedMessageNumbers.contains(i) {
+                    if !state.alreadyDecryptedMessageNumbers.contains(i) {
                         state = await state.updateSkippedMessage(skippedMessageKey: SkippedMessageKey(
                             remoteLongTermPublicKey: state.remoteLongTermPublicKey,
                             remoteOneTimePublicKey: state.remoteOneTimePublicKey?.rawRepresentation,

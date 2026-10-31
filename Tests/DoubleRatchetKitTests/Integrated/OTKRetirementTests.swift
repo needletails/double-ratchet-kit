@@ -324,6 +324,72 @@ extension MessageRatchetTests {
         }
     }
 
+    /// A sender epoch keeps its ratchet key, so the epoch's tail of the old chain shares the new
+    /// chain's tag. E2's gap found the tail entry at index 1 and stashed nothing, so E1 failed.
+    @Test
+    func testEpochFramesOutOfOrderKeepTheirKeys() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A0")) == Data("A0".utf8))
+            let rotated = crypto.generateCurve25519PrivateKey()
+            let rotatedKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), rotated.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            let e0 = try await lane.aliceSend("E0", localKeys: rotatedKeys)
+            let e1 = try await lane.aliceSend("E1", localKeys: rotatedKeys)
+            let e2 = try await lane.aliceSend("E2", localKeys: rotatedKeys)
+
+            #expect(try await lane.bobReceive(e0) == Data("E0".utf8))
+            #expect(try await lane.bobReceive(e2) == Data("E2".utf8))
+            #expect(try await lane.bobReceive(e1) == Data("E1".utf8))
+        }
+    }
+
+    /// The same collision when a turn stashes the epoch chain's tail: E1 is left behind.
+    @Test
+    func testEpochFrameLeftBehindByATurnKeepsItsKey() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A0")) == Data("A0".utf8))
+            let rotated = crypto.generateCurve25519PrivateKey()
+            let rotatedKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), rotated.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            let e0 = try await lane.aliceSend("E0", localKeys: rotatedKeys)
+            let e1 = try await lane.aliceSend("E1", localKeys: rotatedKeys)
+
+            #expect(try await lane.bobReceive(e0) == Data("E0".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("R"), localKeys: rotatedKeys) == Data("R".utf8))
+            #expect(try await lane.bobReceive(lane.aliceSend("Z0", localKeys: rotatedKeys)) == Data("Z0".utf8))
+            #expect(try await lane.bobReceive(e1) == Data("E1".utf8))
+        }
+    }
+
+    /// The same collision when a second epoch stashes the first one's tail: E1 is left behind.
+    @Test
+    func testEpochFrameLeftBehindByAnEpochKeepsItsKey() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A0")) == Data("A0".utf8))
+            let first = crypto.generateCurve25519PrivateKey()
+            let firstKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), first.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            let second = crypto.generateCurve25519PrivateKey()
+            let secondKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), second.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            let e0 = try await lane.aliceSend("E0", localKeys: firstKeys)
+            let e1 = try await lane.aliceSend("E1", localKeys: firstKeys)
+            let g0 = try await lane.aliceSend("G0", localKeys: secondKeys)
+
+            #expect(try await lane.bobReceive(e0) == Data("E0".utf8))
+            #expect(try await lane.bobReceive(g0) == Data("G0".utf8))
+            #expect(try await lane.bobReceive(e1) == Data("E1".utf8))
+        }
+    }
+
     /// The retirement advertisement is an additive optional: a header without
     /// it (what a 4.0 sender emits — the nil optional is omitted from the
     /// encoding) decodes as nil, and a 4.1 header round-trips the flag.
