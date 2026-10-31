@@ -782,11 +782,9 @@ public actor MessageRatchet {
         // so handling it unconditionally is safe. Identity re-keys always come
         // with a changed long-term or ML-KEM key and still take the epoch path.
         var stateBeforeKeyChange: RatchetState?
-        if state.receivingHandshakeFinished,
-           state.remoteOneTimePublicKey != nil,
+        if state.remoteOneTimePublicKey != nil,
            message.header.remoteOneTimePublicKey == nil,
-           state.remoteLongTermPublicKey == message.header.remoteLongTermPublicKey,
-           state.remoteMLKEMPublicKey == message.header.remoteMLKEMPublicKey {
+           await !core.hasReceivingKeyChanges(state: state, header: message.header) {
             stateBeforeKeyChange = state
             state = await state.updateRemoteOneTimePublicKey(nil)
             // Sticky: host merges re-supply the stale remote key from cached props;

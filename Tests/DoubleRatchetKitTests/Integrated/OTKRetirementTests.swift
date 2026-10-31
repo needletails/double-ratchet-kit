@@ -433,6 +433,87 @@ extension MessageRatchetTests {
         }
     }
 
+    /// The rotated key reaches Alice's row on a receive. Writing it there hid the change from
+    /// her next send, which embedded the new key on the unchanged chain. Bob ran an epoch she
+    /// never mirrored and E0 failed with `maxSkippedHeadersExceeded`.
+    @Test
+    func testRotationSeenOnAChainFrameStillRunsTheEpoch() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A1")) == Data("A1".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("B1")) == Data("B1".utf8))
+            #expect(try await lane.bobReceive(lane.aliceSend("A2")) == Data("A2".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("B2")) == Data("B2".utf8))
+            let rotated = crypto.generateCurve25519PrivateKey()
+            let rotatedKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), rotated.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+
+            #expect(try await lane.aliceReceive(lane.bobSend("B3"), localKeys: rotatedKeys) == Data("B3".utf8))
+            #expect(try await lane.bobReceive(lane.aliceSend("E0", localKeys: rotatedKeys)) == Data("E0".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("B4"), localKeys: rotatedKeys) == Data("B4".utf8))
+        }
+    }
+
+    /// The same when the receive is Bob's retirement frame, whose nil one-time key read as a
+    /// remote key change although it runs no epoch.
+    @Test
+    func testRotationSeenOnARetirementFrameStillRunsTheEpoch() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A1")) == Data("A1".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("B1")) == Data("B1".utf8))
+            let rotated = crypto.generateCurve25519PrivateKey()
+            let rotatedKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), rotated.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            let retirement = try await lane.bobSend("B2")
+            #expect(retirement.header.remoteOneTimePublicKey == nil)
+
+            #expect(try await lane.aliceReceive(retirement, localKeys: rotatedKeys) == Data("B2".utf8))
+            #expect(try await lane.bobReceive(lane.aliceSend("E0", localKeys: rotatedKeys)) == Data("E0".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("B3"), localKeys: rotatedKeys) == Data("B3".utf8))
+        }
+    }
+
+    /// The receive path still has to take rotated keys for a frame that runs PQXDH: here both
+    /// sides rotated and Bob's epoch is keyed to Alice's new keys, so her row needs them to open it.
+    @Test
+    func testEpochKeyedToOurRotatedKeysOpens() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A1")) == Data("A1".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("B1")) == Data("B1".utf8))
+            #expect(try await lane.bobReceive(lane.aliceSend("A2")) == Data("A2".utf8))
+            #expect(try await lane.aliceReceive(lane.bobSend("B2")) == Data("B2".utf8))
+
+            let aliceLongTerm = crypto.generateCurve25519PrivateKey()
+            let aliceKEM = try crypto.generateMLKem1024PrivateKey()
+            let aliceRotated = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), aliceLongTerm.rawRepresentation),
+                oneTime: nil,
+                mlKEM: MLKEMPrivateKey(id: UUID(), aliceKEM.encode()))
+            let aliceCurrent = try RemoteKeys(
+                longTerm: X25519PublicKey(id: aliceRotated.longTerm.id, aliceLongTerm.publicKey.rawRepresentation),
+                oneTime: nil,
+                mlKEM: MLKEMPublicKey(id: aliceRotated.mlKEM.id, aliceKEM.publicKey.rawRepresentation))
+            let bobLongTerm = crypto.generateCurve25519PrivateKey()
+            let bobRotated = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), bobLongTerm.rawRepresentation),
+                oneTime: lane.bundle.bobPrivate.oneTime,
+                mlKEM: lane.bundle.bobPrivate.mlKEM)
+
+            let bobLane = try #require(getSessionIdentity(for: lane.aliceIdentity.id))
+            try await lane.bobManager.initiateSession(
+                sessionIdentity: bobLane,
+                sessionSymmetricKey: bobDBSK,
+                remoteKeys: aliceCurrent,
+                localKeys: bobRotated)
+            let epoch = try await lane.bobManager.encrypt(plainText: Data("epoch".utf8), sessionId: bobLane.id)
+
+            #expect(try await lane.aliceReceive(epoch, localKeys: aliceRotated) == Data("epoch".utf8))
+        }
+    }
+
     /// The retirement advertisement is an additive optional: a header without
     /// it (what a 4.0 sender emits — the nil optional is omitted from the
     /// encoding) decodes as nil, and a 4.1 header round-trips the flag.
