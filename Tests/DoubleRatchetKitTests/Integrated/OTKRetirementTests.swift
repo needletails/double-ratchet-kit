@@ -225,6 +225,47 @@ extension MessageRatchetTests {
         }
     }
 
+    /// F2 opens from the old chain's stash after Y0 moved the row on. Marking its index on Y
+    /// stopped Y2's gap stashing index 1, so Y1 failed.
+    @Test
+    func testFrameOnTheOldChainDoesNotHideTheNewChainsKey() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("F1")) == Data("F1".utf8))
+            let f2 = try await lane.aliceSend("F2")
+            #expect(try await lane.aliceReceive(lane.bobSend("R1")) == Data("R1".utf8))
+            let y0 = try await lane.aliceSend("Y0")
+            let y1 = try await lane.aliceSend("Y1")
+            let y2 = try await lane.aliceSend("Y2")
+
+            #expect(try await lane.bobReceive(y0) == Data("Y0".utf8))
+            #expect(try await lane.bobReceive(f2) == Data("F2".utf8))
+            #expect(try await lane.bobReceive(y2) == Data("Y2".utf8))
+            #expect(try await lane.bobReceive(y1) == Data("Y1".utf8))
+        }
+    }
+
+    /// The same mark across a rotation: the frame from before the epoch hid E1's key.
+    @Test
+    func testFrameFromBeforeAnEpochDoesNotHideTheEpochsKey() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("A1")) == Data("A1".utf8))
+            let late = try await lane.aliceSend("late")
+            let rotated = crypto.generateCurve25519PrivateKey()
+            let rotatedKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), rotated.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            let e0 = try await lane.aliceSend("E0", localKeys: rotatedKeys)
+            let e1 = try await lane.aliceSend("E1", localKeys: rotatedKeys)
+            let e2 = try await lane.aliceSend("E2", localKeys: rotatedKeys)
+
+            #expect(try await lane.bobReceive(e0) == Data("E0".utf8))
+            #expect(try await lane.bobReceive(late) == Data("late".utf8))
+            #expect(try await lane.bobReceive(e2) == Data("E2".utf8))
+            #expect(try await lane.bobReceive(e1) == Data("E1".utf8))
+        }
+    }
+
     /// The retirement advertisement is an additive optional: a header without
     /// it (what a 4.0 sender emits — the nil optional is omitted from the
     /// encoding) decodes as nil, and a 4.1 header round-trips the flag.

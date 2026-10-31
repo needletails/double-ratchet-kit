@@ -870,11 +870,17 @@ public actor MessageRatchet {
             if let stateBeforeEpoch {
                 state = await stateBeforeEpoch.setSkippedHeaderMessages(state.skippedHeaderMessages)
             }
+            let stashedKeys = state.skippedMessageKeys.count
             state = await state.removeSkippedMessage(key)
-            state = await markAlreadyDecrypted(
-                decrypted.messageNumber,
-                in: state,
-                configuration: core.defaultRatchetConfiguration)
+            // A key the row never held came from this epoch's tail of the row's own chain, ahead of
+            // its count: marking it stops a replay's epoch stashing it again. A key the row held is
+            // behind the count or on another chain, where a mark would hide a live index from a gap.
+            if state.skippedMessageKeys.count == stashedKeys {
+                state = await markAlreadyDecrypted(
+                    decrypted.messageNumber,
+                    in: state,
+                    configuration: core.defaultRatchetConfiguration)
+            }
 
             configuration.state = state
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
