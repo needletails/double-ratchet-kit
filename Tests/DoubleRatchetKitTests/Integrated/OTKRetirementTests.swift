@@ -266,6 +266,36 @@ extension MessageRatchetTests {
         }
     }
 
+    /// The late frame opens its header from the epoch's scan, which adds every key before it
+    /// to the stash and trims the front. The row kept that working stash, so E1 to E4 lost
+    /// their header keys and failed with `maxSkippedHeadersExceeded`.
+    @Test
+    func testFrameAcrossAnEpochKeepsTheRowsHeaderStash() async throws {
+        try await withHostedLane { lane in
+            for index in 0 ..< 94 {
+                let frame = try await lane.aliceSend("old \(index)")
+                #expect(try await lane.bobReceive(frame) == Data("old \(index)".utf8))
+            }
+            let late = try await lane.aliceSend("late")
+            let rotated = crypto.generateCurve25519PrivateKey()
+            let rotatedKeys = try LocalKeys(
+                longTerm: X25519PrivateKey(id: UUID(), rotated.rawRepresentation),
+                oneTime: lane.bundle.alicePrivate.oneTime,
+                mlKEM: lane.bundle.alicePrivate.mlKEM)
+            var epoch: [RatchetMessage] = []
+            for index in 0 ... 11 {
+                try await epoch.append(lane.aliceSend("E\(index)", localKeys: rotatedKeys))
+            }
+
+            #expect(try await lane.bobReceive(epoch[0]) == Data("E0".utf8))
+            #expect(try await lane.bobReceive(epoch[11]) == Data("E11".utf8))
+            #expect(try await lane.bobReceive(late) == Data("late".utf8))
+            for index in 1 ... 10 {
+                #expect(try await lane.bobReceive(epoch[index]) == Data("E\(index)".utf8))
+            }
+        }
+    }
+
     /// The retirement advertisement is an additive optional: a header without
     /// it (what a 4.0 sender emits — the nil optional is omitted from the
     /// encoding) decodes as nil, and a 4.1 header round-trips the flag.

@@ -868,7 +868,11 @@ public actor MessageRatchet {
             // A stashed key opened it, so this frame is older than our state and the keys it
             // carries are older than ours, not new ones: the epoch they set off never happened.
             if let stateBeforeEpoch {
-                state = await stateBeforeEpoch.setSkippedHeaderMessages(state.skippedHeaderMessages)
+                // Keep the working stash only if the frame consumed an entry from it. A scan that
+                // opened this header would leave used keys there and trim live ones.
+                let held = stateBeforeEpoch.skippedHeaderMessages
+                let left = state.skippedHeaderMessages
+                state = await stateBeforeEpoch.setSkippedHeaderMessages(left.count < held.count ? left : held)
             }
             let stashedKeys = state.skippedMessageKeys.count
             state = await state.removeSkippedMessage(key)
