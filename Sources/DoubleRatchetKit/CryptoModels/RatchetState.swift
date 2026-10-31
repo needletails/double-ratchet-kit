@@ -492,7 +492,8 @@ struct RatchetState: Sendable, Codable {
             $0.messageIndex == message.messageIndex &&
                 $0.remoteLongTermPublicKey == message.remoteLongTermPublicKey &&
                 $0.remoteOneTimePublicKey == message.remoteOneTimePublicKey &&
-                $0.remoteMLKEMPublicKey == message.remoteMLKEMPublicKey
+                $0.remoteMLKEMPublicKey == message.remoteMLKEMPublicKey &&
+                $0.chainRatchetPublicKey == message.chainRatchetPublicKey
         }
         return ratchetState
     }

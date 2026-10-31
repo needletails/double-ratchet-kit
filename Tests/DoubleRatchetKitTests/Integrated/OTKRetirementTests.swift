@@ -206,6 +206,25 @@ extension MessageRatchetTests {
         }
     }
 
+    /// A turn leaves index 1 stashed on both chains. F2 consuming its own entry took Y1's too,
+    /// because the removal ignored the chain, so Y1 failed.
+    @Test
+    func testFrameOnTheOldChainLeavesTheNewChainsKey() async throws {
+        try await withHostedLane { lane in
+            #expect(try await lane.bobReceive(lane.aliceSend("F1")) == Data("F1".utf8))
+            let f2 = try await lane.aliceSend("F2")
+            #expect(try await lane.aliceReceive(lane.bobSend("R1")) == Data("R1".utf8))
+            let y0 = try await lane.aliceSend("Y0")
+            let y1 = try await lane.aliceSend("Y1")
+            let y2 = try await lane.aliceSend("Y2")
+
+            #expect(try await lane.bobReceive(y0) == Data("Y0".utf8))
+            #expect(try await lane.bobReceive(y2) == Data("Y2".utf8))
+            #expect(try await lane.bobReceive(f2) == Data("F2".utf8))
+            #expect(try await lane.bobReceive(y1) == Data("Y1".utf8))
+        }
+    }
+
     /// The retirement advertisement is an additive optional: a header without
     /// it (what a 4.0 sender emits — the nil optional is omitted from the
     /// encoding) decodes as nil, and a 4.1 header round-trips the flag.
