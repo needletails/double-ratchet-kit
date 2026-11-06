@@ -74,6 +74,16 @@ actor RatchetStateCore {
         var sessionSymmetricKey: SymmetricKey
         /// The current ratchet state, if initialized.
         var state: RatchetState?
+        /// Local keys the host supplied on the last receive that differ from the row's. Only
+        /// PQXDH reads them, so the row takes them inside the epoch a key-change frame runs and
+        /// commits with it; a frame that proves stale, or fails, leaves the row's keys alone.
+        var offeredLocalKeys: OfferedLocalKeys?
+    }
+
+    /// Local long-term and ML-KEM private keys the host offered on a receive.
+    struct OfferedLocalKeys: Sendable {
+        let longTerm: LocalLongTermPrivateKey
+        let mlKEM: LocalMLKEMPrivateKey
     }
     
     /// All known session configurations keyed by session identity UUID.

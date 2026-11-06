@@ -782,9 +782,27 @@ public actor MessageRatchet {
         // so handling it unconditionally is safe. Identity re-keys always come
         // with a changed long-term or ML-KEM key and still take the epoch path.
         var stateBeforeKeyChange: RatchetState?
-        if state.remoteOneTimePublicKey != nil,
-           message.header.remoteOneTimePublicKey == nil,
-           await !core.hasReceivingKeyChanges(state: state, header: message.header) {
+        let readsAsKeyChange = await core.hasReceivingKeyChanges(state: state, header: message.header)
+        let readsAsRetirement = state.remoteOneTimePublicKey != nil
+            && message.header.remoteOneTimePublicKey == nil
+            && !readsAsKeyChange
+
+        // A frame whose header a stashed key opens is older than the row: the keys it carries
+        // are ones the row already moved past, not a change. The stash is tried before the
+        // header is read as a retirement or a key change, so the speculative epoch, which
+        // stashes the live header chain and trims the oldest entries, never runs for a stale
+        // frame and nothing has to be rolled back for it.
+        var headerFromStash: (header: EncryptedHeader, consumed: SkippedHeaderMessage)?
+        if readsAsKeyChange || readsAsRetirement {
+            for skipped in state.skippedHeaderMessages {
+                if let opened = try? await attemptHeaderDecryption(encryptedHeader: message.header, chainKey: skipped.chainKey) {
+                    headerFromStash = (opened, skipped)
+                    break
+                }
+            }
+        }
+
+        if headerFromStash == nil, readsAsRetirement, state.receivingHandshakeFinished {
             stateBeforeKeyChange = state
             state = await state.updateRemoteOneTimePublicKey(nil)
             // Sticky: host merges re-supply the stale remote key from cached props;
@@ -793,9 +811,18 @@ public actor MessageRatchet {
             state = await state.updateRemoteOneTimeKeyRetired(true)
             configuration.state = state
         }
-        
-        if await core.hasReceivingKeyChanges(state: state, header: message.header) {
+
+        // Keys the host offered on this receive reach the row only through the epoch a
+        // key-change frame runs. A frame that proves stale restores `stateBeforeKeyChange`,
+        // which never held them, and a frame that fails commits nothing.
+        let offeredLocalKeys = configuration.offeredLocalKeys
+        configuration.offeredLocalKeys = nil
+        if headerFromStash == nil, readsAsKeyChange {
             stateBeforeKeyChange = state
+            if let offeredLocalKeys {
+                state = await state.updateLocalLongTermPrivateKey(offeredLocalKeys.longTerm)
+                state = await state.updateLocalMLKEMPrivateKey(offeredLocalKeys.mlKEM)
+            }
             configuration.state = state
             state = try await core.diffieHellmanRatchet(
                 header: message.header,
@@ -803,9 +830,9 @@ public actor MessageRatchet {
                 persist: false)
             configuration.state = state
         }
-        
+
         // HEADER DECRYPTION PHASE
-        if !state.receivingHandshakeFinished {
+        if headerFromStash == nil, !state.receivingHandshakeFinished {
             
             // If handshake not finished, derive header receiving key using PQXDH final key receiver.
             // This combines multiple DH operations to produce the symmetric key for header encryption.
@@ -823,10 +850,17 @@ public actor MessageRatchet {
         }
         
         // Decrypt the header now that the appropriate key is available.
-        let (header, headerState) = try await decryptHeaderWithWorkingState(
-            encryptedHeader: message.header,
-            configuration: configuration)
-        state = headerState
+        let header: EncryptedHeader
+        if let headerFromStash {
+            header = headerFromStash.header
+            state = await state.removeSkippedHeaderMessage(headerFromStash.consumed)
+        } else {
+            let (opened, headerState) = try await decryptHeaderWithWorkingState(
+                encryptedHeader: message.header,
+                configuration: configuration)
+            header = opened
+            state = headerState
+        }
         
         // Ensure header was successfully decrypted before continuing.
         guard let decrypted = header.decrypted else {
@@ -864,11 +898,10 @@ public actor MessageRatchet {
             // A stashed key opened it, so this frame is older than our state and the keys it
             // carries are older than ours, not new ones: the change they read as never happened.
             if let stateBeforeKeyChange {
-                // Keep the working stash only if the frame consumed an entry from it. A scan that
-                // opened this header would leave used keys there and trim live ones.
-                let held = stateBeforeKeyChange.skippedHeaderMessages
-                let left = state.skippedHeaderMessages
-                state = await stateBeforeKeyChange.setSkippedHeaderMessages(left.count < held.count ? left : held)
+                // The row stands as it was, stash included: a stashed key would have opened this
+                // header before anything was read into the frame, so the scan opened it, and the
+                // scan leaves used keys in the working stash and trims live ones.
+                state = stateBeforeKeyChange
             }
             let stashedKeys = state.skippedMessageKeys.count
             state = await state.removeSkippedMessage(key)
@@ -970,6 +1003,13 @@ public actor MessageRatchet {
                 messageNumber: decrypted.messageNumber,
             )
 
+            // A retirement frame that overtook the peer's first frame: the bootstrap above
+            // needed the held one-time key, and the row drops it now that the frame has opened.
+            if readsAsRetirement {
+                state = await state.updateRemoteOneTimePublicKey(nil)
+                state = await state.updateRemoteOneTimeKeyRetired(true)
+            }
+
             // If an OTK was used for this initial message and enforcement is enabled,
             // notify the delegate only after auth succeeds. The state copy is kept:
             // the key participates in header PQXDH and epoch re-keys until the
@@ -1001,10 +1041,45 @@ public actor MessageRatchet {
             // Subsequent messages after handshake, decrypt using prepared MK, then commit prepared state exactly once
             guard let messageKey = preparedMessageKey else { throw RatchetError.decryptionFailed }
             // Try decrypt without committing state
-            let plaintext = try await processFoundMessage(
-                ratchetMessage: message,
-                usingMessageKey: messageKey,
-                messageNumber: decrypted.messageNumber)
+            let plaintext: Data
+            do {
+                plaintext = try await processFoundMessage(
+                    ratchetMessage: message,
+                    usingMessageKey: messageKey,
+                    messageNumber: decrypted.messageNumber)
+            } catch {
+                // An epoch frame advertising a ratchet key the row had not seen may follow a turn
+                // frame still in flight: the sender stepped on that frame and ran its epoch on the
+                // stepped root, the reverse of the order taken above. The header cannot tell the
+                // two apart; the payload can, so the other order is tried before the frame is
+                // given up.
+                guard performedReceivingStep, readsAsKeyChange, headerFromStash == nil,
+                      let before = stateBeforeKeyChange,
+                      let alternative = try await epochAfterReceivingStep(
+                        before: before,
+                        offeredLocalKeys: offeredLocalKeys,
+                        header: decrypted,
+                        message: message,
+                        configuration: configuration,
+                        opened: state) else {
+                    throw error
+                }
+                let (alternativeState, alternativeKey) = try await deriveMessageKey(
+                    header: header,
+                    configuration: core.defaultRatchetConfiguration,
+                    state: alternative)
+                plaintext = try await processFoundMessage(
+                    ratchetMessage: message,
+                    usingMessageKey: alternativeKey,
+                    messageNumber: decrypted.messageNumber)
+                state = await alternativeState.updateReceivingHandshakeFinished(true)
+            }
+            // A retirement frame whose receiving step finished the handshake here rather than
+            // in the bootstrap branch: the row drops the one-time key now that the frame opened.
+            if readsAsRetirement, state.remoteOneTimePublicKey != nil {
+                state = await state.updateRemoteOneTimePublicKey(nil)
+                state = await state.updateRemoteOneTimeKeyRetired(true)
+            }
             // A receiving ratchet step that completed the initial handshake still owes the
             // one-time-key consumption notification the bootstrap branch would have
             // performed. The state copy is kept until the retirement gate removes it.
@@ -1025,6 +1100,62 @@ public actor MessageRatchet {
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
             return plaintext
         }
+    }
+
+    /// The row in the sender's order for an epoch frame that follows a turn step still in
+    /// flight: the receiving step on the row as it was before the epoch, then the epoch on the
+    /// stepped root. The header key came from PQXDH and the stashes from the old chain, which
+    /// the order does not change, so what the header phase established on `opened` is kept.
+    /// `nil` when the frame advertises no unseen ratchet key, so there is no other order.
+    private func epochAfterReceivingStep(
+        before: RatchetState,
+        offeredLocalKeys: RatchetStateCore.OfferedLocalKeys?,
+        header decrypted: MessageHeader,
+        message: RatchetMessage,
+        configuration: RatchetStateCore.SessionConfiguration,
+        opened: RatchetState
+    ) async throws -> RatchetState? {
+        guard decrypted.ratchetPublicKey != before.remoteRatchetPublicKey,
+              let headerKEMCiphertext = decrypted.ratchetKEMCiphertext,
+              let localRatchetPrivateKey = before.localRatchetPrivateKey,
+              let localRatchetKEMPrivateKey = before.localRatchetKEMPrivateKey,
+              before.rootKey != nil else {
+            return nil
+        }
+        var stepped = before
+        if let offeredLocalKeys {
+            stepped = await stepped.updateLocalLongTermPrivateKey(offeredLocalKeys.longTerm)
+            stepped = await stepped.updateLocalMLKEMPrivateKey(offeredLocalKeys.mlKEM)
+        }
+        // The chain the row was on may still have frames in flight. The epoch below stashes
+        // the turn chain's tail, as the sender's epoch left it; the step would stash this
+        // chain's tail only up to the turn frame's count, which the epoch frame does not carry.
+        stepped = await core.stashOldReceivingChainTail(on: stepped)
+        stepped = try await performReceivingRatchetStep(
+            on: stepped,
+            header: decrypted,
+            headerRatchetKey: decrypted.ratchetPublicKey,
+            headerKEMCiphertext: headerKEMCiphertext,
+            localRatchetPrivateKey: localRatchetPrivateKey,
+            localRatchetKEMPrivateKey: localRatchetKEMPrivateKey)
+        var configuration = configuration
+        configuration.state = stepped
+        var redone = try await core.diffieHellmanRatchet(
+            header: message.header,
+            configuration: configuration,
+            persist: false)
+        if let receivingHeaderKey = opened.receivingHeaderKey {
+            redone = await redone.updateReceivingHeaderKey(receivingHeaderKey)
+        }
+        redone = await redone.updateReceivingNextHeaderKey(opened.nextReceivingHeaderKey)
+        // The header stash the first order left holds the same epoch keys, derived from the
+        // same key, plus whatever the scan passed on its way to this header: the keys of the
+        // epoch's earlier frames when a later one lands first.
+        redone = await redone.setSkippedHeaderMessages(opened.skippedHeaderMessages)
+        if opened.peerSupportsOneTimeKeyRetirement {
+            redone = await redone.updatePeerSupportsOneTimeKeyRetirement(true)
+        }
+        return redone
     }
 
     private func markAlreadyDecrypted(
@@ -1077,8 +1208,12 @@ public actor MessageRatchet {
                 state = await state.updateSkippedMessageIndex(i)
                 receivingKey = nextReceivingKey
             }
+            // The stash is bounded first-in, first-out like the header stash: a gap keeps its
+            // own keys and evicts the oldest unclaimed ones.
+            state = await state.removeFirstSkippedMessages(
+                count: state.skippedMessageKeys.count - configuration.maxSkippedMessageKeys)
         }
-        
+
         // Prepare current MK_n and next CK
         let messageKey = try await core.symmetricKeyRatchet(from: receivingKey) //mk_n
         let nextReceivingChain = try await core.deriveChainKey(from: receivingKey, configuration: configuration) //ck_after_n
@@ -1260,9 +1395,11 @@ public actor MessageRatchet {
                     }
                     oldReceivingKey = nextReceivingKey
                 }
+                state = await state.removeFirstSkippedMessages(
+                    count: state.skippedMessageKeys.count - ratchetConfiguration.maxSkippedMessageKeys)
             }
         }
-        
+
         // 2. Hybrid secrets: our current ratchet private (whose public the sender saw)
         //    against the sender's fresh ratchet public.
         let dhOutput = try await core.ratchetDH(

@@ -108,13 +108,15 @@ extension RatchetStateCore {
                     if let state = currentProps.state {
                         let remoteChanged = hasReceivingKeyChanges(state: state, header: header)
                         let localChanged = localKeysChanged(state: state, keys: keys)
+                        // Only PQXDH reads a changed long-term or ML-KEM key, so the row takes
+                        // it inside the epoch a key-change frame runs (see `decryptImpl`). A
+                        // chain frame leaves a rotated key for the next send to find, which runs
+                        // the epoch the peer mirrors. So does a row still waiting on the peer's
+                        // first frame: that frame is keyed to the keys the row sent with.
+                        configuration.offeredLocalKeys = localChanged
+                            ? OfferedLocalKeys(longTerm: keys.localLongTermPrivateKey, mlKEM: keys.localMLKEMPrivateKey)
+                            : nil
                         if remoteChanged || localChanged {
-                            // Only PQXDH reads these. A chain frame leaves a rotated key for
-                            // the next send to find, which runs the epoch the peer mirrors.
-                            if remoteChanged || !state.receivingHandshakeFinished {
-                                currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
-                                currentProps.state = await currentProps.state?.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
-                            }
                             // Keep a retired local OTK (4.1) out of state even when
                             // the host re-supplies it.
                             currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(state.localOneTimeKeyRetired ? nil : keys.localOneTimePrivateKey)
@@ -185,12 +187,12 @@ extension RatchetStateCore {
                     if let header = keys.header {
                         let remoteChanged = hasReceivingKeyChanges(state: state, header: header)
                         let localChanged = localKeysChanged(state: state, keys: keys)
+                        // A changed long-term or ML-KEM key is offered to the epoch (see the
+                        // cached branch above).
+                        configuration.offeredLocalKeys = localChanged
+                            ? OfferedLocalKeys(longTerm: keys.localLongTermPrivateKey, mlKEM: keys.localMLKEMPrivateKey)
+                            : nil
                         if remoteChanged || localChanged {
-                            // Only PQXDH reads these (see cached branch above).
-                            if remoteChanged || !state.receivingHandshakeFinished {
-                                state = await state.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
-                                state = await state.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
-                            }
                             // Keep a retired local OTK (4.1) out of state even when
                             // the host re-supplies it.
                             state = await state.updateLocalOneTimePrivateKey(state.localOneTimeKeyRetired ? nil : keys.localOneTimePrivateKey)
@@ -230,9 +232,12 @@ extension RatchetStateCore {
             logger.log(level: .trace, message: "Receiving long term key has changed")
             return true
         }
-        // A finished row dropping a one-time key is retirement (4.1): decrypt adopts it, no epoch.
+        // A row dropping a one-time key is retirement (4.1): decrypt adopts it, no epoch. On a
+        // row still waiting on the peer's first frame the retirement frame may have overtaken
+        // that frame; the bootstrap PQXDH still needs the held key, so decrypt adopts the nil
+        // once the frame has opened.
         if state.remoteOneTimePublicKey != header.remoteOneTimePublicKey,
-           header.remoteOneTimePublicKey != nil || !state.receivingHandshakeFinished {
+           header.remoteOneTimePublicKey != nil {
             logger.log(level: .trace, message: "Receiving one time key has changed")
             return true
         }
@@ -255,7 +260,11 @@ extension RatchetStateCore {
         }
         logger.log(level: .trace, message: "Starting PQXDH re-key (epoch) step")
 
+        // Either side's epoch can overtake frames this row will still open: the peer's
+        // overtakes its own earlier frames, ours is crossed by frames the peer sent before it
+        // saw our epoch. Both stash the old chain's tail and header keys.
         state = await stashOldReceivingChainTail(on: state)
+        state = await stashOldReceivingHeaderChain(on: state)
         state = await state
             .updatePreviousMessagesCount(state.sentMessagesCount)
             .updateSentMessagesCount(0)
@@ -428,18 +437,19 @@ extension RatchetStateCore {
         return await state.updateSendingKey(initialChainKey)
     }
 
-    private func stashOldReceivingChainTail(on state: RatchetState) async -> RatchetState {
+    func stashOldReceivingChainTail(on state: RatchetState) async -> RatchetState {
         let epochTailWindow = 32
         guard state.receivingHandshakeFinished,
               var receivingKey = state.receivingKey else {
             return state
         }
         var state = state
-        let capacity = max(0, defaultRatchetConfiguration.maxSkippedMessageKeys - state.skippedMessageKeys.count)
-        let tailLength = min(epochTailWindow, capacity)
-        guard tailLength > 0 else { return state }
         guard let oldChainTag = state.remoteRatchetPublicKey else { return state }
-        for i in state.receivedMessagesCount ..< (state.receivedMessagesCount + tailLength) {
+        // The tail is stashed whole and the oldest entries make room for it: a stash that
+        // filled up with keys no frame will claim (gaps that never closed, earlier epochs)
+        // used to shrink the window and then close it, so a frame the epoch overtook was lost
+        // although only a few were in flight.
+        for i in state.receivedMessagesCount ..< (state.receivedMessagesCount + epochTailWindow) {
             guard let messageKey = try? await symmetricKeyRatchet(from: receivingKey),
                   let nextReceivingKey = try? await deriveChainKey(
                     from: receivingKey,
@@ -457,6 +467,32 @@ extension RatchetStateCore {
             }
             receivingKey = nextReceivingKey
         }
-        return state
+        return await state.removeFirstSkippedMessages(
+            count: state.skippedMessageKeys.count - defaultRatchetConfiguration.maxSkippedMessageKeys)
+    }
+
+    /// Keeps the old receiving header chain openable after an epoch moves the lane to a new
+    /// one, as `stashOldReceivingChainTail` does for its message keys. A frame the epoch
+    /// overtook has its header key on the old chain. Re-deriving that chain from the frame's
+    /// bootstrap ciphertext stops working once our one-time key is retired, so the frame can
+    /// only be opened from the stash. A frame opened this way carries the old epoch's digest,
+    /// which is how the host tells it from one the peer sent on the row's current epoch.
+    private func stashOldReceivingHeaderChain(on state: RatchetState) async -> RatchetState {
+        let epochTailWindow = 32
+        guard state.receivingHandshakeFinished,
+              var headerKey = state.receivingHeaderKey else {
+            return state
+        }
+        var state = state
+        for _ in 0 ..< epochTailWindow {
+            guard let next = try? await deriveChainKey(from: headerKey, configuration: defaultRatchetConfiguration) else {
+                break
+            }
+            state = await state.incrementSkippedHeaderIndex()
+            state = await state.updateSkippedHeaderMessage(SkippedHeaderMessage(chainKey: next, index: state.headerIndex))
+            headerKey = next
+        }
+        return await state.removeFirstSkippedHeaderMessages(
+            count: state.skippedHeaderMessages.count - defaultRatchetConfiguration.maxSkippedMessageKeys)
     }
 }
