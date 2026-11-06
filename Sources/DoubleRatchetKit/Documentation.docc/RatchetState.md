@@ -52,6 +52,7 @@ public struct RatchetSessionStatus: Sendable, Equatable {
     public let receivedMessagesCount: Int
     public let sendingHandshakeFinished: Bool
     public let receivingHandshakeFinished: Bool
+    public let remoteRatchetPublicKey: Data?
 }
 
 let status = try await ratchetManager.sessionStatus(sessionId: sessionId)

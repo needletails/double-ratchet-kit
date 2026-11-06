@@ -334,7 +334,8 @@ struct RatchetState: Sendable, Codable {
             sentMessagesCount: sentMessagesCount,
             receivedMessagesCount: receivedMessagesCount,
             sendingHandshakeFinished: sendingHandshakeFinished,
-            receivingHandshakeFinished: receivingHandshakeFinished)
+            receivingHandshakeFinished: receivingHandshakeFinished,
+            remoteRatchetPublicKey: remoteRatchetPublicKey)
     }
 
     // MARK: - Initializers
@@ -491,7 +492,8 @@ struct RatchetState: Sendable, Codable {
             $0.messageIndex == message.messageIndex &&
                 $0.remoteLongTermPublicKey == message.remoteLongTermPublicKey &&
                 $0.remoteOneTimePublicKey == message.remoteOneTimePublicKey &&
-                $0.remoteMLKEMPublicKey == message.remoteMLKEMPublicKey
+                $0.remoteMLKEMPublicKey == message.remoteMLKEMPublicKey &&
+                $0.chainRatchetPublicKey == message.chainRatchetPublicKey
         }
         return ratchetState
     }
@@ -505,13 +507,6 @@ struct RatchetState: Sendable, Codable {
     func incrementSkippedHeaderIndex() async -> Self {
         var ratchetState = self
         ratchetState.headerIndex += 1
-        return ratchetState
-    }
-
-    /// Resets the skipped-header index for a fresh receiving chain (per-turn ratchet step).
-    func resetHeaderIndex() async -> Self {
-        var ratchetState = self
-        ratchetState.headerIndex = 0
         return ratchetState
     }
 
@@ -699,9 +694,21 @@ struct RatchetState: Sendable, Codable {
         return ratchetState
     }
 
-    func removeAllSkippedHeaderMessage() async -> Self {
+    func setSkippedHeaderMessages(_ messages: [SkippedHeaderMessage]) async -> Self {
         var ratchetState = self
-        ratchetState.skippedHeaderMessages.removeAll()
+        ratchetState.skippedHeaderMessages = messages
+        return ratchetState
+    }
+
+    /// Drops the first `count` entries from `skippedHeaderMessages`.
+    /// - Parameter count: Number of oldest entries to remove.
+    /// - Returns: A new `RatchetState` with those entries removed.
+    func removeFirstSkippedHeaderMessages(count: Int) async -> Self {
+        guard count > 0 else {
+            return self
+        }
+        var ratchetState = self
+        ratchetState.skippedHeaderMessages = Array(skippedHeaderMessages.dropFirst(count))
         return ratchetState
     }
 
@@ -856,5 +863,8 @@ public struct RatchetSessionStatus: Sendable, Equatable {
     public let receivedMessagesCount: Int
     public let sendingHandshakeFinished: Bool
     public let receivingHandshakeFinished: Bool
+    /// The peer's per-turn ratchet key: names the receiving chain `receivedMessagesCount`
+    /// counts on, so two counts compare only when this matches.
+    public let remoteRatchetPublicKey: Data?
 }
 

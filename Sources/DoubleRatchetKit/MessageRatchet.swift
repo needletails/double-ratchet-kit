@@ -48,11 +48,11 @@
  
  - `MessageRatchet`: Core ratchet state machine. Handles key rotation, message counters, and skipped key pruning.
  - `encryptHeader`: Serializes and encrypts the message header under the current header key (HKs).
- - `decryptHeader`: Decrypts the header using current, next, or skipped header keys. May trigger a DH ratchet step.
+ - `decryptHeaderWithWorkingState`: Decrypts the header using skipped header keys or the next keys on the header chain.
  
  ## Operational & Security Considerations
  
- - Bounded header-gap scanning: `decryptHeader` tries skipped header keys, then the current header key, and then advances the header key iteratively up to `maxSkippedMessageKeys`. This supports large out-of-order gaps while keeping per-message work bounded.
+ - Bounded header-gap scanning: `decryptHeaderWithWorkingState` tries skipped header keys, and then advances the header key iteratively up to `maxSkippedMessageKeys`. This supports large out-of-order gaps while keeping per-message work bounded.
  - Error surface: Internal crypto failures surface as `CryptoKitError` or specific `RatchetError` values (e.g., `missingConfiguration`, `receivingHeaderKeyIsNil`, `maxSkippedHeadersExceeded`). Callers should avoid exposing detailed crypto errors to untrusted clients.
  - Logging: Do not log key material or ciphertext in production. Any prints in this file are intended for debugging and must be disabled in production builds.
  */
@@ -130,8 +130,8 @@ import NeedleTailLogger
 /// - PQXDH Integration: Hybrid classical + post‑quantum handshake.
 ///
 /// ## Operational & Security Considerations
-/// - Bounded header‑gap scanning: `decryptHeader` tries skipped header keys, then current header
-///   key, then iteratively advances up to `maxSkippedMessageKeys`.
+/// - Bounded header‑gap scanning: `decryptHeaderWithWorkingState` tries skipped header keys, then
+///   iteratively advances up to `maxSkippedMessageKeys`.
 /// - Error surface: Internal errors surface as `CryptoKitError` or `RatchetError`
 ///   (e.g., `missingConfiguration`, `receivingHeaderKeyIsNil`, `maxSkippedHeadersExceeded`).
 /// - Logging: Avoid logging key material or ciphertext in production builds.
@@ -721,7 +721,6 @@ public actor MessageRatchet {
     ///   - `RatchetError.stateUninitialized` if the ratchet session state is missing.
     ///   - `RatchetError.headerDecryptFailed` if the header cannot be decrypted correctly.
     ///   - `RatchetError.decryptionFailed` if payload decryption fails.
-    ///   - `RatchetError.expiredKey` if the message uses an expired key (replay or out-of-order).
     ///   - `RatchetError.missingOneTimeKey` if OTK consistency is enforced and the key is missing.
     ///   - `RatchetError.maxSkippedHeadersExceeded` if too many messages were skipped.
     ///   - Other errors from cryptographic operations and key derivations.
@@ -782,11 +781,11 @@ public actor MessageRatchet {
         // hosts never emit this transition (they never clear the state copy),
         // so handling it unconditionally is safe. Identity re-keys always come
         // with a changed long-term or ML-KEM key and still take the epoch path.
-        if state.receivingHandshakeFinished,
-           state.remoteOneTimePublicKey != nil,
+        var stateBeforeKeyChange: RatchetState?
+        if state.remoteOneTimePublicKey != nil,
            message.header.remoteOneTimePublicKey == nil,
-           state.remoteLongTermPublicKey == message.header.remoteLongTermPublicKey,
-           state.remoteMLKEMPublicKey == message.header.remoteMLKEMPublicKey {
+           await !core.hasReceivingKeyChanges(state: state, header: message.header) {
+            stateBeforeKeyChange = state
             state = await state.updateRemoteOneTimePublicKey(nil)
             // Sticky: host merges re-supply the stale remote key from cached props;
             // without this flag an epoch would re-inject it and re-cite a key the
@@ -796,6 +795,7 @@ public actor MessageRatchet {
         }
         
         if await core.hasReceivingKeyChanges(state: state, header: message.header) {
+            stateBeforeKeyChange = state
             configuration.state = state
             state = try await core.diffieHellmanRatchet(
                 header: message.header,
@@ -820,23 +820,12 @@ public actor MessageRatchet {
             // Update state with new receiving header key and persist changes.
             state = await state.updateReceivingHeaderKey(finalHeaderReceivingKey)
             configuration.state = state
-        } else {
-            // If handshake completed, ratchet receiving header key forward to derive next header key.
-            if state.headerIndex == 0 {
-                guard let receivingHeaderKey = state.receivingHeaderKey else {
-                    throw RatchetError.receivingHeaderKeyIsNil
-                }
-                let newReceivingHeaderKey = try await core.deriveChainKey(from: receivingHeaderKey, configuration: core.defaultRatchetConfiguration)
-                state = await state.updateReceivingHeaderKey(newReceivingHeaderKey)
-                configuration.state = state
-            }
         }
         
         // Decrypt the header now that the appropriate key is available.
         let (header, headerState) = try await decryptHeaderWithWorkingState(
             encryptedHeader: message.header,
-            configuration: configuration,
-            persistAdvancedState: false)
+            configuration: configuration)
         state = headerState
         
         // Ensure header was successfully decrypted before continuing.
@@ -859,26 +848,39 @@ public actor MessageRatchet {
         state = await state.updateReceivingNextHeaderKey(newReceivingHeaderKey)
         
         // Skipped-key lookup. The chain tag (sender's per-turn ratchet key) disambiguates
-        // equal message indices across ratchet turns.
-        if let key = state.skippedMessageKeys.first(where: {
-            $0.messageIndex == decrypted.messageNumber &&
-            $0.remoteLongTermPublicKey == header.remoteLongTermPublicKey &&
-            $0.remoteMLKEMPublicKey == header.remoteMLKEMPublicKey.rawRepresentation &&
-            $0.chainRatchetPublicKey == decrypted.ratchetPublicKey
-        }) {
+        // equal message indices across ratchet turns, but a sender epoch keeps its ratchet key,
+        // so entries can share it across chains. Only the key that opens the frame is its key;
+        // with none, the frame carries on to its chain.
+        for key in state.skippedMessageKeys where
+            key.messageIndex == decrypted.messageNumber &&
+            key.remoteLongTermPublicKey == header.remoteLongTermPublicKey &&
+            key.remoteMLKEMPublicKey == header.remoteMLKEMPublicKey.rawRepresentation &&
+            key.chainRatchetPublicKey == decrypted.ratchetPublicKey {
             logger.log(level: .trace, message: "Trying skipped message key index \(key.messageIndex)")
-            if let oneTimeKey = key.remoteOneTimePublicKey, oneTimeKey != header.remoteOneTimePublicKey?.rawRepresentation {
-                throw RatchetError.expiredKey
-            }
-            let plaintext = try await processFoundMessage(
+            guard let plaintext = try? await processFoundMessage(
                 ratchetMessage: message,
                 usingMessageKey: key.messageKey,
-                messageNumber: decrypted.messageNumber)
+                messageNumber: decrypted.messageNumber) else { continue }
+            // A stashed key opened it, so this frame is older than our state and the keys it
+            // carries are older than ours, not new ones: the change they read as never happened.
+            if let stateBeforeKeyChange {
+                // Keep the working stash only if the frame consumed an entry from it. A scan that
+                // opened this header would leave used keys there and trim live ones.
+                let held = stateBeforeKeyChange.skippedHeaderMessages
+                let left = state.skippedHeaderMessages
+                state = await stateBeforeKeyChange.setSkippedHeaderMessages(left.count < held.count ? left : held)
+            }
+            let stashedKeys = state.skippedMessageKeys.count
             state = await state.removeSkippedMessage(key)
-            state = await markAlreadyDecrypted(
-                decrypted.messageNumber,
-                in: state,
-                configuration: core.defaultRatchetConfiguration)
+            // A key the row never held came from this epoch's tail of the row's own chain, ahead of
+            // its count: marking it stops a replay's epoch stashing it again. A key the row held is
+            // behind the count or on another chain, where a mark would hide a live index from a gap.
+            if state.skippedMessageKeys.count == stashedKeys {
+                state = await markAlreadyDecrypted(
+                    decrypted.messageNumber,
+                    in: state,
+                    configuration: core.defaultRatchetConfiguration)
+            }
 
             configuration.state = state
             try await core.updateSessionIdentity(configuration: configuration, persist: true)
@@ -1069,7 +1071,7 @@ public actor MessageRatchet {
                     messageKey: messageKey,
                     chainRatchetPublicKey: chainTag)
                 
-                if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == chainTag }) && !state.alreadyDecryptedMessageNumbers.contains(i) {
+                if !state.alreadyDecryptedMessageNumbers.contains(i) {
                     state = await state.updateSkippedMessage(skippedMessageKey: skipped)
                 }
                 state = await state.updateSkippedMessageIndex(i)
@@ -1247,8 +1249,7 @@ public actor MessageRatchet {
                     let nextReceivingKey = try await core.deriveChainKey(
                         from: oldReceivingKey,
                         configuration: ratchetConfiguration)
-                    if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == oldChainTag })
-                        && !state.alreadyDecryptedMessageNumbers.contains(i) {
+                    if !state.alreadyDecryptedMessageNumbers.contains(i) {
                         state = await state.updateSkippedMessage(skippedMessageKey: SkippedMessageKey(
                             remoteLongTermPublicKey: state.remoteLongTermPublicKey,
                             remoteOneTimePublicKey: state.remoteOneTimePublicKey?.rawRepresentation,
@@ -1416,84 +1417,79 @@ extension MessageRatchet {
 
 extension MessageRatchet {
     
-    /// Decrypts an encrypted header using skipped and current/advanced header keys.
+    /// Decrypts an encrypted header using skipped keys and the next keys on the header chain.
     ///
-    /// The method attempts header decryption in the following bounded order per call:
-    /// 1. All stashed header keys in `skippedHeaderMessages` (to handle out-of-order delivery)
-    /// 2. The current `receivingHeaderKey`
-    /// 3. Iteratively stashes the current header key and advances to the next header key,
-    ///    up to `maxSkippedMessageKeys`
+    /// `receivingHeaderKey` holds the newest key that opened a frame, or the PQXDH result while the
+    /// handshake is unfinished. The method attempts header decryption in the following bounded order
+    /// per call:
+    /// 1. All stashed header keys in `skippedHeaderMessages` (to handle out-of-order delivery). A
+    ///    match removes that entry and leaves `receivingHeaderKey` untouched.
+    /// 2. The next header key, advancing up to `maxSkippedMessageKeys` times. A match moves
+    ///    `receivingHeaderKey` to that key and stashes only the keys scanned before it, so a key
+    ///    that opened a frame never enters the stash.
+    ///
+    /// The stash is bounded first-in, first-out: when a new gap would pass `maxSkippedMessageKeys`,
+    /// the oldest entries are dropped and the frame still decrypts. A full stash never rejects a
+    /// frame; only running out of scan steps in one call does.
+    ///
+    /// Rows persisted before used keys stayed out of the stash keep those stale entries until later
+    /// gaps evict them, which costs about `maxSkippedMessageKeys` extra AEAD attempts per frame. That
+    /// cost is accepted: such a row decrypts its next frame without a lane reset.
     ///
     /// - Parameters:
     ///   - encryptedHeader: The received `EncryptedHeader` to decrypt.
     ///   - configuration: The session configuration containing ratchet state.
-    /// - Returns: The same `EncryptedHeader` with its `decrypted` header populated on success.
+    /// - Returns: The same `EncryptedHeader` with its `decrypted` header populated on success, and the
+    ///   working state to commit once the payload decrypts.
     /// - Throws:
     ///   - `RatchetError.stateUninitialized` if session state is unavailable.
     ///   - `RatchetError.receivingHeaderKeyIsNil` if the current header key is missing.
     ///   - `RatchetError.maxSkippedHeadersExceeded` if the bounded advancement limit is reached.
-    ///   - `CryptoError.decryptionFailed` if decryption fails with a tried key.
     ///
     /// - Important: Do not surface low-level crypto errors to untrusted clients; map to application-safe errors.
-    func decryptHeader(
-        encryptedHeader: EncryptedHeader,
-        configuration: RatchetStateCore.SessionConfiguration
-    ) async throws -> EncryptedHeader {
-        let (header, _) = try await decryptHeaderWithWorkingState(
-            encryptedHeader: encryptedHeader,
-            configuration: configuration,
-            persistAdvancedState: true)
-        return header
-    }
-
     private func decryptHeaderWithWorkingState(
         encryptedHeader: EncryptedHeader,
-        configuration: RatchetStateCore.SessionConfiguration,
-        persistAdvancedState: Bool
+        configuration: RatchetStateCore.SessionConfiguration
     ) async throws -> (EncryptedHeader, RatchetState) {
-        var configuration = configuration
+        guard let state = configuration.state else {
+            throw RatchetError.stateUninitialized
+        }
+        // Try any stashed header keys first
+        for skipped in state.skippedHeaderMessages {
+            if let header = try? await attemptHeaderDecryption(encryptedHeader: encryptedHeader, chainKey: skipped.chainKey) {
+                // Evict the consumed skipped header key from the working state. Each header
+                // chain key decrypts exactly one message's header, so once matched it can
+                // never be needed again. The eviction only persists when the caller commits
+                // this working state after a successful payload decrypt.
+                let stateAfterUse = await state.removeSkippedHeaderMessage(skipped)
+                return (header, stateAfterUse)
+            }
+        }
+        guard let receivingHeaderKey = state.receivingHeaderKey else {
+            throw RatchetError.receivingHeaderKeyIsNil
+        }
+        let ratchetConfiguration = await core.defaultRatchetConfiguration
+        var candidate = receivingHeaderKey
+        if state.receivingHandshakeFinished {
+            candidate = try await core.deriveChainKey(from: receivingHeaderKey, configuration: ratchetConfiguration)
+        }
+        var scannedKeys: [SymmetricKey] = []
         // Note: `0...max` (not `0..<max`) is intentional — a gap of exactly `maxSkippedMessageKeys`
-        // requires `max` advance iterations plus one final attempt with the advanced key. The cap
-        // itself is enforced by the skippedHeaderMessages count guard below.
-        for _ in await 0...core.defaultRatchetConfiguration.maxSkippedMessageKeys {
-            guard let state = configuration.state else {
-                throw RatchetError.stateUninitialized
-            }
-            // Try any stashed header keys first
-            for skipped in state.skippedHeaderMessages {
-                if let header = try? await attemptHeaderDecryption(encryptedHeader: encryptedHeader, chainKey: skipped.chainKey) {
-                    // Evict the consumed skipped header key from the working state. Each header
-                    // chain key decrypts exactly one message's header, so once matched it can
-                    // never be needed again. The eviction only persists when the caller commits
-                    // this working state after a successful payload decrypt.
-                    let stateAfterUse = await state.removeSkippedHeaderMessage(skipped)
-                    return (header, stateAfterUse)
+        // requires `max` advance iterations plus one final attempt with the advanced key.
+        for _ in 0...ratchetConfiguration.maxSkippedMessageKeys {
+            if let header = try? await attemptHeaderDecryption(encryptedHeader: encryptedHeader, chainKey: candidate) {
+                var stateAfterUse = await state.updateReceivingHeaderKey(candidate)
+                for scannedKey in scannedKeys {
+                    stateAfterUse = await stateAfterUse.incrementSkippedHeaderIndex()
+                    let skippedHeader = SkippedHeaderMessage(chainKey: scannedKey, index: stateAfterUse.headerIndex)
+                    stateAfterUse = await stateAfterUse.updateSkippedHeaderMessage(skippedHeader)
                 }
+                stateAfterUse = await stateAfterUse.removeFirstSkippedHeaderMessages(
+                    count: stateAfterUse.skippedHeaderMessages.count - ratchetConfiguration.maxSkippedMessageKeys)
+                return (header, stateAfterUse)
             }
-            // Try current receiving header key
-            guard let chainKey = state.receivingHeaderKey else {
-                throw RatchetError.receivingHeaderKeyIsNil
-            }
-            if let header = try? await attemptHeaderDecryption(encryptedHeader: encryptedHeader, chainKey: chainKey) {
-                return (header, state)
-            }
-            // If still failing, advance header chain until we either decrypt or hit the cap
-            if await state.skippedHeaderMessages.count >= core.defaultRatchetConfiguration.maxSkippedMessageKeys {
-                throw RatchetError.maxSkippedHeadersExceeded
-            }
-            var stateToAdvance = state
-            stateToAdvance = await stateToAdvance.incrementSkippedHeaderIndex()
-            guard let currentHeaderKey = stateToAdvance.receivingHeaderKey else {
-                throw RatchetError.receivingHeaderKeyIsNil
-            }
-            let skippedHeader = SkippedHeaderMessage(chainKey: currentHeaderKey, index: stateToAdvance.headerIndex)
-            stateToAdvance = await stateToAdvance.updateSkippedHeaderMessage(skippedHeader)
-            let nextChainKey = try await core.deriveChainKey(from: currentHeaderKey, configuration: core.defaultRatchetConfiguration)
-            stateToAdvance = await stateToAdvance.updateReceivingHeaderKey(nextChainKey)
-            configuration.state = stateToAdvance
-            if persistAdvancedState {
-                try await core.updateSessionIdentity(configuration: configuration, persist: true)
-            }
+            scannedKeys.append(candidate)
+            candidate = try await core.deriveChainKey(from: candidate, configuration: ratchetConfiguration)
         }
         throw RatchetError.maxSkippedHeadersExceeded
     }

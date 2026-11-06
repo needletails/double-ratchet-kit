@@ -130,7 +130,6 @@ Decrypt a received message.
 - `RatchetError.stateUninitialized`: If the session state is not initialized
 - `RatchetError.decryptionFailed`: If decryption fails
 - `RatchetError.headerDecryptFailed`: If header decryption fails
-- `RatchetError.expiredKey`: If the message uses an expired key
 - `RatchetError.missingOneTimeKey`: If OTK consistency is enforced and the key is missing
 - `RatchetError.maxSkippedHeadersExceeded`: If too many messages were skipped
 
@@ -578,6 +577,8 @@ public var hasRatchetState: Bool
 public var ratchetOneTimePrivateKey: X25519PrivateKey?
 public var ratchetMLKEMPrivateKey: MLKEMPrivateKey?
 public var ratchetReceivedMessagesCount: Int
+public var ratchetEpochDigest: Data?
+public var ratchetRemotePublicKey: Data?
 public mutating func clearRatchetState()
 ```
 
@@ -732,6 +733,7 @@ public let sentMessagesCount: Int
 public let receivedMessagesCount: Int
 public let sendingHandshakeFinished: Bool
 public let receivingHandshakeFinished: Bool
+public let remoteRatchetPublicKey: Data?
 ```
 
 ## Error Types

@@ -43,6 +43,16 @@ public struct EncryptedHeader: Sendable, Codable, Hashable {
     /// Only exists at runtime after decryption.
     public private(set) var decrypted: MessageHeader?
 
+    /// Digest of the epoch this frame belongs to. Both ends of an epoch hold the same
+    /// `messageCiphertext`, so this matches the holding row's `ratchetEpochDigest`.
+    public var ratchetEpochDigest: Data {
+        Self.epochDigest(of: messageCiphertext)
+    }
+
+    static func epochDigest(of messageCiphertext: Data) -> Data {
+        Data(SHA256.hash(data: messageCiphertext))
+    }
+
     /// Sets the decrypted message header.
     /// - Parameter decrypted: The decrypted message header to set.
     mutating func setDecrypted(_ decrypted: MessageHeader) {

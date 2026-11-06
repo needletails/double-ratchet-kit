@@ -109,11 +109,15 @@ extension RatchetStateCore {
                         let remoteChanged = hasReceivingKeyChanges(state: state, header: header)
                         let localChanged = localKeysChanged(state: state, keys: keys)
                         if remoteChanged || localChanged {
-                            currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
+                            // Only PQXDH reads these. A chain frame leaves a rotated key for
+                            // the next send to find, which runs the epoch the peer mirrors.
+                            if remoteChanged || !state.receivingHandshakeFinished {
+                                currentProps.state = await currentProps.state?.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
+                                currentProps.state = await currentProps.state?.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
+                            }
                             // Keep a retired local OTK (4.1) out of state even when
                             // the host re-supplies it.
                             currentProps.state = await currentProps.state?.updateLocalOneTimePrivateKey(state.localOneTimeKeyRetired ? nil : keys.localOneTimePrivateKey)
-                            currentProps.state = await currentProps.state?.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
                         }
                     } else {
                         let state = try await setState(for: messageType, configuration: configuration)
@@ -182,11 +186,14 @@ extension RatchetStateCore {
                         let remoteChanged = hasReceivingKeyChanges(state: state, header: header)
                         let localChanged = localKeysChanged(state: state, keys: keys)
                         if remoteChanged || localChanged {
-                            state = await state.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
+                            // Only PQXDH reads these (see cached branch above).
+                            if remoteChanged || !state.receivingHandshakeFinished {
+                                state = await state.updateLocalLongTermPrivateKey(keys.localLongTermPrivateKey)
+                                state = await state.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
+                            }
                             // Keep a retired local OTK (4.1) out of state even when
                             // the host re-supplies it.
                             state = await state.updateLocalOneTimePrivateKey(state.localOneTimeKeyRetired ? nil : keys.localOneTimePrivateKey)
-                            state = await state.updateLocalMLKEMPrivateKey(keys.localMLKEMPrivateKey)
                         }
                     } else {
                         if state.remoteLongTermPublicKey != keys.remoteLongTermPublicKey {
@@ -223,7 +230,9 @@ extension RatchetStateCore {
             logger.log(level: .trace, message: "Receiving long term key has changed")
             return true
         }
-        if state.remoteOneTimePublicKey != header.remoteOneTimePublicKey {
+        // A finished row dropping a one-time key is retirement (4.1): decrypt adopts it, no epoch.
+        if state.remoteOneTimePublicKey != header.remoteOneTimePublicKey,
+           header.remoteOneTimePublicKey != nil || !state.receivingHandshakeFinished {
             logger.log(level: .trace, message: "Receiving one time key has changed")
             return true
         }
@@ -437,8 +446,7 @@ extension RatchetStateCore {
                     configuration: defaultRatchetConfiguration) else {
                 break
             }
-            if !state.skippedMessageKeys.contains(where: { $0.messageIndex == i && $0.chainRatchetPublicKey == oldChainTag })
-                && !state.alreadyDecryptedMessageNumbers.contains(i) {
+            if !state.alreadyDecryptedMessageNumbers.contains(i) {
                 state = await state.updateSkippedMessage(skippedMessageKey: SkippedMessageKey(
                     remoteLongTermPublicKey: state.remoteLongTermPublicKey,
                     remoteOneTimePublicKey: state.remoteOneTimePublicKey?.rawRepresentation,
